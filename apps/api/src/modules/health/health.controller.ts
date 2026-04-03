@@ -1,5 +1,6 @@
-import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
+import { Controller, Get, Res } from "@nestjs/common";
 import { api_app_shell_contract } from "../../contracts/app-shell.contract";
+import type { HealthcheckResponse, ReadinessResponse } from "../../common/http/health.contract";
 
 function has_required_infra_env(): boolean {
   return Boolean(process.env.DATABASE_URL) && Boolean(process.env.REDIS_URL);
@@ -8,23 +9,25 @@ function has_required_infra_env(): boolean {
 @Controller()
 export class HealthController {
   @Get("health")
-  check() {
+  check(): HealthcheckResponse {
     return {
       status: "ok",
       service: api_app_shell_contract.service,
-      timestamp: new Date().toISOString(),
-      version: api_app_shell_contract.version
+      timestamp: new Date().toISOString()
     };
   }
 
   @Get("ready")
-  ready() {
+  ready(
+    @Res({ passthrough: true }) response: { status: (code: number) => unknown }
+  ): ReadinessResponse {
     if (!has_required_infra_env()) {
-      throw new ServiceUnavailableException({
+      response.status(503);
+      return {
         status: "not_ready",
         service: api_app_shell_contract.service,
         reason: "DATABASE_URL or REDIS_URL is missing"
-      });
+      };
     }
 
     return {
