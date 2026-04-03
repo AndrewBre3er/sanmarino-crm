@@ -13,11 +13,15 @@ Current state:
 - minimal core transactional models are configured:
   - `crm.leads`
   - `crm.deals`
-  - `orders.orders`
+  - `orders.orders` (includes mandatory `deal_id` and `fulfillment_type`)
   - `orders.order_items`
   - `logistics.delivery_tasks`
   - `orders.return_requests`
   - `payments.payments`
+- pickup/delivery consistency baseline:
+  - pickup orders use `fulfillment_type='pickup'`
+  - pickup orders are constrained to `delivery_status='not_scheduled'`
+  - `delivery(1..N task) / pickup(0 task)` cardinality enforcement remains TODO at domain/transaction boundary
 - migration conventions are documented in `MIGRATION_WORKFLOW.md`
 
 TODO:

@@ -48,6 +48,14 @@ enum OrderDeliveryStatus {
   @@schema("orders")
 }
 
+enum OrderFulfillmentType {
+  DELIVERY @map("delivery")
+  PICKUP   @map("pickup")
+  MANUAL   @map("manual")
+
+  @@schema("orders")
+}
+
 enum DeliveryTaskStatus {
   PLANNED     @map("planned")
   ASSIGNED    @map("assigned")
@@ -136,6 +144,7 @@ model OrdersOrder {
   dealId         String                @map("deal_id") @db.Uuid
   deal           CrmDeal               @relation(fields: [dealId], references: [id], onDelete: Restrict)
   status         OrderStatus
+  fulfillmentType OrderFulfillmentType @default(MANUAL) @map("fulfillment_type")
   deliveryStatus OrderDeliveryStatus   @default(NOT_SCHEDULED) @map("delivery_status")
   currency       String                @default("RUB") @db.VarChar(3)
   totalAmount    Decimal               @default(0) @map("total_amount") @db.Decimal(14, 2)
@@ -151,12 +160,14 @@ model OrdersOrder {
   deleteReason   String?               @map("delete_reason") @db.Text
   isDeleted      Boolean               @default(false) @map("is_deleted")
   items          OrdersOrderItem[]
+  // TODO(phase9+): enforce delivery(1..N tasks)/pickup(0 tasks) invariant in transaction/domain layer.
   deliveryTasks  LogisticsDeliveryTask[]
   returnRequests OrdersReturnRequest[]
   payments       PaymentsPayment[]
 
   @@index([dealId])
   @@index([status])
+  @@index([fulfillmentType])
   @@index([deliveryStatus])
   @@index([isDeleted])
   @@map("orders")

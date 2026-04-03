@@ -21,6 +21,8 @@ describe("prisma schema foundation (infra + minimal core transactional)", () => 
     expect(schema).toContain("model LogisticsDeliveryTask");
     expect(schema).toContain("model OrdersReturnRequest");
     expect(schema).toContain("model PaymentsPayment");
+    expect(schema).toContain("enum OrderFulfillmentType");
+    expect(schema).toContain('fulfillmentType OrderFulfillmentType');
 
     const forbidden_deferred_models = [
       "model InventoryStockBalance",
@@ -40,6 +42,9 @@ describe("prisma schema foundation (infra + minimal core transactional)", () => 
     const schema = load_schema();
     expect(schema).toContain(
       "TODO(implementation): add remaining business models only in their dedicated domain phases."
+    );
+    expect(schema).toContain(
+      "TODO(phase9+): enforce delivery(1..N tasks)/pickup(0 tasks) invariant in transaction/domain layer."
     );
   });
 });
