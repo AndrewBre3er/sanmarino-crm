@@ -206,9 +206,8 @@ Must contain:
 - `src/lib/`
 - `src/providers/`
 - `src/styles/`
-- route shell placeholder
-- minimal login page placeholder
-- minimal dashboard shell placeholder
+- minimal bootstrap app shell page
+- minimal health/readiness route handlers for bootstrap checks
 
 Must not contain:
 - direct Prisma/db access
@@ -230,17 +229,9 @@ Must contain:
 - `prisma/`
 
 Must include baseline modules or placeholders for:
-- auth
-- users
-- crm
-- orders
-- inventory
-- payments
-- logistics
-- finance
-- analytics
-- audit
-- system
+- app bootstrap shell
+- health
+- prisma infrastructure shell
 
 ## 4.3 `apps/worker`
 Must contain:
@@ -342,9 +333,8 @@ Inside `apps/api/prisma/` bootstrap must include:
 
 `schema.prisma` must be designed for:
 - PostgreSQL
-- domain schemas from `32-physical-database-schema.md`
-- uuid ids
-- required enums/tables from the accepted physical schema
+- infra-only placeholder baseline
+- TODO markers for deferred business schemas/models
 
 ---
 

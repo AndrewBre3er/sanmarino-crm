@@ -29,22 +29,21 @@
 
 Минимальная структура:
 - `docs/`
-- `src/`
+- `apps/`
+- `packages/`
 - `tests/`
 - `scripts/`
 - `deploy/`
 
-Доменные каталоги:
-- `src/crm`
-- `src/orders`
-- `src/inventory`
-- `src/payments`
-- `src/logistics`
-- `src/purchasing`
-- `src/finance`
-- `src/kpi`
-- `src/users`
-- `src/audit`
+Приложения:
+- `apps/web`
+- `apps/api`
+- `apps/worker`
+
+Общие пакеты:
+- `packages/ui`
+- `packages/config`
+- `packages/types`
 
 ---
 
@@ -78,10 +77,8 @@
 
 ## 6. Принцип по стеку
 
-Стек прикладного runtime пока не фиксируется этим пакетом.
-Причина:
-- сначала закрепляется логика
-- затем выбирается реализация
-- затем формируется техническая архитектура
+Стек прикладного runtime фиксируется утверждённым baseline:
+- `docs/23-tech-baseline-and-decision-log.md`
+- `docs/28-approved-tech-stack.md`
 
-Это защищает проект от преждевременной фиксации неправильного стека.
+Этот документ описывает только рабочую среду Win11 + Git Bash + VS Code + Codex.

@@ -198,8 +198,8 @@ Required baseline:
 - Next.js 16 app scaffold
 - TypeScript enabled
 - `src/`-based code layout
-- app shell placeholder
-- auth/session-aware routing boundary placeholder
+- minimal app shell placeholder
+- minimal health/readiness route handlers for bootstrap checks
 - test placeholder
 - no direct database access
 
@@ -228,10 +228,9 @@ Purpose:
 
 Required baseline:
 - NestJS application scaffold
-- modular structure by domain
+- app bootstrap shell only
 - health endpoint
-- auth module placeholder
-- RBAC/policy layer placeholder
+- prisma infrastructure shell only
 - OpenAPI bootstrap
 - test placeholder
 
@@ -262,6 +261,7 @@ Required baseline:
 - BullMQ bootstrap
 - queue registration placeholder
 - isolated worker entrypoint
+- health/readiness scaffold only
 - no HTTP authority role
 
 Initial internal structure target:
@@ -349,11 +349,14 @@ Required deployment baseline structure:
 deploy/
 ├─ README.md
 ├─ compose/
-│  ├─ docker-compose.yml
-│  └─ .env.example
+│  ├─ docker-compose.dev.yml
+│  └─ docker-compose.vps.yml
 ├─ nginx/
-│  └─ default.conf
-└─ scripts/
+│  └─ crm.conf.example
+└─ env/
+   ├─ api.env.example
+   ├─ web.env.example
+   └─ worker.env.example
 ```
 
 Rules:
@@ -419,4 +422,5 @@ The bootstrap phase is complete when the repo is structurally ready, not when bu
 
 ## Mandatory architecture note
 
-Bootstrap не должен зашивать ошибочную модель `Order -> DeliveryTask = 1:1` и должен предусмотреть слои для idempotency, outbox и soft delete.
+Bootstrap не должен зашивать ошибочную модель `Order -> DeliveryTask = 1:1`.
+На bootstrap-этапе допускаются только contracts/placeholders для idempotency, outbox и soft delete без доменной реализации.

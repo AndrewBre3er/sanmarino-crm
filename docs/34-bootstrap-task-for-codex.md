@@ -22,7 +22,7 @@ Deliverables of this task:
 - `packages/ui`, `packages/config`, `packages/types` scaffolds
 - deploy placeholders
 - test placeholders
-- API Prisma bootstrap aligned with the accepted physical schema
+- API Prisma infra-only bootstrap placeholder
 - no feature implementation beyond bootstrap foundations
 
 ---
@@ -61,11 +61,11 @@ Do not start generating files before reading all of them.
 - initial app scaffolds
 - initial shared package scaffolds
 - Prisma bootstrap in `apps/api`
-- first migration-ready schema surface
-- minimal seed scaffolding for roles/permissions/admin bootstrap
+- infra-only Prisma placeholder surface with explicit TODO markers
 - dev/test/deploy placeholders
 
 ### 3.2 Explicitly out of scope
+- domain modules and domain endpoints
 - full business services
 - full REST endpoints
 - real dashboard implementation
@@ -85,7 +85,7 @@ This is a bootstrap task, not a feature delivery task.
 
 1. Do not invent business rules outside accepted docs.
 2. Do not reduce the model back to `1 Order = 1 DeliveryTask`.
-3. Do not omit `stock_locks`, `reservations`, `idempotency`, `outbox`, or `quarantine` support from schema bootstrap.
+3. Do not implement business/domain Prisma models during bootstrap.
 4. Do not place business-critical logic in `apps/web`.
 5. Do not use hard delete flows for protected entities.
 6. Do not implement live KPI using runtime cross-domain joins.
@@ -153,23 +153,9 @@ Inside `apps/api/prisma`:
 - create `schema.prisma`
 - configure PostgreSQL datasource
 - configure Prisma generator(s)
-- include domain schemas from accepted physical schema
-- include core enums
-- include initial models/tables from `32-physical-database-schema.md`
-- create seed scaffold
-
-Minimum models that must exist in the first pass:
-- users/departments/roles/permissions/user_roles/role_permissions
-- crm/clients/contacts/leads/deals
-- inventory/products/warehouses/stock_balances/stock_locks/reservations/inventory_movements
-- orders/orders/order_items/fulfillments/fulfillment_items/return_requests/return_request_items
-- payments/payments/cash_operations
-- logistics/delivery_slots/pickup_windows/drivers/vehicles/route_days/delivery_tasks/delivery_task_items
-- finance/finance_entries/expenses/marketing_expenses
-- analytics/live_kpi_metrics/snapshot_kpi_metrics
-- audit/audit_events
-- reconciliation/reports
-- system/idempotency_records/outbox_events/settings
+- keep schema as infra-only placeholder
+- add explicit TODO markers for deferred business schema/models
+- keep seed script as TODO-only placeholder without business data logic
 
 ### Step 7. Quality pass
 Ensure:
@@ -200,7 +186,7 @@ The task is accepted only if all of the following are true:
 - root scripts exist
 - web/api/worker manifests exist
 - Prisma bootstrap exists in API
-- schema covers the critical architecture blockers
+- Prisma remains infra-only placeholder (business schema deferred)
 - no direct contradiction with docs `08`, `28`, `29`, `30`, `32`, `33`
 - deploy placeholders exist
 - test placeholders exist
@@ -210,20 +196,8 @@ The task is accepted only if all of the following are true:
 
 ## 8. Mandatory note for database generation
 
-If any part of the accepted physical schema is too large for one pass, Codex must still scaffold the **full namespace structure and core critical models first**, specifically:
-- `orders.orders`
-- `orders.order_items`
-- `inventory.stock_locks`
-- `inventory.reservations`
-- `inventory.inventory_movements`
-- `logistics.delivery_tasks`
-- `logistics.delivery_task_items`
-- `orders.return_requests`
-- `payments.payments`
-- `system.idempotency_records`
-- `system.outbox_events`
-
-These may not be deferred out of the first schema pass.
+During bootstrap, business schema generation is intentionally deferred.
+`schema.prisma` must stay infra-only with TODO markers for future domain models.
 
 ---
 

@@ -17,7 +17,8 @@
 ├─ AGENTS.md
 ├─ README.md
 ├─ docs/
-├─ src/
+├─ apps/
+├─ packages/
 ├─ tests/
 ├─ scripts/
 ├─ deploy/
@@ -34,8 +35,11 @@
 ### docs/
 Канонические документы проекта.
 
-### src/
-Исходный код по доменам.
+### apps/
+Runnable-приложения (`web`, `api`, `worker`).
+
+### packages/
+Переиспользуемые пакеты (`ui`, `config`, `types`).
 
 ### tests/
 Тесты модулей, интеграций и сценариев.
@@ -48,20 +52,18 @@
 
 ---
 
-## 4. Структура src/
+## 4. Структура apps/packages
 
 ```text
-src/
-├─ crm/
-├─ orders/
-├─ inventory/
-├─ payments/
-├─ logistics/
-├─ purchasing/
-├─ finance/
-├─ kpi/
-├─ users/
-└─ audit/
+apps/
+├─ web/
+├─ api/
+└─ worker/
+
+packages/
+├─ ui/
+├─ config/
+└─ types/
 ```
 
 ---
