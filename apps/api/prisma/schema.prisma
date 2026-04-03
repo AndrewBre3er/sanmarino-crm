@@ -1,0 +1,12 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["users", "crm", "orders", "inventory", "payments", "logistics", "finance", "analytics", "audit", "reconciliation", "system"]
+}
+
+/// TODO(phase-2): keep schema infra-only.
+/// TODO(implementation): add business models only when domain implementation phase starts.

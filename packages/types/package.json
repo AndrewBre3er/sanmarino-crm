@@ -1,0 +1,23 @@
+{
+  "name": "@sanmarino/types",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "pnpm exec tsc -p tsconfig.json",
+    "clean": "pnpm exec rimraf dist",
+    "lint": "pnpm exec eslint --config ../config/eslint/base.cjs \"src/**/*.ts\"",
+    "typecheck": "pnpm exec tsc -p tsconfig.json --noEmit",
+    "format": "pnpm exec prettier --config ../config/prettier/base.cjs --check \"src/**/*.ts\"",
+    "test": "pnpm exec vitest run --passWithNoTests",
+    "test:unit": "pnpm exec vitest run --passWithNoTests",
+    "test:integration": "pnpm exec vitest run --passWithNoTests",
+    "test:e2e": "pnpm exec vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1"
+  }
+}

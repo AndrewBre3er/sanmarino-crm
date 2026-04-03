@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@sanmarino/config/*": ["packages/config/src/*"],
+      "@sanmarino/types": ["packages/types/src/index.ts"],
+      "@sanmarino/ui": ["packages/ui/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist", ".turbo"]
+}

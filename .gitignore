@@ -1,0 +1,48 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Dependencies / build
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+coverage/
+.turbo/
+.cache/
+
+# Environments
+.env
+.env.*
+!.env.example
+
+# Runtime / PID
+*.pid
+*.seed
+*.pid.lock
+
+# Prisma
+apps/api/prisma/*.db
+apps/api/prisma/*.db-journal
+
+# Playwright
+playwright-report/
+
+# Misc
+*.swp
+*.swo
+*.tsbuildinfo

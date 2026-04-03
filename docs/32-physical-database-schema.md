@@ -1,0 +1,1068 @@
+# 32. Physical Database Schema
+
+## Status
+
+Accepted for bootstrap and v1 implementation planning.
+
+This document converts the accepted logical model into a **physical PostgreSQL + Prisma-oriented schema specification**.
+If this file conflicts with older logical documents, the conflict must be resolved in favor of:
+1. `08-architecture-fixes-and-critical-blockers.md`
+2. this file
+3. older logical documents
+
+This file is the source of truth for:
+- table names
+- schema namespaces
+- column intent
+- primary/foreign keys
+- uniqueness rules
+- lifecycle fields
+- critical indexes
+- technical tables required for idempotency, outbox, KPI aggregates, and reconciliation support
+
+This file does **not** require the first bootstrap to implement every constraint on day one, but it fixes what the repository must be designed for.
+
+---
+
+## 1. Physical modeling decisions
+
+### 1.1 Database model
+- database engine: `PostgreSQL 17`
+- ORM/migrations: `Prisma ORM + Prisma Migrate`
+- physical namespace model: **separate PostgreSQL schemas by domain**
+- naming style: `snake_case`
+- primary keys: `uuid`
+- timestamps: `timestamptz`
+- dates: `date`
+- time-only values: `time`
+- money amounts: `numeric(14,2)` unless a stricter field is needed later
+- quantities: `numeric(14,3)`
+
+### 1.2 Physical PostgreSQL schemas
+The database must use these schemas:
+- `users`
+- `crm`
+- `orders`
+- `inventory`
+- `payments`
+- `logistics`
+- `finance`
+- `analytics`
+- `audit`
+- `reconciliation`
+- `system`
+
+### 1.3 Cross-cutting conventions
+For mutable fact tables, use at minimum:
+- `id uuid primary key`
+- `created_at timestamptz not null default now()`
+- `updated_at timestamptz not null default now()`
+
+For soft-delete protected entities, use:
+- `deleted_at timestamptz null`
+- `deleted_by uuid null`
+- `delete_reason text null`
+
+Soft delete is mandatory for:
+- `crm.deals`
+- `orders.orders`
+- `orders.return_requests`
+- `payments.payments`
+
+### 1.4 Status fields
+Status values must be backed by enums at the Prisma/PostgreSQL layer wherever stable enums are already accepted.
+Where a status is still not fully fixed in accepted docs, use an enum only if all values are already documented; otherwise use a constrained string + ADR/TBD note.
+
+### 1.5 Domain transaction rule
+`Draft -> Confirmed` must be designed either as:
+- one DB transaction with full rollback, or
+- Saga / Transactional Outbox with compensation
+
+The schema must therefore include:
+- `system.idempotency_records`
+- `system.outbox_events`
+
+---
+
+## 2. Core enums
+
+Minimum enum set for v1 bootstrap:
+
+### 2.1 Common enums
+- `currency_code`: `RUB`
+- `record_status`: `active`, `inactive`
+
+### 2.2 CRM enums
+- `lead_status`: `draft`, `new`, `qualified`, `disqualified`, `archived`  
+  Note: the exact lead state machine remains partially open; if bootstrap prefers, keep this as constrained text with `TBD` note.
+- `deal_status`: `draft`, `qualified`, `proposal`, `negotiation`, `won`, `lost`
+
+### 2.3 Order enums
+- `order_status`: `draft`, `confirmed`, `reserved`, `in_progress`, `completed`, `closed`, `cancelled`, `partial_return`, `full_return`
+- `order_delivery_status`: `not_scheduled`, `scheduled`, `partially_delivered`, `delivered`, `failed`
+- `fulfillment_status`: `pending`, `completed`, `failed`, `cancelled`
+- `fulfillment_type`: `delivery`, `pickup`, `manual`
+- `return_request_status`: `draft`, `submitted`, `approved`, `rejected`, `processed`, `closed`
+
+### 2.4 Inventory enums
+- `stock_lock_status`: `active`, `expired`, `released`, `promoted`
+- `reservation_status`: `active`, `released`, `expired`, `consumed`, `cancelled`
+- `inventory_movement_type`: `receipt`, `issue`, `return_to_stock`, `writeoff`, `adjustment`, `reservation_create`, `reservation_release`, `transfer_to_quarantine`, `release_from_quarantine`
+- `inventory_bucket`: `on_hand`, `reserved`, `available`, `quarantine`
+
+### 2.5 Payments enums
+- `payment_status`: `pending`, `completed`, `refunded`
+- `payment_method`: `cash`, `bank_transfer`, `card`, `sbp`, `other`
+- `cash_operation_type`: `cash_in`, `cash_out`, `refund`
+
+### 2.6 Logistics enums
+- `delivery_task_status`: `planned`, `assigned`, `in_transit`, `delivered`, `failed`, `rescheduled`
+- `route_day_status`: `planned`, `active`, `closed`, `cancelled`
+- `slot_status`: `open`, `held`, `booked`, `closed`
+
+### 2.7 Finance enums
+- `finance_entry_type`: `income`, `expense`, `adjustment`
+- `expense_type`: `operational`, `marketing`, `procurement`, `logistics`, `other`
+
+### 2.8 System enums
+- `idempotency_status`: `started`, `completed`, `failed`
+- `outbox_status`: `pending`, `processing`, `processed`, `failed`, `dead_letter`
+
+---
+
+## 3. Table catalog by schema
+
+## 3.1 `users`
+
+### 3.1.1 `users.departments`
+Purpose:
+- canonical department list
+
+Columns:
+- `id`
+- `code varchar(64) unique not null`
+- `name varchar(255) not null`
+- `status record_status not null default 'active'`
+- `created_at`
+- `updated_at`
+
+### 3.1.2 `users.roles`
+Columns:
+- `id`
+- `code varchar(64) unique not null`
+- `name varchar(255) not null`
+- `department_id uuid null references users.departments(id)`
+- `status record_status not null default 'active'`
+- `created_at`
+- `updated_at`
+
+### 3.1.3 `users.permissions`
+Columns:
+- `id`
+- `code varchar(128) unique not null`
+- `name varchar(255) not null`
+- `description text null`
+- `created_at`
+- `updated_at`
+
+### 3.1.4 `users.role_permissions`
+Columns:
+- `id`
+- `role_id uuid not null references users.roles(id)`
+- `permission_id uuid not null references users.permissions(id)`
+- `created_at`
+- unique `(role_id, permission_id)`
+
+### 3.1.5 `users.users`
+Columns:
+- `id`
+- `email varchar(320) unique not null`
+- `password_hash text not null`
+- `display_name varchar(255) not null`
+- `department_id uuid null references users.departments(id)`
+- `is_active boolean not null default true`
+- `mfa_enabled boolean not null default false`
+- `last_login_at timestamptz null`
+- `created_at`
+- `updated_at`
+
+### 3.1.6 `users.user_roles`
+Columns:
+- `id`
+- `user_id uuid not null references users.users(id)`
+- `role_id uuid not null references users.roles(id)`
+- `created_at`
+- unique `(user_id, role_id)`
+
+---
+
+## 3.2 `crm`
+
+### 3.2.1 `crm.clients`
+Columns:
+- `id`
+- `client_type varchar(32) not null`  
+  `TBD`: exact enum if legal entity vs individual is fixed later.
+- `name varchar(255) not null`
+- `legal_name varchar(255) null`
+- `phone varchar(64) null`
+- `email varchar(320) null`
+- `tax_id varchar(64) null`
+- `notes text null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(name)`
+- index on `(phone)`
+- index on `(email)`
+
+### 3.2.2 `crm.contacts`
+Columns:
+- `id`
+- `client_id uuid not null references crm.clients(id)`
+- `name varchar(255) not null`
+- `phone varchar(64) null`
+- `email varchar(320) null`
+- `position varchar(255) null`
+- `is_primary boolean not null default false`
+- `notes text null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(client_id)`
+
+### 3.2.3 `crm.leads`
+Columns:
+- `id`
+- `source varchar(128) not null`
+- `status varchar(64) not null`
+- `client_id uuid null references crm.clients(id)`
+- `contact_id uuid null references crm.contacts(id)`
+- `responsible_user_id uuid not null references users.users(id)`
+- `title varchar(255) null`
+- `notes text null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(status)`
+- index on `(source)`
+- index on `(responsible_user_id)`
+
+### 3.2.4 `crm.deals`
+Columns:
+- `id`
+- `lead_id uuid null references crm.leads(id)`
+- `client_id uuid not null references crm.clients(id)`
+- `contact_id uuid null references crm.contacts(id)`
+- `responsible_user_id uuid not null references users.users(id)`
+- `status deal_status not null`
+- `title varchar(255) not null`
+- `notes text null`
+- `expected_value numeric(14,2) null`
+- `created_at`
+- `updated_at`
+- `deleted_at timestamptz null`
+- `deleted_by uuid null references users.users(id)`
+- `delete_reason text null`
+
+Indexes:
+- index on `(client_id)`
+- index on `(status)`
+- index on `(responsible_user_id)`
+- partial index on `(deleted_at)` where `deleted_at is null`
+
+---
+
+## 3.3 `orders`
+
+### 3.3.1 `orders.orders`
+Columns:
+- `id`
+- `order_number varchar(64) unique not null`
+- `deal_id uuid not null references crm.deals(id)`
+- `client_id uuid not null references crm.clients(id)`
+- `status order_status not null`
+- `delivery_status order_delivery_status not null default 'not_scheduled'`
+- `fulfillment_type fulfillment_type not null`
+- `currency currency_code not null default 'RUB'`
+- `subtotal_amount numeric(14,2) not null default 0`
+- `discount_amount numeric(14,2) not null default 0`
+- `total_amount numeric(14,2) not null default 0`
+- `notes text null`
+- `confirmed_at timestamptz null`
+- `completed_at timestamptz null`
+- `closed_at timestamptz null`
+- `cancelled_at timestamptz null`
+- `created_by uuid not null references users.users(id)`
+- `updated_by uuid null references users.users(id)`
+- `created_at`
+- `updated_at`
+- `deleted_at timestamptz null`
+- `deleted_by uuid null references users.users(id)`
+- `delete_reason text null`
+
+Rules:
+- one order must belong to one deal
+- one deal may have multiple orders
+- `delivery_status` is an aggregate field derived from `logistics.delivery_tasks`
+
+Indexes:
+- unique `(order_number)`
+- index on `(deal_id)`
+- index on `(client_id)`
+- index on `(status)`
+- index on `(delivery_status)`
+- partial index on `(deleted_at)` where `deleted_at is null`
+
+### 3.3.2 `orders.order_items`
+Columns:
+- `id`
+- `order_id uuid not null references orders.orders(id)`
+- `line_no integer not null`
+- `product_id uuid not null references inventory.products(id)`
+- `product_name_snapshot varchar(255) not null`
+- `sku_snapshot varchar(128) null`
+- `qty numeric(14,3) not null`
+- `unit varchar(32) null`
+- `retail_price numeric(14,2) not null`
+- `discount_amount numeric(14,2) not null default 0`
+- `line_total numeric(14,2) not null`
+- `cost_snapshot numeric(14,2) null`
+- `notes text null`
+- `created_at`
+- `updated_at`
+
+Rules:
+- `retail_price` is copied from the sales catalog at draft creation
+- `cost_snapshot` is optional at draft stage, but if used it must be sourced from Inventory logic, never from retail price
+
+Indexes:
+- unique `(order_id, line_no)`
+- index on `(product_id)`
+
+### 3.3.3 `orders.fulfillments`
+Columns:
+- `id`
+- `order_id uuid not null references orders.orders(id)`
+- `delivery_task_id uuid null references logistics.delivery_tasks(id)`
+- `pickup_window_id uuid null references logistics.pickup_windows(id)`
+- `status fulfillment_status not null`
+- `fulfillment_type fulfillment_type not null`
+- `fulfilled_at timestamptz null`
+- `failure_reason text null`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(order_id)`
+- index on `(delivery_task_id)`
+- index on `(status)`
+
+### 3.3.4 `orders.fulfillment_items`
+Purpose:
+- item-level binding for partial fulfillment
+
+Columns:
+- `id`
+- `fulfillment_id uuid not null references orders.fulfillments(id)`
+- `order_item_id uuid not null references orders.order_items(id)`
+- `qty numeric(14,3) not null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- unique `(fulfillment_id, order_item_id)`
+- index on `(order_item_id)`
+
+### 3.3.5 `orders.return_requests`
+Columns:
+- `id`
+- `order_id uuid not null references orders.orders(id)`
+- `status return_request_status not null`
+- `requested_by_user_id uuid not null references users.users(id)`
+- `reason text not null`
+- `requested_refund_amount numeric(14,2) null`
+- `approved_refund_amount numeric(14,2) null`
+- `submitted_at timestamptz null`
+- `approved_at timestamptz null`
+- `processed_at timestamptz null`
+- `closed_at timestamptz null`
+- `created_at`
+- `updated_at`
+- `deleted_at timestamptz null`
+- `deleted_by uuid null references users.users(id)`
+- `delete_reason text null`
+
+Indexes:
+- index on `(order_id)`
+- index on `(status)`
+- partial index on `(deleted_at)` where `deleted_at is null`
+
+### 3.3.6 `orders.return_request_items`
+Columns:
+- `id`
+- `return_request_id uuid not null references orders.return_requests(id)`
+- `order_item_id uuid not null references orders.order_items(id)`
+- `qty numeric(14,3) not null`
+- `resolution varchar(64) not null`  
+  Suggested values: `return_to_quarantine`, `writeoff`, `refund_only`. Exact enum may be stabilized later.
+- `created_at`
+- `updated_at`
+
+Indexes:
+- unique `(return_request_id, order_item_id)`
+- index on `(order_item_id)`
+
+---
+
+## 3.4 `inventory`
+
+### 3.4.1 `inventory.products`
+Columns:
+- `id`
+- `sku varchar(128) unique not null`
+- `name varchar(255) not null`
+- `product_type varchar(64) null`
+- `unit varchar(32) null`
+- `is_active boolean not null default true`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- unique `(sku)`
+- index on `(name)`
+
+### 3.4.2 `inventory.warehouses`
+Columns:
+- `id`
+- `code varchar(64) unique not null`
+- `name varchar(255) not null`
+- `is_active boolean not null default true`
+- `created_at`
+- `updated_at`
+
+### 3.4.3 `inventory.stock_balances`
+Purpose:
+- current bucketed stock state per product and warehouse
+
+Columns:
+- `id`
+- `product_id uuid not null references inventory.products(id)`
+- `warehouse_id uuid not null references inventory.warehouses(id)`
+- `on_hand_qty numeric(14,3) not null default 0`
+- `reserved_qty numeric(14,3) not null default 0`
+- `available_qty numeric(14,3) not null default 0`
+- `quarantine_qty numeric(14,3) not null default 0`
+- `weighted_avg_cost numeric(14,2) not null default 0`
+- `updated_at timestamptz not null default now()`
+- `created_at timestamptz not null default now()`
+
+Rules:
+- exactly one row per `(product_id, warehouse_id)`
+- `available_qty` must not be derived from UI-only math; it must be materialized and kept consistent by domain logic
+- `quarantine_qty` is mandatory because returned goods do not re-enter `available` directly
+
+Indexes:
+- unique `(product_id, warehouse_id)`
+- index on `(warehouse_id, product_id)`
+
+### 3.4.4 `inventory.stock_locks`
+Purpose:
+- short-lived soft lock / pre-reserve used before order confirmation
+
+Columns:
+- `id`
+- `product_id uuid not null references inventory.products(id)`
+- `warehouse_id uuid not null references inventory.warehouses(id)`
+- `order_id uuid null references orders.orders(id)`
+- `deal_id uuid null references crm.deals(id)`
+- `qty numeric(14,3) not null`
+- `status stock_lock_status not null default 'active'`
+- `idempotency_key varchar(128) null`
+- `expires_at timestamptz not null`
+- `released_at timestamptz null`
+- `promoted_reservation_id uuid null references inventory.reservations(id)`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Rules:
+- lock TTL must stay short (`5-10 minutes` target)
+- this table is not a substitute for durable reservation
+
+Indexes:
+- index on `(product_id, warehouse_id, status)`
+- index on `(order_id)`
+- index on `(deal_id)`
+- index on `(expires_at)`
+
+### 3.4.5 `inventory.reservations`
+Columns:
+- `id`
+- `order_id uuid not null references orders.orders(id)`
+- `product_id uuid not null references inventory.products(id)`
+- `warehouse_id uuid not null references inventory.warehouses(id)`
+- `qty numeric(14,3) not null`
+- `status reservation_status not null default 'active'`
+- `expires_at timestamptz not null`
+- `released_at timestamptz null`
+- `consumed_at timestamptz null`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(order_id)`
+- index on `(product_id, warehouse_id, status)`
+- index on `(expires_at)`
+
+### 3.4.6 `inventory.purchase_receipts`
+Columns:
+- `id`
+- `receipt_number varchar(64) unique not null`
+- `warehouse_id uuid not null references inventory.warehouses(id)`
+- `supplier_name varchar(255) null`
+- `received_at timestamptz not null`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+### 3.4.7 `inventory.purchase_receipt_items`
+Columns:
+- `id`
+- `purchase_receipt_id uuid not null references inventory.purchase_receipts(id)`
+- `product_id uuid not null references inventory.products(id)`
+- `qty numeric(14,3) not null`
+- `unit_cost numeric(14,2) not null`
+- `line_total numeric(14,2) not null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(purchase_receipt_id)`
+- index on `(product_id)`
+
+### 3.4.8 `inventory.inventory_movements`
+Columns:
+- `id`
+- `movement_type inventory_movement_type not null`
+- `product_id uuid not null references inventory.products(id)`
+- `warehouse_id uuid not null references inventory.warehouses(id)`
+- `qty numeric(14,3) not null`
+- `bucket_from inventory_bucket null`
+- `bucket_to inventory_bucket null`
+- `unit_cost numeric(14,2) null`
+- `total_cost numeric(14,2) null`
+- `order_id uuid null references orders.orders(id)`
+- `fulfillment_id uuid null references orders.fulfillments(id)`
+- `return_request_id uuid null references orders.return_requests(id)`
+- `reservation_id uuid null references inventory.reservations(id)`
+- `purchase_receipt_id uuid null references inventory.purchase_receipts(id)`
+- `reason text null`
+- `performed_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Rules:
+- journal of record for inventory mutations
+- issue movements created only from confirmed fulfillment fact
+- return flows default to `bucket_to = quarantine`
+
+Indexes:
+- index on `(product_id, warehouse_id, created_at)`
+- index on `(order_id)`
+- index on `(return_request_id)`
+- index on `(reservation_id)`
+- index on `(purchase_receipt_id)`
+
+---
+
+## 3.5 `payments`
+
+### 3.5.1 `payments.payments`
+Columns:
+- `id`
+- `payment_number varchar(64) unique not null`
+- `order_id uuid not null references orders.orders(id)`
+- `status payment_status not null`
+- `payment_method payment_method not null`
+- `amount numeric(14,2) not null`
+- `refunded_amount numeric(14,2) not null default 0`
+- `received_at timestamptz null`
+- `external_reference varchar(255) null`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+- `deleted_at timestamptz null`
+- `deleted_by uuid null references users.users(id)`
+- `delete_reason text null`
+
+Indexes:
+- unique `(payment_number)`
+- index on `(order_id)`
+- index on `(status)`
+- partial index on `(deleted_at)` where `deleted_at is null`
+
+### 3.5.2 `payments.cash_operations`
+Columns:
+- `id`
+- `payment_id uuid null references payments.payments(id)`
+- `return_request_id uuid null references orders.return_requests(id)`
+- `operation_type cash_operation_type not null`
+- `amount numeric(14,2) not null`
+- `currency currency_code not null default 'RUB'`
+- `performed_at timestamptz not null`
+- `external_reference varchar(255) null`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Rules:
+- cash refund requires `return_request_id`
+
+Indexes:
+- index on `(payment_id)`
+- index on `(return_request_id)`
+- index on `(performed_at)`
+
+---
+
+## 3.6 `logistics`
+
+### 3.6.1 `logistics.delivery_slots`
+Columns:
+- `id`
+- `slot_date date not null`
+- `window_start time not null`
+- `window_end time not null`
+- `capacity integer not null default 1`
+- `reserved_count integer not null default 0`
+- `status slot_status not null default 'open'`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- unique `(slot_date, window_start, window_end)`
+- index on `(slot_date, status)`
+
+### 3.6.2 `logistics.pickup_windows`
+Columns:
+- `id`
+- `window_date date not null`
+- `window_start time not null`
+- `window_end time not null`
+- `capacity integer not null default 1`
+- `reserved_count integer not null default 0`
+- `status slot_status not null default 'open'`
+- `created_at`
+- `updated_at`
+
+### 3.6.3 `logistics.drivers`
+Columns:
+- `id`
+- `user_id uuid null references users.users(id)`
+- `name varchar(255) not null`
+- `phone varchar(64) null`
+- `is_active boolean not null default true`
+- `created_at`
+- `updated_at`
+
+### 3.6.4 `logistics.vehicles`
+Columns:
+- `id`
+- `plate_number varchar(64) unique null`
+- `name varchar(255) not null`
+- `capacity_notes text null`
+- `is_active boolean not null default true`
+- `created_at`
+- `updated_at`
+
+### 3.6.5 `logistics.route_days`
+Columns:
+- `id`
+- `route_date date not null`
+- `driver_id uuid null references logistics.drivers(id)`
+- `vehicle_id uuid null references logistics.vehicles(id)`
+- `status route_day_status not null default 'planned'`
+- `notes text null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(route_date)`
+- index on `(driver_id, route_date)`
+
+### 3.6.6 `logistics.delivery_tasks`
+Columns:
+- `id`
+- `order_id uuid not null references orders.orders(id)`
+- `route_day_id uuid null references logistics.route_days(id)`
+- `delivery_slot_id uuid null references logistics.delivery_slots(id)`
+- `driver_id uuid null references logistics.drivers(id)`
+- `vehicle_id uuid null references logistics.vehicles(id)`
+- `status delivery_task_status not null`
+- `sequence_no integer null`
+- `planned_date date null`
+- `delivered_at timestamptz null`
+- `failure_reason text null`
+- `address_text text null`
+- `recipient_name varchar(255) null`
+- `recipient_phone varchar(64) null`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Rules:
+- multiple tasks per one order are supported and expected
+- order delivery state is aggregated from this table
+
+Indexes:
+- index on `(order_id)`
+- index on `(route_day_id)`
+- index on `(delivery_slot_id)`
+- index on `(status)`
+- index on `(driver_id, planned_date)`
+
+### 3.6.7 `logistics.delivery_task_items`
+Purpose:
+- item-level split of an order across multiple delivery tasks
+
+Columns:
+- `id`
+- `delivery_task_id uuid not null references logistics.delivery_tasks(id)`
+- `order_item_id uuid not null references orders.order_items(id)`
+- `qty numeric(14,3) not null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- unique `(delivery_task_id, order_item_id)`
+- index on `(order_item_id)`
+
+---
+
+## 3.7 `finance`
+
+### 3.7.1 `finance.finance_entries`
+Columns:
+- `id`
+- `entry_type finance_entry_type not null`
+- `order_id uuid null references orders.orders(id)`
+- `payment_id uuid null references payments.payments(id)`
+- `cash_operation_id uuid null references payments.cash_operations(id)`
+- `return_request_id uuid null references orders.return_requests(id)`
+- `amount numeric(14,2) not null`
+- `currency currency_code not null default 'RUB'`
+- `recognized_at timestamptz not null`
+- `description text null`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Rules:
+- income recognition follows cash basis
+- finance must not recognize sales income from order confirmation alone
+
+Indexes:
+- index on `(entry_type)`
+- index on `(payment_id)`
+- index on `(recognized_at)`
+
+### 3.7.2 `finance.expenses`
+Columns:
+- `id`
+- `expense_type expense_type not null`
+- `amount numeric(14,2) not null`
+- `currency currency_code not null default 'RUB'`
+- `occurred_at timestamptz not null`
+- `description text null`
+- `related_order_id uuid null references orders.orders(id)`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(expense_type)`
+- index on `(occurred_at)`
+
+### 3.7.3 `finance.marketing_expenses`
+Columns:
+- `id`
+- `source varchar(128) not null`
+- `campaign varchar(255) null`
+- `amount numeric(14,2) not null`
+- `currency currency_code not null default 'RUB'`
+- `occurred_at timestamptz not null`
+- `description text null`
+- `created_by uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(source)`
+- index on `(occurred_at)`
+
+---
+
+## 3.8 `analytics`
+
+### 3.8.1 `analytics.live_kpi_metrics`
+Purpose:
+- precomputed current KPI values for dashboards
+
+Columns:
+- `id`
+- `metric_code varchar(128) not null`
+- `scope_type varchar(64) not null`
+- `scope_id uuid null`
+- `metric_value numeric(18,4) not null`
+- `metric_payload jsonb null`
+- `as_of timestamptz not null`
+- `updated_at timestamptz not null default now()`
+- `created_at timestamptz not null default now()`
+
+Indexes:
+- unique `(metric_code, scope_type, scope_id)`
+- index on `(as_of)`
+
+### 3.8.2 `analytics.snapshot_kpi_metrics`
+Columns:
+- `id`
+- `metric_code varchar(128) not null`
+- `period_type varchar(32) not null`
+- `period_start date not null`
+- `period_end date not null`
+- `scope_type varchar(64) not null`
+- `scope_id uuid null`
+- `metric_value numeric(18,4) not null`
+- `metric_payload jsonb null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- unique `(metric_code, period_type, period_start, period_end, scope_type, scope_id)`
+
+---
+
+## 3.9 `audit`
+
+### 3.9.1 `audit.audit_events`
+Columns:
+- `id`
+- `entity_type varchar(128) not null`
+- `entity_id uuid not null`
+- `action varchar(128) not null`
+- `actor_user_id uuid null references users.users(id)`
+- `from_state varchar(128) null`
+- `to_state varchar(128) null`
+- `reason text null`
+- `payload jsonb null`
+- `created_at timestamptz not null default now()`
+
+Indexes:
+- index on `(entity_type, entity_id)`
+- index on `(actor_user_id)`
+- index on `(created_at)`
+
+---
+
+## 3.10 `reconciliation`
+
+### 3.10.1 `reconciliation.reports`
+Columns:
+- `id`
+- `report_date date not null`
+- `status varchar(64) not null`
+- `summary jsonb not null`
+- `issues_count integer not null default 0`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- unique `(report_date)`
+
+---
+
+## 3.11 `system`
+
+### 3.11.1 `system.idempotency_records`
+Columns:
+- `id`
+- `idempotency_key varchar(128) not null`
+- `scope varchar(128) not null`
+- `request_hash varchar(128) not null`
+- `status idempotency_status not null`
+- `response_status_code integer null`
+- `response_body jsonb null`
+- `locked_until timestamptz null`
+- `created_at`
+- `updated_at`
+
+Rules:
+- checked before domain service execution
+- repeated requests with same semantic key return stored or coordinated result
+
+Indexes:
+- unique `(scope, idempotency_key)`
+- index on `(status)`
+- index on `(locked_until)`
+
+### 3.11.2 `system.outbox_events`
+Columns:
+- `id`
+- `event_type varchar(128) not null`
+- `aggregate_type varchar(128) not null`
+- `aggregate_id uuid not null`
+- `payload jsonb not null`
+- `status outbox_status not null default 'pending'`
+- `attempt_count integer not null default 0`
+- `next_attempt_at timestamptz null`
+- `error_message text null`
+- `created_at`
+- `updated_at`
+- `processed_at timestamptz null`
+
+Indexes:
+- index on `(status, next_attempt_at)`
+- index on `(aggregate_type, aggregate_id)`
+- index on `(event_type)`
+
+### 3.11.3 `system.settings`
+Purpose:
+- controlled runtime/business settings that are safe to store in DB
+
+Columns:
+- `id`
+- `key varchar(128) unique not null`
+- `value jsonb not null`
+- `updated_by uuid null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+---
+
+## 4. Critical relationship summary
+
+### 4.1 Core commercial chain
+- `crm.leads 1 -> 0..1 crm.deals` (nullable because deals may also be created manually)
+- `crm.clients 1 -> n crm.contacts`
+- `crm.deals 1 -> n orders.orders`
+- `orders.orders 1 -> n orders.order_items`
+
+### 4.2 Inventory and order chain
+- `orders.orders 1 -> n inventory.reservations`
+- `orders.orders 1 -> n inventory.stock_locks`
+- `orders.orders 1 -> n inventory.inventory_movements`
+
+### 4.3 Logistics chain
+- `orders.orders 1 -> n logistics.delivery_tasks`
+- `logistics.delivery_tasks 1 -> n logistics.delivery_task_items`
+- `orders.orders 1 -> n orders.fulfillments`
+- `orders.fulfillments 1 -> n orders.fulfillment_items`
+
+### 4.4 Return chain
+- `orders.orders 1 -> n orders.return_requests`
+- `orders.return_requests 1 -> n orders.return_request_items`
+- `orders.return_requests 1 -> n payments.cash_operations`
+- `orders.return_requests 1 -> n inventory.inventory_movements`
+
+### 4.5 Money and finance chain
+- `orders.orders 1 -> n payments.payments`
+- `payments.payments 1 -> n payments.cash_operations`
+- `payments.payments 1 -> n finance.finance_entries`
+
+---
+
+## 5. Mandatory constraints and invariants
+
+### 5.1 Draft vs reservation
+- `orders.orders.status = draft` may coexist with active `inventory.stock_locks`
+- `orders.orders.status = draft` must not create active durable `inventory.reservations`
+
+### 5.2 Delivery split
+- one `orders.orders` row may have multiple `logistics.delivery_tasks`
+- `orders.orders.delivery_status` must be updated from task aggregates, not from one direct FK
+
+### 5.3 Return quarantine
+- `inventory.inventory_movements.movement_type = return_to_stock` must not increase `inventory.stock_balances.available_qty` directly
+- default return path increases `quarantine_qty`
+
+### 5.4 Cash basis
+- `finance.finance_entries.entry_type = income` must be backed by a money fact
+- no income recognition from only `orders.orders.confirmed_at`
+
+### 5.5 Soft deletion
+- no physical delete for soft-protected tables in application logic
+- migrations may only use physical delete when restructuring data with explicit approval and data preservation plan
+
+---
+
+## 6. Index priorities for bootstrap
+
+The first migration must include at minimum:
+- all PKs
+- all FKs
+- unique business keys (`order_number`, `payment_number`, `sku`, warehouse code, etc.)
+- status indexes on highly filtered tables
+- date/time indexes for slots, route days, payments, finance entries
+- outbox processing index
+- idempotency uniqueness index
+
+High-priority indexes:
+- `orders.orders(status, delivery_status)`
+- `inventory.stock_balances(warehouse_id, product_id)`
+- `inventory.stock_locks(expires_at, status)`
+- `inventory.reservations(order_id, status)`
+- `payments.payments(order_id, status)`
+- `logistics.delivery_tasks(order_id, status)`
+- `analytics.live_kpi_metrics(metric_code, scope_type, scope_id)`
+- `system.outbox_events(status, next_attempt_at)`
+
+---
+
+## 7. Bootstrap implementation order for the schema
+
+Recommended migration order:
+1. create PostgreSQL schemas
+2. create common enums
+3. create `users.*`
+4. create `crm.*`
+5. create `inventory.products`, `inventory.warehouses`, `inventory.stock_balances`
+6. create `orders.*`
+7. create `inventory.stock_locks`, `inventory.reservations`, `inventory.purchase_receipts*`, `inventory.inventory_movements`
+8. create `payments.*`
+9. create `logistics.*`
+10. create `finance.*`
+11. create `analytics.*`
+12. create `audit.*`
+13. create `reconciliation.*`
+14. create `system.*`
+15. create secondary indexes
+16. seed minimal roles/permissions/settings if approved
+
+---
+
+## 8. What Codex must not guess
+
+Codex must not invent during bootstrap:
+- hidden finance formulas not accepted in docs
+- extra order statuses not present in accepted state machine docs
+- direct `1 order = 1 delivery task` shortcuts
+- hard delete flows for protected entities
+- KPI widgets powered by runtime cross-domain joins as the source-of-truth layer
+- replacing short-lived `stock_locks` with durable `reservations`
+
+---
+
+## 9. Deliverables expected from implementation
+
+The first database implementation pass should produce:
+- Prisma schema aligned with these PostgreSQL schemas/tables
+- initial migrations
+- seed scaffolding for users/roles/permissions baseline
+- repository-level database commands
+- smoke tests for migration up/down on local/dev database

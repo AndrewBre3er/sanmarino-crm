@@ -1,0 +1,27 @@
+{
+  "name": "@sanmarino/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm exec tsx watch src/main.ts",
+    "build": "pnpm exec tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "clean": "pnpm exec rimraf dist",
+    "lint": "pnpm exec eslint --config ../../packages/config/eslint/base.cjs \"src/**/*.ts\"",
+    "typecheck": "pnpm exec tsc -p tsconfig.json --noEmit",
+    "format": "pnpm exec prettier --config ../../packages/config/prettier/base.cjs --check \"src/**/*.ts\"",
+    "test": "pnpm exec vitest run",
+    "test:unit": "pnpm exec vitest run tests/unit",
+    "test:integration": "pnpm exec vitest run --passWithNoTests",
+    "test:e2e": "pnpm exec vitest run --passWithNoTests",
+    "health": "pnpm exec tsx src/cli/health.ts",
+    "ready": "pnpm exec tsx src/cli/ready.ts"
+  },
+  "dependencies": {
+    "bullmq": "^5.0.0"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1"
+  }
+}

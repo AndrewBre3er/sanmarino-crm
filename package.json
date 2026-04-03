@@ -1,0 +1,44 @@
+{
+  "name": "sanmarino-crm",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=24.0.0 <25.0.0"
+  },
+  "scripts": {
+    "install:deps": "pnpm install",
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "turbo run format",
+    "test": "turbo run test",
+    "test:unit": "turbo run test:unit",
+    "test:integration": "turbo run test:integration",
+    "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "verify:bootstrap": "pnpm typecheck && pnpm lint && pnpm build && pnpm test",
+    "clean": "turbo run clean && rimraf node_modules .turbo",
+    "db:generate": "pnpm --filter @sanmarino/api prisma:generate",
+    "db:validate": "pnpm --filter @sanmarino/api prisma:validate",
+    "db:migrate": "pnpm --filter @sanmarino/api prisma:migrate",
+    "db:seed": "pnpm --filter @sanmarino/api prisma:seed",
+    "compose:up": "docker compose -f deploy/compose/docker-compose.dev.yml up -d",
+    "compose:down": "docker compose -f deploy/compose/docker-compose.dev.yml down",
+    "compose:up:vps": "docker compose -f deploy/compose/docker-compose.vps.yml up -d",
+    "compose:down:vps": "docker compose -f deploy/compose/docker-compose.vps.yml down"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^8.57.1",
+    "prettier": "^3.0.0",
+    "rimraf": "^6.0.1",
+    "turbo": "^2.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}
