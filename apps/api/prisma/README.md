@@ -1,6 +1,8 @@
-# Prisma Infra Bootstrap
+# Prisma Schema Foundation
 
-This folder is intentionally infra-only in Phase 2.
+This folder currently contains:
+- infra/system foundation models
+- minimal core transactional business foundation models
 
 Current state:
 - datasource and generator are configured
@@ -8,10 +10,17 @@ Current state:
   - `system.idempotency_records`
   - `system.outbox_events`
   - `audit.audit_log_records`
-- no business/domain models yet
+- minimal core transactional models are configured:
+  - `crm.leads`
+  - `crm.deals`
+  - `orders.orders`
+  - `orders.order_items`
+  - `logistics.delivery_tasks`
+  - `orders.return_requests`
+  - `payments.payments`
 - migration conventions are documented in `MIGRATION_WORKFLOW.md`
 
 TODO:
-- add schema models in implementation phase only
-- add business migrations when domain schema is approved for implementation
+- add remaining business/domain schema models in dedicated phases only
+- add domain-specific migrations when each domain schema is approved
 - add repository implementations after persistence contracts are wired

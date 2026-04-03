@@ -7,33 +7,39 @@ function load_schema(): string {
   return readFileSync(schema_path, "utf8");
 }
 
-describe("prisma infra/system schema foundation", () => {
-  it("contains only approved infra/system models in current phase", () => {
+describe("prisma schema foundation (infra + minimal core transactional)", () => {
+  it("contains approved infra/system models and minimal core transactional models only", () => {
     const schema = load_schema();
 
     expect(schema).toContain("model SystemIdempotencyRecord");
     expect(schema).toContain("model SystemOutboxRecord");
     expect(schema).toContain("model AuditLogRecord");
+    expect(schema).toContain("model CrmLead");
+    expect(schema).toContain("model CrmDeal");
+    expect(schema).toContain("model OrdersOrder");
+    expect(schema).toContain("model OrdersOrderItem");
+    expect(schema).toContain("model LogisticsDeliveryTask");
+    expect(schema).toContain("model OrdersReturnRequest");
+    expect(schema).toContain("model PaymentsPayment");
 
-    const forbidden_business_models = [
-      "model Lead",
-      "model Deal",
-      "model Order",
-      "model Payment",
-      "model Inventory",
-      "model DeliveryTask",
+    const forbidden_deferred_models = [
+      "model InventoryStockBalance",
+      "model InventoryReservation",
       "model FinanceEntry",
-      "model User"
+      "model AnalyticsLiveKpiMetric",
+      "model UsersUser",
+      "model MarketingExpense"
     ];
 
-    for (const model_name of forbidden_business_models) {
+    for (const model_name of forbidden_deferred_models) {
       expect(schema).not.toContain(model_name);
     }
   });
 
-  it("keeps TODO marker for deferred business schema", () => {
+  it("keeps TODO marker for deferred remaining business schema", () => {
     const schema = load_schema();
-    expect(schema).toContain("TODO(implementation): add business models only when domain implementation phase starts.");
+    expect(schema).toContain(
+      "TODO(implementation): add remaining business models only in their dedicated domain phases."
+    );
   });
 });
-

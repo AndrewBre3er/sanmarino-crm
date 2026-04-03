@@ -1,17 +1,25 @@
-# Prisma Migration Workflow (Infra-Only Baseline)
+# Prisma Migration Workflow (Infra + Minimal Core Baseline)
 
 This workflow defines bootstrap-safe migration conventions.
 
 ## Current scope
 
-- Prisma schema includes infra/system models only.
-- Business/domain models are intentionally deferred.
-- No business migrations are generated in this phase.
+- Prisma schema includes:
+  - infra/system models
+  - minimal core transactional business foundation models
+- full business/domain schema is intentionally deferred.
 
-Current infra migration baseline:
+Current migration baseline:
 - `system.idempotency_records`
 - `system.outbox_events`
 - `audit.audit_log_records`
+- `crm.leads`
+- `crm.deals`
+- `orders.orders`
+- `orders.order_items`
+- `logistics.delivery_tasks`
+- `orders.return_requests`
+- `payments.payments`
 
 ## Commands
 
@@ -29,7 +37,7 @@ Use API-local scripts when needed:
 
 ## Bootstrap conventions
 
-1. Keep `schema.prisma` infra-only until domain implementation is explicitly started.
+1. Keep schema additions limited to approved phase scope.
 2. Any future migration must be reproducible and committed.
 3. Migration files should be generated from Prisma commands, not handwritten SQL by default.
 4. Apply migrations in controlled environments only.
@@ -37,6 +45,6 @@ Use API-local scripts when needed:
 
 ## TODO (deferred)
 
-- define business schema rollout plan by domain
+- define remaining business schema rollout plan by domain
 - define migration approval gate for high-risk changes
 - define rollback/recovery playbook for production migrations
