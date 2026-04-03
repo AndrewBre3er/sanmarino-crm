@@ -6,14 +6,15 @@ export const api_openapi_contract = {
   description: [
     "Bootstrap shell.",
     "",
-    "Phase 4 infrastructure middleware baseline:",
-    "- request/correlation/idempotency/audit-boundary context extraction",
+    "Phase 10 read-side foundation baseline:",
+    "- request/correlation/idempotency/audit-boundary API shell conventions",
     "- normalized response envelope and exception mapping",
-    "- validation/serialization shell conventions",
+    "- read-only list/detail endpoints for core transactional entities",
+    "- pagination/filter/sort query contracts aligned with shared platform types",
     "",
-    "TODO: add domain endpoints only in domain implementation phases."
+    "TODO: mutation endpoints, business workflows, and auth/RBAC enforcement are deferred."
   ].join("\n"),
-  version: "0.4.0",
+  version: "0.10.0",
   docsPath: "api/docs",
   globalPrefix: "api"
 } as const;
@@ -26,12 +27,32 @@ export const api_openapi_tags = {
   infra: {
     name: "infra",
     description: "API shell infrastructure conventions"
+  },
+  crmRead: {
+    name: "crm-read",
+    description: "Read-only CRM endpoints: leads and deals"
+  },
+  ordersRead: {
+    name: "orders-read",
+    description: "Read-only Orders endpoints"
+  },
+  paymentsRead: {
+    name: "payments-read",
+    description: "Read-only Payments endpoints"
+  },
+  logisticsRead: {
+    name: "logistics-read",
+    description: "Read-only Logistics endpoints: delivery tasks"
+  },
+  returnsRead: {
+    name: "returns-read",
+    description: "Read-only return request endpoints"
   }
 } as const;
 
 export const api_openapi_extensions = {
   platformContractsPackage: "@sanmarino/types",
-  bootstrapPhase: "phase-4-api-shell-infra-middleware-foundation",
+  bootstrapPhase: "phase-10-backend-read-side-foundation",
   declaredErrorCodes: api_error_codes,
   requestContextHeaders: request_context_headers,
   idempotencyHeaderContract: {
@@ -40,5 +61,7 @@ export const api_openapi_extensions = {
     enforcement: "TODO"
   },
   auditBoundaryNote:
-    "Audit context is extracted at API boundary only. Business audit implementation is deferred."
+    "Audit context is extracted at API boundary only. Business audit implementation is deferred.",
+  readBoundaryNote:
+    "Read-side endpoints are enabled for core transactional entities. Mutation/business workflows remain TODO."
 } as const;

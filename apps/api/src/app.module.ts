@@ -5,10 +5,11 @@ import { RequestContextMiddleware } from "./common/request-context/request-conte
 import { RequestContextPropagationInterceptor } from "./common/request-context/request-context.propagation.interceptor";
 import { RequestContextStore } from "./common/request-context/request-context.store";
 import { HealthModule } from "./modules/health/health.module";
+import { TransactionalReadModule } from "./modules/read-side/read-side.module";
 import { PrismaModule } from "./prisma/prisma.module";
 
 @Module({
-  imports: [PrismaModule, HealthModule],
+  imports: [PrismaModule, HealthModule, TransactionalReadModule],
   providers: [
     RequestContextStore,
     RequestContextPropagationInterceptor,

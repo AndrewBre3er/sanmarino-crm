@@ -34,6 +34,11 @@ async function bootstrap(): Promise<void> {
     .setVersion(api_openapi_contract.version)
     .addTag(api_openapi_tags.health.name, api_openapi_tags.health.description)
     .addTag(api_openapi_tags.infra.name, api_openapi_tags.infra.description)
+    .addTag(api_openapi_tags.crmRead.name, api_openapi_tags.crmRead.description)
+    .addTag(api_openapi_tags.ordersRead.name, api_openapi_tags.ordersRead.description)
+    .addTag(api_openapi_tags.paymentsRead.name, api_openapi_tags.paymentsRead.description)
+    .addTag(api_openapi_tags.logisticsRead.name, api_openapi_tags.logisticsRead.description)
+    .addTag(api_openapi_tags.returnsRead.name, api_openapi_tags.returnsRead.description)
     .addExtension(
       "x-platform-contracts-package",
       api_openapi_extensions.platformContractsPackage
@@ -49,6 +54,7 @@ async function bootstrap(): Promise<void> {
       api_openapi_extensions.idempotencyHeaderContract
     )
     .addExtension("x-audit-boundary-note", api_openapi_extensions.auditBoundaryNote)
+    .addExtension("x-read-boundary-note", api_openapi_extensions.readBoundaryNote)
     .build();
 
   const document = SwaggerModule.createDocument(app, swagger);
