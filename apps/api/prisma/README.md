@@ -6,7 +6,9 @@ Current state:
 - datasource and generator are configured
 - no business/domain models yet
 - no CRM/ERP schema implementation yet
+- migration conventions are documented in `MIGRATION_WORKFLOW.md`
 
 TODO:
 - add schema models in implementation phase only
 - add migrations when business schema is approved for implementation
+- add repository implementations after persistence contracts are wired
