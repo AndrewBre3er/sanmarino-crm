@@ -33,6 +33,15 @@
 
 `Application Shell -> Role Workspace -> Domain Screens -> Object Views -> Actions`
 
+Дополнительное правило текущего v1:
+- названия ролей в интерфейсе показываются на русском языке
+- техническая авторизация использует канонические role codes:
+  - `admin`, `seller`, `warehouse`, `logistics`, `finance`, `ceo`
+  - optional: `driver`, `marketing`
+- marketing workspace не является обязательным стартовым workspace
+- executive dashboard обязан разделять денежные показатели, отгрузку и контрольные денежные потоки от водителей
+- `Supplier Requests` является обязательным MVP экраном (list + card) для `seller` и `warehouse`
+
 ---
 
 ## 3. Цели UI/UX системы
@@ -300,16 +309,16 @@
 
 После входа пользователь попадает не на общий dashboard, а на **role home**.
 
-### Sales Home
+### Продавец Home (`seller`)
 Показывает:
 - новые лиды
-- лиды без контакта
-- просроченные follow-up
-- сделки без заказа
+- lead, ожидающие перевода в `в обработке`
+- активные `Deal`
+- supplier coverage status
+- заказы, требующие резерва / partial reserve / supplier coverage
 - заказы, требующие реакции менеджера
-- оплаты со статусом issue, если они влияют на его сделки
 
-### Marketing Home
+### Маркетинг Home (`marketing`, optional later)
 Показывает:
 - лиды по каналам
 - CPL/CAC/ROMI
@@ -317,42 +326,47 @@
 - расходы по маркетингу
 - аномалии каналов
 
-### Finance Home
+### Финансист Home (`finance`)
 Показывает:
 - входящие оплаты
 - невязки по платежам
 - возвраты
 - расходы
-- кассовые отчёты
+- supplier payables
+- деньги у водителей
 - критические расхождения сверки
 
-### Logistics Home
+### Логист Home (`logistics`)
 Показывает:
 - сегодняшний календарь доставок
 - перегруженные интервалы
 - неподтверждённые задачи
 - срывы и переносы
 - доступность водителей
+- проблемные заказы по просроченным деньгам
 
-### Warehouse Home
+### Кладовщик Home (`warehouse`)
 Показывает:
 - низкие остатки
 - активные резервы
-- резервы с истечением TTL
+- partial reserve / full reserve readiness
 - ожидаемые приходы
+- supplier request со статусом `received_with_discrepancy`
 - проблемные отгрузки
 
-### CEO / Management Home
+### Исполнительный директор Home (`ceo`)
 Показывает:
 - сквозные KPI
 - узкие места по воронке
-- cash summary
+- денежную выручку отдельно от `отгружено`
+- деньги у водителей
+- supplier payables
 - логистическую нагрузку
 - остатки и дефицит
 - междоменные расхождения
 - критические override и ошибки данных
 
-### Driver Home
+### Водитель Home (`driver`)
 Показывает:
 - маршрут на сегодня
 - список задач
@@ -370,16 +384,17 @@
 
 Пример:
 
-### Sales sidebar
+### Продавец sidebar (`seller`)
 - Home
 - Leads
 - Deals
 - Orders
 - Clients
+- Supplier Requests
 - Follow-ups
 - My KPI
 
-### Marketing sidebar
+### Маркетинг sidebar (`marketing`, optional later)
 - Home
 - Channels
 - Leads Attribution
@@ -387,15 +402,16 @@
 - Funnel Analytics
 - Reports
 
-### Finance sidebar
+### Финансист sidebar (`finance`)
 - Home
 - Payments
 - Refunds
 - Expenses
+- Supplier Payables
 - Reconciliation
 - Finance Reports
 
-### Logistics sidebar
+### Логист sidebar (`logistics`)
 - Home
 - Delivery Calendar
 - Tasks
@@ -403,27 +419,31 @@
 - Route Days
 - Incidents
 
-### Warehouse sidebar
+### Кладовщик sidebar (`warehouse`)
 - Home
 - Stock
 - Reservations
+- Supplier Requests
 - Movements
 - Receipts
+- Product Matrix
+- ABC Report
 - Returns
 - Write-offs
 
-### CEO sidebar
+### Исполнительный директор sidebar (`ceo`)
 - Home
 - Executive Dashboard
 - Sales
 - Finance
 - Logistics
 - Inventory
+- Supplier Coverage
 - KPI
 - Audit
 - Admin Reports
 
-### Driver sidebar
+### Водитель sidebar (`driver`)
 - Today
 - My Route
 - Delivery Tasks
@@ -437,11 +457,11 @@
 Уведомления должны быть контекстными и ролевыми.
 
 Примеры:
-- Sales: новый lead, просроченный follow-up, deal без следующего шага
-- Finance: неопознанный платёж, возврат в ожидании, кассовая невязка
-- Logistics: конфликт слота, срыв доставки, водитель не подтвердил задачу
-- Warehouse: резерв истекает, отрицательный остаток, конфликт отгрузки
-- CEO: критическая невязка сверки, override, сбой интеграции, системный риск
+- `seller`: новый lead, просроченный follow-up, deal без следующего шага
+- `finance`: неопознанный платёж, возврат в ожидании, кассовая невязка
+- `logistics`: конфликт слота, срыв доставки, деньги от водителя не подтверждены в срок
+- `warehouse`: частичный резерв, отрицательный остаток, конфликт отгрузки, расхождение при приёмке поставки
+- `ceo`: критическая невязка сверки, проблемный заказ, деньги у водителя, сбой интеграции, системный риск
 
 Уведомления не должны дублировать весь event stream.
 Они должны показывать только то, что требует решения пользователя.
@@ -453,6 +473,8 @@
 ### 13.1 Deal -> Order
 На карточке deal должны быть видны:
 - связанные orders
+- supplier request
+- reserve coverage summary
 - статус каждого order
 - сумма
 - оплата в агрегированном виде
@@ -462,9 +484,11 @@
 На карточке order должны быть видны:
 - items
 - резерв
+- supplier coverage
 - платежи
 - доставка / самовывоз
 - fulfillment status
+- control flags (`OnControl` / `Problem`)
 - возвраты
 - timeline
 

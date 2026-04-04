@@ -38,12 +38,21 @@
 ### 3. Integration tests
 Проверяют:
 - CRM -> Deal -> Order
-- Draft -> soft lock -> Confirmed
+- Lead -> start-processing -> Deal
+- Lead cancel with reason
+- Deal -> supplier coverage -> auto-created Order
+- SupplierRequest stores `business source` linkage and line-level `source line ref`
+- Deal reserve request -> atomic Order + Reservation
 - Order -> Inventory reserve
-- Confirmed -> Logistics booking atomicity / compensation
+- partial reserve -> `ReadyForPartialShipment`
+- full reserve -> `ReadyForShipment`
 - Order -> Fulfillment
 - Payment -> Finance cash basis
+- Shipped but unpaid -> `OnControl`
+- next business day unpaid -> `Problem`
 - ReturnRequest -> refund / return flow -> quarantine
+- receipt flow keeps `supplier_id` / optional `supplier_request_id` linkage
+- receipt items enforce explicit UOM from strict v1 list
 - role checks on API
 - audit logging критичных действий
 
@@ -54,18 +63,22 @@
 - permission-denied responses
 - idempotency behavior
 - field visibility rules
+- strict UOM validation (`шт`, `кв.м`, `п.м`, `услуга`)
+- supplier request source-line linkage contracts
 
 ### 5. E2E tests
 Проверяют через интерфейс:
 - login
-- workspace Sales
-- создание draft заказа
-- short-lived soft lock, если UI его инициирует
-- подтверждение заказа
+- workspace `seller` (UI: `Продавец`)
+- перевод lead в `в обработке`
+- коммерческий `Deal`
+- supplier request
+- auto-created order
 - сценарий частичной доставки с несколькими delivery task
 - регистрацию оплаты
 - складское исполнение
 - логистическое исполнение
+- контроль денег от водителя
 - возврат по `ReturnRequest` с попаданием в quarantine
 - ограничения разных ролей
 
@@ -83,7 +96,7 @@
 
 Не должны ломаться:
 - auth и permissions
-- order confirmation invariants
+- order materialization/readiness invariants
 - reserve rules
 - fulfillment close rules
 - payment registration
@@ -99,20 +112,24 @@
 - создание лида
 - переходы статусов лида
 - конверсия в сделку
+- участник `монтажник/дизайнер`
 - связь client/contact
 
 ### Orders
-- draft order
-- confirm order
-- cancel order
+- auto-created order
+- `Assembling -> ReadyForPartialShipment`
+- `Assembling -> ReadyForShipment`
+- `PartiallyShipped -> Shipped`
+- control flags `OnControl` / `Problem`
 - запрещённые переходы
 - корректность totals
 
 ### Inventory
-- reserve только после confirmation
+- durable reserve только вместе с Order
 - TTL expiry
 - reserve release
 - movement correctness
+- receipt with discrepancy
 - write-off только по факту исполнения
 
 ### Payments
@@ -120,6 +137,7 @@
 - защита от двойного submit
 - регистрация возврата
 - лимиты возврата
+- разделение подтверждённых денег и денег у водителей
 
 ### Finance
 - доход только по cash basis
@@ -130,6 +148,7 @@
 - assignment задачи
 - driver visibility
 - completion flow
+- escalation flow для проблемного заказа
 
 ### Users and access
 - login / logout
@@ -143,16 +162,17 @@
 
 ## Обязательные негативные тесты
 
-- reserve на стадии draft
-- списание при одном только order confirmation
+- durable reserve без order
+- списание при одном только readiness/status переходе заказа
 - признание дохода без оплаты
 - возврат без `ReturnRequest`
 - повторная оплата с тем же idempotency key
 - возврат сверх оплаченной суммы
 - status transition вне state machine
-- доступ Sales к finance-only полям
-- доступ Driver к чужим доставкам
-- доступ Warehouse к role administration
+- доступ `seller` к finance-only полям
+- доступ `driver` к чужим доставкам
+- доступ `warehouse` к role administration
+- снятие `Problem` без подтверждения финансиста/директора
 
 ## Concurrency and idempotency
 
@@ -192,8 +212,8 @@
 ## v8 Architecture Overrides
 
 Обязательные P0 сценарии:
-- гонка остатков при `Draft -> Confirmed`
-- rollback/compensation при сбое логистики во время confirm
+- атомарность `Deal -> auto Order + Reservation`
+- частичный резерв и частичная отгрузка
 - один order с несколькими delivery task и `PartiallyDelivered`
 - возвратный товар не попадает в `available` до выхода из `quarantine`
 - повтор критичной мутации с тем же `Idempotency-Key` не создаёт второй результат

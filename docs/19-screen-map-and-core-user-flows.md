@@ -13,6 +13,12 @@
 
 ## 2. Глобальная карта экранов
 
+Канонические role codes:
+- `admin`, `seller`, `warehouse`, `logistics`, `finance`, `ceo`
+- optional: `driver`, `marketing`
+
+UI labels для ролей отображаются на русском языке.
+
 ### 2.1 App Shell
 - Login
 - Role Home
@@ -32,8 +38,8 @@
 ### 2.3 Orders
 - Orders List
 - Order Card
-- Draft Order Form
-- Order Confirmation View
+- Supplier Requests List (mandatory MVP)
+- Supplier Request Card (mandatory MVP)
 - Return Request List
 - Return Request Card
 
@@ -41,8 +47,10 @@
 - Stock List
 - SKU Card
 - Reservation List
+- Product Matrix
 - Movement Journal
 - Receipt List
+- ABC Report
 - Write-off List
 - Stock Return List
 
@@ -70,7 +78,6 @@
 
 ### 2.8 KPI
 - Sales KPI
-- Marketing KPI
 - Logistics KPI
 - Warehouse KPI
 - Executive KPI
@@ -95,18 +102,19 @@
 
 MVP должен включать минимум:
 - Login
-- Sales Home
+- Продавец Home (`seller`)
 - Leads List / Card
 - Deals List / Card
 - Orders List / Card
+- Supplier Requests List / Card
 - Payments List / Card
 - Delivery Calendar / Task Card
 - Stock List / Movements
-- Warehouse Home
-- Finance Home
-- Logistics Home
-- CEO Home
-- Driver Today / Task Card
+- Кладовщик Home (`warehouse`)
+- Финансист Home (`finance`)
+- Логист Home (`logistics`)
+- Исполнительный директор Home (`ceo`)
+- Водитель Today / Task Card (`driver`, optional)
 
 Без этих экранов система не покрывает полный цикл от лида до исполнения.
 
@@ -114,39 +122,40 @@ MVP должен включать минимум:
 
 ## 4. Сквозной пользовательский сценарий
 
-### 4.1 Sales flow
-1. Пользователь открывает Sales Home
+### 4.1 Продавец flow (`seller`)
+1. Пользователь открывает Продавец Home
 2. Переходит в новый lead
-3. Обновляет lead и переводит его в deal
-4. Из deal создаёт draft order
-5. Проверяет доступность
-6. Подтверждает order при выполнении предусловий
-7. Отслеживает оплату и исполнение в карточке order
+3. Переводит lead в `Deal`
+4. Заполняет коммерческий состав, цену и способ исполнения
+5. Проверяет покрытие товара и инициирует reserve / supplier request
+6. Система auto-creates `Order` при выполнении условий
+7. Пользователь отслеживает оплату и исполнение в карточке order
 
-### 4.2 Finance flow
-1. Пользователь открывает Finance Home
+### 4.2 Финансист flow (`finance`)
+1. Пользователь открывает Финансист Home
 2. Переходит в список payments
 3. Находит новую оплату
 4. Проводит оплату или отправляет в issue state
-5. Проверяет влияние на order context
+5. Проверяет деньги у водителей и supplier payables
 6. В конце периода запускает reconciliation
 
-### 4.3 Warehouse flow
-1. Пользователь открывает Warehouse Home
-2. Переходит в reservations или stock alerts
+### 4.3 Кладовщик flow (`warehouse`)
+1. Пользователь открывает Кладовщик Home
+2. Переходит в reservations, supplier requests или stock alerts
 3. Проверяет резерв по order
-4. Выполняет движение по факту исполнения
-5. Фиксирует возврат или списание при необходимости
+4. Отмечает приёмку поставки и расхождения
+5. Выполняет движение по факту исполнения
+6. Фиксирует возврат или списание при необходимости
 
-### 4.4 Logistics flow
-1. Пользователь открывает Logistics Home
+### 4.4 Логист flow (`logistics`)
+1. Пользователь открывает Логист Home
 2. Переходит в Delivery Calendar
 3. Назначает слот и водителя
 4. Открывает Delivery Task Card
 5. Отслеживает подтверждение и исход выполнения
-6. Обрабатывает инцидент при срыве
+6. Обрабатывает инцидент при срыве или проблемный заказ по просроченным деньгам
 
-### 4.5 Driver flow
+### 4.5 Водитель flow (`driver`)
 1. Пользователь открывает Driver Today
 2. Видит список задач на сегодня
 3. Открывает Driver Task Card
@@ -155,10 +164,10 @@ MVP должен включать минимум:
 6. Фиксирует delivered / failed
 7. При проблеме отправляет issue
 
-### 4.6 CEO flow
+### 4.6 Исполнительный директор flow (`ceo`)
 1. Пользователь открывает Executive Dashboard
 2. Видит KPI и системные риски
-3. Переходит в проблемный блок
+3. Переходит в блок денег у водителей, supplier payables или проблемных заказов
 4. Проваливается в нужный домен
 5. Читает связанный контекст и аудит
 6. Принимает решение
@@ -226,56 +235,60 @@ MVP должен включать минимум:
 
 ## 7. Карта экранов по ролям
 
-### Sales
-- Sales Home
+### Продавец (`seller`)
+- Продавец Home
 - Leads List / Card
 - Deals List / Card
 - Orders List / Card
+- Supplier Requests List / Card
 - Clients
 - Follow-up Queue
 - My KPI
 
-### Marketing
-- Marketing Home
+### Маркетинг (`marketing`, optional later)
+- Маркетинг Home (optional later)
 - Channel Performance
 - Attribution View
 - Marketing Expenses
 - Funnel Analytics
 - Marketing Reports
 
-### Finance
-- Finance Home
+### Финансист (`finance`)
+- Финансист Home
 - Payments List / Card
 - Refunds List / Card
 - Expenses
 - Reconciliation Center
 - Finance Reports
 
-### Logistics
-- Logistics Home
+### Логист (`logistics`)
+- Логист Home
 - Delivery Calendar
 - Delivery Task List / Card
 - Drivers
 - Route Day
 - Incidents
 
-### Warehouse
-- Warehouse Home
+### Кладовщик (`warehouse`)
+- Кладовщик Home
 - Stock List
 - SKU Card
 - Reservations
+- Supplier Requests
 - Movements
 - Receipts
+- Product Matrix
+- ABC Report
 - Write-offs
 - Stock Returns
 
-### CEO / Management
+### Исполнительный директор (`ceo`)
 - Executive Dashboard
 - KPI dashboards
 - Audit overview
 - cross-domain drill-down screens
 
-### Driver
+### Водитель (`driver`)
 - Driver Today
 - Driver Task Card
 - Driver Route

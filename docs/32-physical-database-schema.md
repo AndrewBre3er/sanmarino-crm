@@ -74,13 +74,31 @@ Status values must be backed by enums at the Prisma/PostgreSQL layer wherever st
 Where a status is still not fully fixed in accepted docs, use an enum only if all values are already documented; otherwise use a constrained string + ADR/TBD note.
 
 ### 1.5 Domain transaction rule
-`Draft -> Confirmed` must be designed either as:
+`commercial coverage -> auto order + reservation` must be designed either as:
 - one DB transaction with full rollback, or
 - Saga / Transactional Outbox with compensation
 
 The schema must therefore include:
 - `system.idempotency_records`
 - `system.outbox_events`
+
+### 1.6 Current business alignment overrides
+
+If older sections below conflict with this section, the current v1 business alignment wins.
+
+Rules:
+- `Lead` is an incoming request from `АТС`, site or `Avito`
+- `Lead -> Deal` happens on `in_processing`
+- cancelled lead never becomes a `Deal`
+- `Deal` is the manager's commercial order stage
+- standalone `Invoice` table is out of current v1 scope (not a pre-coding gate)
+- durable reservation cannot exist without `Order`
+- if reserve is initiated from `Deal`, the system must create `Order` and `Reservation` atomically
+- `Order` starts as `assembling`
+- order control flags `on_control` and `problem` are stored separately from main order status
+- `ClientParticipant` (`installer` / `designer`) is a separate relational structure
+- `Supplier` / `SupplierRequest` are mandatory supply-side entities for v1 planning
+- v1 UOM list is fixed as `шт`, `кв.м`, `п.м`, `услуга`
 
 ---
 
@@ -93,18 +111,20 @@ Minimum enum set for v1 bootstrap:
 - `record_status`: `active`, `inactive`
 
 ### 2.2 CRM enums
-- `lead_status`: `draft`, `new`, `qualified`, `disqualified`, `archived`  
-  Note: the exact lead state machine remains partially open; if bootstrap prefers, keep this as constrained text with `TBD` note.
-- `deal_status`: `draft`, `qualified`, `proposal`, `negotiation`, `won`, `lost`
+- `lead_status`: `new`, `in_processing`, `cancelled`
+- `deal_status`: `in_progress`, `converted_to_order`, `cancelled`
 
 ### 2.3 Order enums
-- `order_status`: `draft`, `confirmed`, `reserved`, `in_progress`, `completed`, `closed`, `cancelled`, `partial_return`, `full_return`
+- `order_status`: `assembling`, `ready_for_partial_shipment`, `ready_for_shipment`, `partially_shipped`, `shipped`
+- `order_payment_control_status`: `none`, `on_control`, `problem`
 - `order_delivery_status`: `not_scheduled`, `scheduled`, `partially_delivered`, `delivered`, `failed`
 - `fulfillment_status`: `pending`, `completed`, `failed`, `cancelled`
 - `fulfillment_type`: `delivery`, `pickup`, `manual`
 - `return_request_status`: `draft`, `submitted`, `approved`, `rejected`, `processed`, `closed`
 
 ### 2.4 Inventory enums
+- `product_unit`: `шт`, `кв.м`, `п.м`, `услуга`
+- `supplier_request_status`: `formed`, `confirmed_by_supplier`, `received`, `received_with_discrepancy`
 - `stock_lock_status`: `active`, `expired`, `released`, `promoted`
 - `reservation_status`: `active`, `released`, `expired`, `consumed`, `cancelled`
 - `inventory_movement_type`: `receipt`, `issue`, `return_to_stock`, `writeoff`, `adjustment`, `reservation_create`, `reservation_release`, `transfer_to_quarantine`, `release_from_quarantine`
@@ -155,6 +175,18 @@ Columns:
 - `status record_status not null default 'active'`
 - `created_at`
 - `updated_at`
+
+Canonical v1 role codes:
+- `admin`
+- `seller`
+- `warehouse`
+- `logistics`
+- `finance`
+- `ceo`
+- optional: `driver`
+- optional: `marketing`
+
+UI labels for these codes are Russian and are handled at presentation layer.
 
 ### 3.1.3 `users.permissions`
 Columns:
@@ -233,6 +265,23 @@ Columns:
 Indexes:
 - index on `(client_id)`
 
+### 3.2.2a `crm.client_participants`
+Columns:
+- `id`
+- `client_id uuid not null references crm.clients(id)`
+- `deal_id uuid null references crm.deals(id)`
+- `order_id uuid null references orders.orders(id)`
+- `role_type varchar(32) not null`
+- `name varchar(255) not null`
+- `phone varchar(64) null`
+- `notes text null`
+- `created_at`
+- `updated_at`
+
+Rules:
+- allowed role types in v1: `installer`, `designer`
+- participant is additional to `client` / `contact`, not a replacement
+
 ### 3.2.3 `crm.leads`
 Columns:
 - `id`
@@ -240,7 +289,7 @@ Columns:
 - `status varchar(64) not null`
 - `client_id uuid null references crm.clients(id)`
 - `contact_id uuid null references crm.contacts(id)`
-- `responsible_user_id uuid not null references users.users(id)`
+- `responsible_user_id uuid null references users.users(id)`
 - `title varchar(255) null`
 - `notes text null`
 - `created_at`
@@ -260,6 +309,7 @@ Columns:
 - `responsible_user_id uuid not null references users.users(id)`
 - `status deal_status not null`
 - `title varchar(255) not null`
+- `delivery_mode varchar(32) null`
 - `notes text null`
 - `expected_value numeric(14,2) null`
 - `created_at`
@@ -285,6 +335,8 @@ Columns:
 - `deal_id uuid not null references crm.deals(id)`
 - `client_id uuid not null references crm.clients(id)`
 - `status order_status not null`
+- `payment_control_status order_payment_control_status not null default 'none'`
+- `payment_control_due_at timestamptz null`
 - `delivery_status order_delivery_status not null default 'not_scheduled'`
 - `fulfillment_type fulfillment_type not null`
 - `currency currency_code not null default 'RUB'`
@@ -292,10 +344,10 @@ Columns:
 - `discount_amount numeric(14,2) not null default 0`
 - `total_amount numeric(14,2) not null default 0`
 - `notes text null`
-- `confirmed_at timestamptz null`
-- `completed_at timestamptz null`
-- `closed_at timestamptz null`
-- `cancelled_at timestamptz null`
+- `ready_for_partial_shipment_at timestamptz null`
+- `ready_for_shipment_at timestamptz null`
+- `partially_shipped_at timestamptz null`
+- `shipped_at timestamptz null`
 - `created_by uuid not null references users.users(id)`
 - `updated_by uuid null references users.users(id)`
 - `created_at`
@@ -307,6 +359,7 @@ Columns:
 Rules:
 - one order must belong to one deal
 - one deal may have multiple orders
+- canonical v1 creation path is system auto-create from `crm.deals`
 - `delivery_status` is an aggregate field derived from `logistics.delivery_tasks`
 
 Indexes:
@@ -326,7 +379,7 @@ Columns:
 - `product_name_snapshot varchar(255) not null`
 - `sku_snapshot varchar(128) null`
 - `qty numeric(14,3) not null`
-- `unit varchar(32) null`
+- `unit product_unit not null`
 - `retail_price numeric(14,2) not null`
 - `discount_amount numeric(14,2) not null default 0`
 - `line_total numeric(14,2) not null`
@@ -336,8 +389,8 @@ Columns:
 - `updated_at`
 
 Rules:
-- `retail_price` is copied from the sales catalog at draft creation
-- `cost_snapshot` is optional at draft stage, but if used it must be sourced from Inventory logic, never from retail price
+- `retail_price` is copied from the commercial source at deal/order creation
+- `cost_snapshot` is optional at commercial creation stage, but if used it must be sourced from Inventory logic, never from retail price
 
 Indexes:
 - unique `(order_id, line_no)`
@@ -421,13 +474,54 @@ Indexes:
 
 ## 3.4 `inventory`
 
+### 3.4.0 `inventory.suppliers`
+Columns:
+- `id`
+- `name varchar(255) not null`
+- `phone varchar(64) null`
+- `email varchar(320) null`
+- `notes text null`
+- `created_at`
+- `updated_at`
+
+### 3.4.0a `inventory.supplier_requests`
+Columns:
+- `id`
+- `supplier_id uuid not null references inventory.suppliers(id)`
+- `business_source_type varchar(32) not null`
+  Allowed v1 values: `deal`, `order`.
+- `business_source_id uuid not null`
+- `status supplier_request_status not null`
+- `expected_supply_date date not null`
+- `requested_by uuid not null references users.users(id)`
+- `confirmed_by uuid null references users.users(id)`
+- `supplier_document_url text null`
+- `created_at`
+- `updated_at`
+
+Rules:
+- supplier request keeps source linkage via `business_source_type + business_source_id`
+- supplier request does not mutate stock directly
+
+### 3.4.0b `inventory.supplier_request_items`
+Columns:
+- `id`
+- `supplier_request_id uuid not null references inventory.supplier_requests(id)`
+- `product_id uuid not null references inventory.products(id)`
+- `qty numeric(14,3) not null`
+- `unit product_unit not null`
+- `source_line_ref varchar(128) not null`
+- `source_line_context jsonb null`
+- `created_at`
+- `updated_at`
+
 ### 3.4.1 `inventory.products`
 Columns:
 - `id`
 - `sku varchar(128) unique not null`
 - `name varchar(255) not null`
 - `product_type varchar(64) null`
-- `unit varchar(32) null`
+- `unit product_unit not null`
 - `is_active boolean not null default true`
 - `created_at`
 - `updated_at`
@@ -472,7 +566,7 @@ Indexes:
 
 ### 3.4.4 `inventory.stock_locks`
 Purpose:
-- short-lived soft lock / pre-reserve used before order confirmation
+- short-lived soft lock / pre-reserve used before order materialization and durable reservation
 
 Columns:
 - `id`
@@ -525,11 +619,16 @@ Columns:
 - `id`
 - `receipt_number varchar(64) unique not null`
 - `warehouse_id uuid not null references inventory.warehouses(id)`
-- `supplier_name varchar(255) null`
+- `supplier_id uuid not null references inventory.suppliers(id)`
+- `supplier_request_id uuid null references inventory.supplier_requests(id)`
 - `received_at timestamptz not null`
 - `created_by uuid not null references users.users(id)`
 - `created_at`
 - `updated_at`
+
+Rules:
+- stock increase is recorded only via receipt flow + movements
+- when `supplier_request_id` is set, receipt supplier must match supplier request supplier
 
 ### 3.4.7 `inventory.purchase_receipt_items`
 Columns:
@@ -537,8 +636,10 @@ Columns:
 - `purchase_receipt_id uuid not null references inventory.purchase_receipts(id)`
 - `product_id uuid not null references inventory.products(id)`
 - `qty numeric(14,3) not null`
+- `unit product_unit not null`
 - `unit_cost numeric(14,2) not null`
 - `line_total numeric(14,2) not null`
+- `supplier_request_item_id uuid null references inventory.supplier_request_items(id)`
 - `created_at`
 - `updated_at`
 
@@ -765,7 +866,7 @@ Columns:
 
 Rules:
 - income recognition follows cash basis
-- finance must not recognize sales income from order confirmation alone
+- finance must not recognize sales income from order status change alone
 
 Indexes:
 - index on `(entry_type)`
@@ -950,10 +1051,14 @@ Columns:
 ### 4.1 Core commercial chain
 - `crm.leads 1 -> 0..1 crm.deals` (nullable because deals may also be created manually)
 - `crm.clients 1 -> n crm.contacts`
+- `crm.clients 1 -> n crm.client_participants`
 - `crm.deals 1 -> n orders.orders`
 - `orders.orders 1 -> n orders.order_items`
 
 ### 4.2 Inventory and order chain
+- `inventory.suppliers 1 -> n inventory.supplier_requests`
+- `inventory.supplier_requests 1 -> n inventory.supplier_request_items`
+- `inventory.supplier_requests 1 -> n inventory.purchase_receipts` (optional linkage via `supplier_request_id`)
 - `orders.orders 1 -> n inventory.reservations`
 - `orders.orders 1 -> n inventory.stock_locks`
 - `orders.orders 1 -> n inventory.inventory_movements`
@@ -979,9 +1084,9 @@ Columns:
 
 ## 5. Mandatory constraints and invariants
 
-### 5.1 Draft vs reservation
-- `orders.orders.status = draft` may coexist with active `inventory.stock_locks`
-- `orders.orders.status = draft` must not create active durable `inventory.reservations`
+### 5.1 Commercial preparation vs reservation
+- pre-order commercial preparation may coexist with active `inventory.stock_locks`
+- durable `inventory.reservations` must not exist without `orders.orders`
 
 ### 5.2 Delivery split
 - one `orders.orders` row may have multiple `logistics.delivery_tasks`
@@ -993,7 +1098,7 @@ Columns:
 
 ### 5.4 Cash basis
 - `finance.finance_entries.entry_type = income` must be backed by a money fact
-- no income recognition from only `orders.orders.confirmed_at`
+- no income recognition from only `orders.orders.shipped_at`
 
 ### 5.5 Soft deletion
 - no physical delete for soft-protected tables in application logic

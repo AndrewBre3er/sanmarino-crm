@@ -4,21 +4,22 @@
 
 Accepted as a mandatory documentation gate before full `Orders` and `Inventory` feature coding.
 
-Date of approval: `2026-04-04`
+Date of update: `2026-04-05`
 
 ---
 
 ## 1. Purpose
 
-This document fixes additional business requirements that must be reflected in canonical docs before moving deeper into order implementation.
+This document fixes additional order-commercial requirements that must be reflected in canonical docs before deeper implementation.
 
-The goal is to prevent partial coding with missing contracts.
+This document is binding for:
+- installer/designer participant model
+- supplier directory and supplier request flow
+- strict v1 unit-of-measure policy
 
-This document is binding for the following topics:
-- installer/designer in the client model
-- separate invoice document
-- suppliers and supplier request flow
-- exact unit-of-measure list
+Clarification for current v1:
+- separate `Invoice` entity/API/schema is **out of scope**
+- term "счёт" may be used only as a commercial presentation artifact, not as a v1 source-of-truth entity
 
 If this file conflicts with older docs on these topics, this file wins until the changes are merged into canonical domain/API/DB docs.
 
@@ -56,77 +57,55 @@ Minimum documentation requirement:
 - fix relation model (`client`, `deal`, `order` linkage)
 - fix visibility/access rules by role workspace
 
-Open items that must stay `TBD` until approved:
+Open items that may stay `TBD` until approved:
 - commission logic
 - settlement logic with installer/designer
 - payout workflow
 
 ---
 
-### 3.2 Separate Invoice as a Document
+### 3.2 Supplier Request Source and Receipt Linkage
 
-A separate client invoice document must be defined as its own business artifact.
-
-Mandatory rules:
-- invoice is generated from order data snapshot
-- invoice line contains `price`, `qty`, `unit`, `line total`
-- invoice contains order total
-- invoice does not replace payment source of truth
-- payment recognition remains in `payments` + `finance` by cash basis rules
-
-Minimum documentation requirement:
-- fix invoice lifecycle and allowed commands (status catalog may be `TBD`, but command-style transitions are mandatory)
-- fix invoice-to-order relation
-- fix invoice fields and calculation rules
-
-Hard constraint:
-- invoice creation must not allow bypass of existing payment/refund/return invariants
-
----
-
-### 3.3 Suppliers and Supplier Request
-
-If an order item is "by supplier order", the system must form a supplier request using supplier directory data.
+If a position requires supplier coverage, the system must create supplier request lines with traceable business-source linkage.
 
 Mandatory rules:
-- suppliers must be modeled explicitly (no ad hoc text-only supplier identity)
-- supplier request must reference business source (`order` and affected items)
+- suppliers must be modeled explicitly (no text-only supplier identity)
+- supplier request must reference business source with canonical pair:
+  - `business_source_type` = `deal` | `order`
+  - `business_source_id`
+- supplier request items must keep line-level traceability through:
+  - `source_line_ref` (required string identifier from source context)
+  - `source_line_context` (optional structured context for diagnostics/audit)
 - supplier request must not directly mutate stock balances
-- stock increase only through approved receipt flow
+- stock increase is allowed only through approved receipt flow
 
-Minimum documentation requirement:
-- fix supplier directory ownership domain
-- fix supplier request entity and status process
-- fix triggering rule from order flow
-- fix relation with `purchase_receipt`
-
-Open items that must stay `TBD` until approved:
-- procurement approval chain
-- SLA/lead-time policy
-- supplier integration channel
+Receipt linkage rules:
+- `purchase_receipt` must keep `supplier_id`
+- `purchase_receipt` may keep `supplier_request_id` when receipt is linked to a request
+- `purchase_receipt_item` may keep `supplier_request_item_id` for line-level linkage
+- if `supplier_request_id` is set, receipt supplier must match supplier request supplier
 
 ---
 
-### 3.4 Exact Unit-of-Measure List
+### 3.3 Exact Unit-of-Measure List
 
-The v1 canonical unit list is fixed as:
+The v1 canonical UOM list is fixed as:
 - `шт`
 - `кв.м`
 - `п.м`
 - `услуга`
 
 Mandatory rules:
-- these units must be the only allowed v1 units for order-commercial flow
-- any extension requires docs update before coding
-- unit must be explicit in item-level documents and APIs where quantity/price is used
+- this is the only allowed v1 UOM set for order-commercial flow
+- unit must be explicit in item-level contracts and storage
+- this list is mandatory for:
+  - `order_item`
+  - `supplier_request_item`
+  - `purchase_receipt_item`
 
-Minimum documentation requirement:
-- fix enum/validation policy in API contracts
-- fix physical storage representation in DB schema docs
-- fix applicability matrix (`order_item`, invoice line, supplier request item, receipt item)
-
-Open item:
-- canonical internal code representation for these units (`TBD` until fixed in API/DB docs)
+Canonical representation rule:
+- API payload values and DB enum values use exactly these four strings
+- no alternate alias map is allowed in v1
 
 ---
 
@@ -139,29 +118,34 @@ Before implementing these features in code, the following docs must be updated c
 - `17-ui-ux-architecture.md`
 - `18-role-based-workspaces.md`
 - `21-testing-strategy.md`
+- `24-mvp-scope-v1.md`
 - `32-physical-database-schema.md`
 
-If required, additional targeted docs may be added with numeric ordering.
+If required, additional targeted docs may be updated for consistency.
 
 ---
 
 ## 5. Stop Rule
 
-Feature coding for these four topics is blocked until the documentation updates are complete and internally consistent.
+Feature coding for these topics is blocked until documentation updates are complete and internally consistent.
 
 Blocked until docs are updated:
 - installer/designer participant model implementation
-- invoice entity/API implementation
 - supplier directory/request implementation
-- strict units enum implementation
+- strict UOM implementation in API/DB contracts
+- receipt linkage implementation (`supplier_id` / `supplier_request_id` / line linkage)
+
+Not blocked by this gate in current v1:
+- separate `Invoice` entity/API/schema implementation
 
 ---
 
 ## 6. Acceptance Criteria for This Gate
 
 This gate is complete only when:
-- each topic has explicit entity and relation rules in canonical docs
-- API commands and validation constraints are fixed (or intentionally marked `TBD` where allowed)
-- DB-level schema implications are fixed in physical schema docs
-- role visibility constraints are fixed in UI/UX docs
-- tests for these rules are reflected in testing strategy docs
+- participant model is explicitly fixed in canonical docs
+- supplier request source linkage is explicitly fixed in canonical docs
+- receipt linkage with supplier/request context is explicitly fixed in canonical docs
+- strict UOM list is fixed in API and DB docs without conflicting alternatives
+- role visibility constraints are reflected in UI/UX docs
+- testing strategy includes these contract checks

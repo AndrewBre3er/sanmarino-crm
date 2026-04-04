@@ -206,20 +206,20 @@
 
 ## 6.3 Обязательные функции
 
-- создание draft order только из deal
+- создание order (status `assembling`) только из deal
 - редактирование состава заказа
 - подтверждение заказа командой `confirm`
 - отмена заказа
 - базовые статусы по state machine
 - связка order ↔ deal
-- создание событий `order.created`, `order.confirmed`, `order.cancelled`
+- создание событий `order.auto_created`, `order.status_changed`, `order.shipped`
 
 ---
 
 ## 6.4 Критические ограничения
 
 - order без deal запрещён
-- `Draft` не создаёт резерв
+- pre-order/commercial preparation не создаёт durable reservation
 - order не признаёт оплату сам по себе
 - order не списывает товар сам по себе
 
@@ -238,7 +238,6 @@ Before full implementation of extended order-commercial scenarios, `37-order-flo
 
 This gate is mandatory for:
 - installer/designer participant model
-- separate invoice document
 - suppliers and supplier request flow
 - strict unit-of-measure catalog
 
@@ -266,7 +265,7 @@ This gate is mandatory for:
 ## 7.3 Обязательные функции
 
 - просмотр остатков по складам
-- создание резерва только для confirmed order
+- создание durable reservation только для materialized order
 - TTL резервов
 - ручное и автоматическое снятие резерва
 - складской приход
