@@ -232,6 +232,16 @@
 - события по order публикуются после фиксации факта
 - нет смешения order-логики с payment и inventory
 
+## 6.6 Mandatory pre-coding gate for extended order requirements
+
+Before full implementation of extended order-commercial scenarios, `37-order-flow-pre-coding-requirements.md` must be applied in canonical docs.
+
+This gate is mandatory for:
+- installer/designer participant model
+- separate invoice document
+- suppliers and supplier request flow
+- strict unit-of-measure catalog
+
 ---
 
 ## 7. Этап 4. Inventory MVP

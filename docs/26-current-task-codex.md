@@ -27,6 +27,7 @@
    - `23-tech-baseline-and-decision-log.md`
    - `24-mvp-scope-v1.md`
    - `25-development-standards.md`
+   - `37-order-flow-pre-coding-requirements.md` (mandatory before coding extended order-commercial features)
 
 ## Current objective
 
@@ -47,6 +48,7 @@
 - придумывать технологический стек без подтверждения
 - смешивать несколько стеков в одном решении
 - добавлять новые статусы, переходы и финансовые правила
+- реализовывать installer/designer, invoice, supplier request и strict UOM без предварительного обновления канонических docs по `37-order-flow-pre-coding-requirements.md`
 - реализовывать доступы только на frontend
 - реализовывать accrual вместо cash basis
 - делать durable reservation на стадии draft вместо short-lived soft lock
