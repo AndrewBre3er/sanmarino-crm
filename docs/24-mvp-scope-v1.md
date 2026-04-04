@@ -88,7 +88,13 @@ MVP v1 покрывает минимально достаточный рабоч
 ### Supply + Inventory
 - short-lived soft lock / pre-reserve with TTL
 - durable reservation only for `Order`
-- supplier request status flow
+- supplier request status flow (`formed -> confirmed_by_supplier -> paid -> stocked`)
+- supplier request создаёт менеджер (`seller`)
+- список и статус supplier request видят все роли
+- attach file к supplier request разрешён только `warehouse`, `finance`, `ceo`
+- файл supplier request видят только `warehouse`, `finance`, `ceo`
+- статус `paid` выставляют только `finance` или `ceo` после фактической оплаты
+- статус `stocked` выставляет только `warehouse` после фактического прихода товара
 - mandatory MVP screens: `Supplier Requests List` + `Supplier Request Card`
 - purchase receipt + discrepancy handling
 - inventory movement by execution fact
@@ -111,6 +117,10 @@ MVP v1 покрывает минимально достаточный рабоч
 
 ### Returns
 - create `ReturnRequest`
+- status flow (`created -> confirmed -> processed -> closed`)
+- список и статус return request видят все роли
+- если прошло более `14` дней после реализации, подтверждение требует согласования `ceo`
+- `TBD`: точный timestamp "после реализации" фиксируется отдельно в API/DB contract
 - decision and processing baseline
 - no direct refund bypass
 
@@ -143,6 +153,8 @@ MVP v1 готов, если:
 - `Inventory` корректно ведёт soft lock/reservation/issue/quarantine
 - `finance` отражает доход по подтверждённой оплате
 - `ReturnRequest` обязателен для возвратов
+- supplier request и return request соблюдают role-limited action matrix
+- возврат старше `14` дней не подтверждается без `ceo`
 - `logistics` ведёт delivery task и агрегированный delivery status
 - отгруженные, но не подтверждённые по деньгам заказы попадают в `OnControl/Problem`
 - критичные действия попадают в audit log

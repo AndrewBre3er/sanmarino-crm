@@ -41,6 +41,14 @@
 - marketing workspace не является обязательным стартовым workspace
 - executive dashboard обязан разделять денежные показатели, отгрузку и контрольные денежные потоки от водителей
 - `Supplier Requests` является обязательным MVP экраном (list + card) для `seller` и `warehouse`
+- список и статус `Supplier Requests` и `Return Requests` должны быть видимы всем ролям
+- действия по `Supplier Requests` остаются role-limited:
+  - `seller` оформляет заявку
+  - `warehouse`, `finance`, `ceo` прикрепляют файл
+  - `finance` или `ceo` переводят в `paid` (UI: `Оплачено`)
+  - `warehouse` переводит в `stocked` (UI: `Оприходовано`)
+- прикреплённый файл supplier request должен быть видим только `warehouse`, `finance`, `ceo`
+- `ReturnRequest` со сроком более `14` дней после реализации требует согласования `ceo` на подтверждении
 
 ---
 
@@ -351,7 +359,7 @@
 - активные резервы
 - partial reserve / full reserve readiness
 - ожидаемые приходы
-- supplier request со статусом `received_with_discrepancy`
+- supplier request со статусами `paid` (UI: `Оплачено`) и `stocked` (UI: `Оприходовано`)
 - проблемные отгрузки
 
 ### Исполнительный директор Home (`ceo`)

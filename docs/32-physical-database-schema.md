@@ -120,11 +120,13 @@ Minimum enum set for v1 bootstrap:
 - `order_delivery_status`: `not_scheduled`, `scheduled`, `partially_delivered`, `delivered`, `failed`
 - `fulfillment_status`: `pending`, `completed`, `failed`, `cancelled`
 - `fulfillment_type`: `delivery`, `pickup`, `manual`
-- `return_request_status`: `draft`, `submitted`, `approved`, `rejected`, `processed`, `closed`
+- `return_request_status`: `created`, `confirmed`, `processed`, `closed`
+  UI labels: `Оформлена`, `Подтверждена`, `Обработана`, `Закрыта`
 
 ### 2.4 Inventory enums
 - `product_unit`: `шт`, `кв.м`, `п.м`, `услуга`
-- `supplier_request_status`: `formed`, `confirmed_by_supplier`, `received`, `received_with_discrepancy`
+- `supplier_request_status`: `formed`, `confirmed_by_supplier`, `paid`, `stocked`
+  UI labels: `Сформирована`, `Подтверждена поставщиком`, `Оплачено`, `Оприходовано`
 - `stock_lock_status`: `active`, `expired`, `released`, `promoted`
 - `reservation_status`: `active`, `released`, `expired`, `consumed`, `cancelled`
 - `inventory_movement_type`: `receipt`, `issue`, `return_to_stock`, `writeoff`, `adjustment`, `reservation_create`, `reservation_release`, `transfer_to_quarantine`, `release_from_quarantine`
@@ -440,8 +442,10 @@ Columns:
 - `reason text not null`
 - `requested_refund_amount numeric(14,2) null`
 - `approved_refund_amount numeric(14,2) null`
-- `submitted_at timestamptz null`
-- `approved_at timestamptz null`
+- `confirmed_at timestamptz null`
+- `requires_ceo_approval boolean not null default false`
+- `ceo_approved_by uuid null references users.users(id)`
+- `ceo_approved_at timestamptz null`
 - `processed_at timestamptz null`
 - `closed_at timestamptz null`
 - `created_at`
@@ -495,12 +499,21 @@ Columns:
 - `expected_supply_date date not null`
 - `requested_by uuid not null references users.users(id)`
 - `confirmed_by uuid null references users.users(id)`
+- `paid_by uuid null references users.users(id)`
+- `paid_at timestamptz null`
+- `stocked_by uuid null references users.users(id)`
+- `stocked_at timestamptz null`
 - `supplier_document_url text null`
 - `created_at`
 - `updated_at`
 
 Rules:
 - supplier request keeps source linkage via `business_source_type + business_source_id`
+- supplier request create action is performed by `seller`
+- supplier request attachment can be uploaded only by `warehouse`, `finance`, `ceo`
+- supplier request attachment is visible only to `warehouse`, `finance`, `ceo`
+- status `paid` is set only by `finance` or `ceo` after factual payment
+- status `stocked` is set only by `warehouse` after factual goods arrival
 - supplier request does not mutate stock directly
 
 ### 3.4.0b `inventory.supplier_request_items`
@@ -629,6 +642,7 @@ Columns:
 Rules:
 - stock increase is recorded only via receipt flow + movements
 - when `supplier_request_id` is set, receipt supplier must match supplier request supplier
+- receipt completion is the prerequisite for `supplier_requests.status = stocked`
 
 ### 3.4.7 `inventory.purchase_receipt_items`
 Columns:

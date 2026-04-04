@@ -42,6 +42,11 @@
 - Lead cancel with reason
 - Deal -> supplier coverage -> auto-created Order
 - SupplierRequest stores `business source` linkage and line-level `source line ref`
+- SupplierRequest status flow: `formed -> confirmed_by_supplier -> paid -> stocked`
+- SupplierRequest: only `finance`/`ceo` can set `paid`
+- SupplierRequest: only `warehouse` can set `stocked`
+- SupplierRequest: attachment upload allowed only for `warehouse`/`finance`/`ceo`
+- SupplierRequest: attachment visibility allowed only for `warehouse`/`finance`/`ceo`
 - Deal reserve request -> atomic Order + Reservation
 - Order -> Inventory reserve
 - partial reserve -> `ReadyForPartialShipment`
@@ -51,6 +56,8 @@
 - Shipped but unpaid -> `OnControl`
 - next business day unpaid -> `Problem`
 - ReturnRequest -> refund / return flow -> quarantine
+- ReturnRequest status flow: `created -> confirmed -> processed -> closed`
+- ReturnRequest older than `14` days after realization requires `ceo` approval on `confirmed`
 - receipt flow keeps `supplier_id` / optional `supplier_request_id` linkage
 - receipt items enforce explicit UOM from strict v1 list
 - role checks on API
@@ -65,6 +72,9 @@
 - field visibility rules
 - strict UOM validation (`шт`, `кв.м`, `п.м`, `услуга`)
 - supplier request source-line linkage contracts
+- supplier request status list and role-limited action contracts
+- supplier request attachment ACL contracts
+- return request status list contracts (`created`, `confirmed`, `processed`, `closed`)
 
 ### 5. E2E tests
 Проверяют через интерфейс:
@@ -73,6 +83,7 @@
 - перевод lead в `в обработке`
 - коммерческий `Deal`
 - supplier request
+- supplier request statuses and role-limited actions
 - auto-created order
 - сценарий частичной доставки с несколькими delivery task
 - регистрацию оплаты
@@ -80,6 +91,7 @@
 - логистическое исполнение
 - контроль денег от водителя
 - возврат по `ReturnRequest` с попаданием в quarantine
+- возврат старше `14` дней с обязательным `ceo` подтверждением
 - ограничения разных ролей
 
 ### 6. Manual smoke tests
@@ -173,6 +185,10 @@
 - доступ `driver` к чужим доставкам
 - доступ `warehouse` к role administration
 - снятие `Problem` без подтверждения финансиста/директора
+- перевод supplier request в `paid` ролью вне `finance`/`ceo`
+- перевод supplier request в `stocked` ролью вне `warehouse`
+- доступ к supplier request attachment ролью вне `warehouse`/`finance`/`ceo`
+- `ReturnRequest.confirmed` без `ceo` при возрасте возврата более `14` дней
 
 ## Concurrency and idempotency
 

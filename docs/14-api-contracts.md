@@ -263,6 +263,13 @@ API не должно разрешать:
 - для supplier coverage требуется отдельный ресурс `SupplierRequest`
 - supplier request обязан хранить source linkage через `businessSourceType + businessSourceId` и line-level `sourceLineRef`
 - receipt flow обязан передавать `supplierId` и опциональный `supplierRequestId`
+- `SupplierRequest` создаёт менеджер (`seller`)
+- список и статус `SupplierRequest` и `ReturnRequest` доступны всем ролям (read visibility only)
+- file attachment к `SupplierRequest` разрешён только для `warehouse`, `finance`, `ceo`
+- file attachment `SupplierRequest` видят только `warehouse`, `finance`, `ceo`
+- `SupplierRequest` использует статусы `formed`, `confirmed_by_supplier`, `paid`, `stocked` (UI labels: `Сформирована`, `Подтверждена поставщиком`, `Оплачено`, `Оприходовано`)
+- `ReturnRequest` использует статусы `created`, `confirmed`, `processed`, `closed` (UI labels: `Оформлена`, `Подтверждена`, `Обработана`, `Закрыта`)
+- `ReturnRequest.confirmed` требует согласования `ceo`, если прошло более `14` дней после реализации
 - в order-commercial flow v1 единицы измерения ограничены списком `шт`, `кв.м`, `п.м`, `услуга`
 
 ---
@@ -557,15 +564,18 @@ Request:
 Список возвратов по заказу.
 
 ### Command endpoints для return request
-- `POST /return-requests/{returnRequestId}/submit`
-- `POST /return-requests/{returnRequestId}/approve`
-- `POST /return-requests/{returnRequestId}/reject`
+- `POST /return-requests/{returnRequestId}/confirm`
 - `POST /return-requests/{returnRequestId}/process`
 - `POST /return-requests/{returnRequestId}/close`
 
 Правила:
-- `Processed` не означает автоматическое `Closed`
-- `Closed` возможно только после завершения последствий в нужных доменах
+- technical status codes: `created`, `confirmed`, `processed`, `closed`
+- UI labels: `Оформлена`, `Подтверждена`, `Обработана`, `Закрыта`
+- список и статус return request доступны всем ролям
+- `confirmed` требует согласования `ceo`, если прошло более `14` дней после реализации
+- `TBD`: технический якорь "после реализации" фиксируется как отдельный timestamp contract (`shipped_at` или иной execution timestamp)
+- `processed` не означает автоматическое `closed`
+- `closed` возможно только после завершения последствий в нужных доменах
 
 ---
 
@@ -741,13 +751,24 @@ Request:
 ### `GET /supplier-requests`
 Получить список supplier request.
 
+### `POST /supplier-requests/{supplierRequestId}/attachments`
+Прикрепить файл к supplier request.
+
 ### Command endpoints для supplier request
 - `POST /supplier-requests/{supplierRequestId}/confirm-by-supplier`
-- `POST /supplier-requests/{supplierRequestId}/mark-received`
-- `POST /supplier-requests/{supplierRequestId}/mark-received-with-discrepancy`
+- `POST /supplier-requests/{supplierRequestId}/mark-paid`
+- `POST /supplier-requests/{supplierRequestId}/mark-stocked`
 
 Правила:
+- supplier request оформляет менеджер (`seller`)
+- technical status codes: `formed`, `confirmed_by_supplier`, `paid`, `stocked`
+- UI labels: `Сформирована`, `Подтверждена поставщиком`, `Оплачено`, `Оприходовано`
+- список и статус supplier request доступны всем ролям
+- attach file разрешён только `warehouse`, `finance`, `ceo`
+- прикреплённый файл доступен только `warehouse`, `finance`, `ceo`
 - подтверждение поставщиком обязано фиксировать срок поставки
+- `mark-paid` выполняют только `finance` или `ceo` после фактической оплаты
+- `mark-stocked` выполняет только `warehouse` после фактического прихода товара
 - supplier request не меняет stock balance напрямую
 - `businessSourceType + businessSourceId` обязательны и должны быть трассируемыми
 - `sourceLineRef` обязателен для каждой позиции supplier request
@@ -1154,7 +1175,7 @@ API должно учитывать RBAC на уровне:
 - форматы enum serialization
 - webhooks / event contracts
 - пакетные bulk-операции
-- attach/file API
+- generic attach/file API вне `SupplierRequest`-контракта
 - адресная модель клиента и доставки
 - налоговые поля и фискальные интеграции
 - public API vs internal API split

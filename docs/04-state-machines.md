@@ -65,15 +65,20 @@
 ## 4. SupplierRequest
 
 Состояния:
-- `Formed`
-- `ConfirmedBySupplier`
-- `Received`
-- `ReceivedWithDiscrepancy`
+- `formed` (UI: `Сформирована`)
+- `confirmed_by_supplier` (UI: `Подтверждена поставщиком`)
+- `paid` (UI: `Оплачено`)
+- `stocked` (UI: `Оприходовано`)
 
 Правила:
-- инициатором supplier request могут быть продавец, кладовщик, исполнительный директор или админ
-- изменение подтверждающего supply-статуса выполняют только роли с отдельным правом
-- `ConfirmedBySupplier` обязан содержать ожидаемый срок поставки
+- supplier request оформляет менеджер (`seller`)
+- список и статус supplier request видят все роли
+- действия по supplier request ограничены ролями
+- файл к supplier request могут прикреплять только `warehouse`, `finance`, `ceo`
+- прикреплённый файл видят только `warehouse`, `finance`, `ceo`
+- `confirmed_by_supplier` обязан содержать ожидаемый срок поставки
+- переход в `paid` выполняют только `finance` или `ceo` после фактической оплаты
+- переход в `stocked` выполняет только `warehouse` после фактического прихода товара
 - supplier request не должен напрямую менять остатки
 
 ---
@@ -124,12 +129,13 @@
 ## 7. ReturnRequest
 
 Минимальная логика:
-- `Draft`
-- `Submitted`
-- `Approved`
-- `Rejected`
-- `Processed`
-- `Closed`
+- `created` (UI: `Оформлена`)
+- `confirmed` (UI: `Подтверждена`)
+- `processed` (UI: `Обработана`)
+- `closed` (UI: `Закрыта`)
 
 Правило:
+- список и статус return request видят все роли
+- если с момента реализации прошло более `14` дней, подтверждение возврата требует согласования `ceo`
+- `TBD`: точный технический якорь "момента реализации" (`shipped_at` или другой canonical execution timestamp) фиксируется в API/DB contract
 - возврат не считается завершённым, пока не закрыты его последствия в нужных доменах
