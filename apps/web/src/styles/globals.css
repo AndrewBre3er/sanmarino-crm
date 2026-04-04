@@ -309,6 +309,133 @@ a {
   animation: bo-pulse 1.2s ease-in-out infinite;
 }
 
+.bo-badge-with-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--bo-border);
+  border-radius: 999px;
+  background: #f8fbff;
+}
+
+.bo-badge-with-count strong {
+  font-size: 12px;
+}
+
+.bo-data-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--bo-border);
+  border-radius: 8px;
+}
+
+.bo-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+.bo-data-table th,
+.bo-data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bo-border);
+  text-align: left;
+  font-size: 14px;
+}
+
+.bo-data-table th {
+  background: #f4f7fc;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bo-data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.bo-data-table tbody tr {
+  cursor: pointer;
+}
+
+.bo-data-table tbody tr:hover {
+  background: #f8fbff;
+}
+
+.bo-data-row-active {
+  background: #eef4ff;
+}
+
+.bo-detail-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.bo-detail-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.bo-detail-grid div {
+  border: 1px solid var(--bo-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcff;
+}
+
+.bo-detail-grid dt {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--bo-muted);
+}
+
+.bo-detail-grid dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.bo-detail-subsections {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.bo-detail-card {
+  border: 1px solid var(--bo-border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcff;
+}
+
+.bo-detail-card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.bo-subtable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.bo-subtable th,
+.bo-subtable td {
+  border: 1px solid var(--bo-border);
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.bo-subtable th {
+  background: #f1f5fd;
+}
+
+.bo-related-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
 @keyframes bo-pulse {
   0%,
   100% {
