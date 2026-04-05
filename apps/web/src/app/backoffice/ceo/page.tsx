@@ -9,7 +9,7 @@ const ceo_modules = [
 export default function CeoOverviewPage() {
   return (
     <WorkspaceShellPage
-      workspace="ceo"
+      roleCode="ceo"
       title="CEO Overview"
       subtitle="Cross-domain management shell"
       modules={ceo_modules}

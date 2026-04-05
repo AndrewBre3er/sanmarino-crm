@@ -1,24 +1,24 @@
-import type { WorkspaceCode } from "../../contracts/backoffice-shell.contract";
-import { workspace_descriptors } from "../../contracts/backoffice-shell.contract";
+import type { AuthRoleCode } from "../../contracts/backoffice-shell.contract";
+import { role_russian_labels } from "../../contracts/backoffice-shell.contract";
 import { EmptyState } from "../../components/states/empty-state";
 import { ErrorState } from "../../components/states/error-state";
 import { LoadingState } from "../../components/states/loading-state";
 import { PageHeader, PageSection, PageShell } from "../../components/shell/page-shell";
 
 interface WorkspaceShellPageProps {
-  workspace: WorkspaceCode;
+  roleCode: AuthRoleCode;
   modules: readonly string[];
   title: string;
   subtitle: string;
 }
 
 export function WorkspaceShellPage({
-  workspace,
+  roleCode,
   modules,
   title,
   subtitle
 }: WorkspaceShellPageProps) {
-  const descriptor = workspace_descriptors[workspace];
+  const roleLabel = role_russian_labels[roleCode];
 
   return (
     <PageShell>
@@ -41,7 +41,7 @@ export function WorkspaceShellPage({
 
       <PageSection
         title="Operational Frame"
-        description={`Current route is mapped to ${descriptor.title}.`}
+        description={`Current route is mapped to role "${roleLabel}".`}
       >
         <div className="bo-state-grid">
           <LoadingState label="Loading state component for workspace-level widgets." />

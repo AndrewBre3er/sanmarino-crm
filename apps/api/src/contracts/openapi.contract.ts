@@ -6,15 +6,16 @@ export const api_openapi_contract = {
   description: [
     "Bootstrap shell.",
     "",
-    "Phase 10 read-side foundation baseline:",
+    "Phase 10 read-side + auth skeleton baseline:",
     "- request/correlation/idempotency/audit-boundary API shell conventions",
     "- normalized response envelope and exception mapping",
     "- read-only list/detail endpoints for core transactional entities",
+    "- custom auth skeleton endpoints with httpOnly cookies and refresh token rotation baseline",
     "- pagination/filter/sort query contracts aligned with shared platform types",
     "",
-    "TODO: mutation endpoints, business workflows, and auth/RBAC enforcement are deferred."
+    "TODO: users domain, full RBAC/field-level enforcement, and MFA implementation are deferred."
   ].join("\n"),
-  version: "0.10.0",
+  version: "0.11.0",
   docsPath: "api/docs",
   globalPrefix: "api"
 } as const;
@@ -47,12 +48,16 @@ export const api_openapi_tags = {
   returnsRead: {
     name: "returns-read",
     description: "Read-only return request endpoints"
+  },
+  auth: {
+    name: "auth",
+    description: "Authentication skeleton endpoints: login, refresh, logout, me"
   }
 } as const;
 
 export const api_openapi_extensions = {
   platformContractsPackage: "@sanmarino/types",
-  bootstrapPhase: "phase-10-backend-read-side-foundation",
+  bootstrapPhase: "phase-11-api-auth-skeleton",
   declaredErrorCodes: api_error_codes,
   requestContextHeaders: request_context_headers,
   idempotencyHeaderContract: {

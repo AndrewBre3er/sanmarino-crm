@@ -1,20 +1,21 @@
 import { WorkspaceShellPage } from "../../../features/backoffice-shell/workspace-shell-page";
 
-const sales_modules = [
+const seller_modules = [
   "Leads",
   "Deals",
   "Orders",
+  "Supplier Requests",
   "Return Requests",
-  "Sales Home KPI (shell)"
+  "Seller Home KPI (shell)"
 ] as const;
 
-export default function SalesWorkspacePage() {
+export default function SellerWorkspacePage() {
   return (
     <WorkspaceShellPage
-      workspace="sales"
-      title="Sales Workspace"
+      roleCode="seller"
+      title="Seller Workspace"
       subtitle="Role-aware shell for lead-to-order operations"
-      modules={sales_modules}
+      modules={seller_modules}
     />
   );
 }

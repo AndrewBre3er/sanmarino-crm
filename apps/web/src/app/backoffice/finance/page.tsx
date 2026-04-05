@@ -10,7 +10,7 @@ const finance_modules = [
 export default function FinanceWorkspacePage() {
   return (
     <WorkspaceShellPage
-      workspace="finance"
+      roleCode="finance"
       title="Finance Workspace"
       subtitle="Role-aware shell for payment and reconciliation contexts"
       modules={finance_modules}

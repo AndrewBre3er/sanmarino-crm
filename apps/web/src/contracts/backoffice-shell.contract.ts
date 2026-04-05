@@ -1,67 +1,72 @@
-export const workspace_codes = ["sales", "logistics", "finance", "ceo"] as const;
+export const required_auth_role_codes = [
+  "admin",
+  "seller",
+  "warehouse",
+  "logistics",
+  "finance",
+  "ceo"
+] as const;
 
-export type WorkspaceCode = (typeof workspace_codes)[number];
+export const optional_auth_role_codes = ["driver", "marketing"] as const;
 
-export interface WorkspaceDescriptor {
-  code: WorkspaceCode;
-  title: string;
-  subtitle: string;
-  homePath: string;
-}
+export const auth_role_codes = [...required_auth_role_codes, ...optional_auth_role_codes] as const;
+
+export type AuthRoleCode = (typeof auth_role_codes)[number];
+
+export const role_russian_labels: Readonly<Record<AuthRoleCode, string>> = {
+  admin: "Админ",
+  seller: "Продавец",
+  warehouse: "Кладовщик",
+  logistics: "Логист",
+  finance: "Финансист",
+  ceo: "Исполнительный директор",
+  driver: "Водитель",
+  marketing: "Маркетинг"
+};
 
 export interface ShellRouteDescriptor {
   key:
-    | "sales-workspace"
+    | "admin-workspace"
+    | "seller-workspace"
+    | "warehouse-workspace"
     | "logistics-workspace"
     | "finance-workspace"
     | "ceo-overview"
+    | "driver-workspace"
+    | "marketing-workspace"
     | "leads"
     | "deals"
     | "orders"
+    | "supplier-requests"
     | "payments"
     | "delivery-tasks"
     | "return-requests";
   title: string;
   path: string;
   scope: "workspace" | "entity";
-  defaultWorkspace: WorkspaceCode;
   shellOnly: true;
 }
 
-export const workspace_descriptors: Readonly<Record<WorkspaceCode, WorkspaceDescriptor>> = {
-  sales: {
-    code: "sales",
-    title: "Sales Workspace",
-    subtitle: "Lead-to-order operational shell",
-    homePath: "/backoffice/sales"
-  },
-  logistics: {
-    code: "logistics",
-    title: "Logistics Workspace",
-    subtitle: "Delivery planning and task execution shell",
-    homePath: "/backoffice/logistics"
-  },
-  finance: {
-    code: "finance",
-    title: "Finance Workspace",
-    subtitle: "Payments and reconciliation shell",
-    homePath: "/backoffice/finance"
-  },
-  ceo: {
-    code: "ceo",
-    title: "CEO Overview",
-    subtitle: "Cross-domain oversight shell",
-    homePath: "/backoffice/ceo"
-  }
-};
-
 export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
   {
-    key: "sales-workspace",
-    title: "Sales Workspace",
-    path: "/backoffice/sales",
+    key: "admin-workspace",
+    title: "Admin Workspace",
+    path: "/backoffice/admin",
     scope: "workspace",
-    defaultWorkspace: "sales",
+    shellOnly: true
+  },
+  {
+    key: "seller-workspace",
+    title: "Seller Workspace",
+    path: "/backoffice/seller",
+    scope: "workspace",
+    shellOnly: true
+  },
+  {
+    key: "warehouse-workspace",
+    title: "Warehouse Workspace",
+    path: "/backoffice/warehouse",
+    scope: "workspace",
     shellOnly: true
   },
   {
@@ -69,7 +74,6 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     title: "Logistics Workspace",
     path: "/backoffice/logistics",
     scope: "workspace",
-    defaultWorkspace: "logistics",
     shellOnly: true
   },
   {
@@ -77,7 +81,6 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     title: "Finance Workspace",
     path: "/backoffice/finance",
     scope: "workspace",
-    defaultWorkspace: "finance",
     shellOnly: true
   },
   {
@@ -85,7 +88,20 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     title: "CEO Overview",
     path: "/backoffice/ceo",
     scope: "workspace",
-    defaultWorkspace: "ceo",
+    shellOnly: true
+  },
+  {
+    key: "driver-workspace",
+    title: "Driver Workspace",
+    path: "/backoffice/driver",
+    scope: "workspace",
+    shellOnly: true
+  },
+  {
+    key: "marketing-workspace",
+    title: "Marketing Workspace",
+    path: "/backoffice/marketing",
+    scope: "workspace",
     shellOnly: true
   },
   {
@@ -93,7 +109,6 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     title: "Leads",
     path: "/backoffice/leads",
     scope: "entity",
-    defaultWorkspace: "sales",
     shellOnly: true
   },
   {
@@ -101,7 +116,6 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     title: "Deals",
     path: "/backoffice/deals",
     scope: "entity",
-    defaultWorkspace: "sales",
     shellOnly: true
   },
   {
@@ -109,7 +123,13 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     title: "Orders",
     path: "/backoffice/orders",
     scope: "entity",
-    defaultWorkspace: "sales",
+    shellOnly: true
+  },
+  {
+    key: "supplier-requests",
+    title: "Supplier Requests",
+    path: "/backoffice/supplier-requests",
+    scope: "entity",
     shellOnly: true
   },
   {
@@ -117,7 +137,6 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     title: "Payments",
     path: "/backoffice/payments",
     scope: "entity",
-    defaultWorkspace: "finance",
     shellOnly: true
   },
   {
@@ -125,7 +144,6 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     title: "Delivery Tasks",
     path: "/backoffice/delivery-tasks",
     scope: "entity",
-    defaultWorkspace: "logistics",
     shellOnly: true
   },
   {
@@ -133,52 +151,55 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     title: "Return Requests",
     path: "/backoffice/return-requests",
     scope: "entity",
-    defaultWorkspace: "sales",
     shellOnly: true
   }
 ] as const;
 
-export const workspace_navigation_contract: Readonly<
-  Record<WorkspaceCode, readonly ShellRouteDescriptor["key"][]>
+const role_home_route_key: Readonly<Record<AuthRoleCode, ShellRouteDescriptor["key"]>> = {
+  admin: "admin-workspace",
+  seller: "seller-workspace",
+  warehouse: "warehouse-workspace",
+  logistics: "logistics-workspace",
+  finance: "finance-workspace",
+  ceo: "ceo-overview",
+  driver: "driver-workspace",
+  marketing: "marketing-workspace"
+};
+
+export const role_navigation_contract: Readonly<
+  Record<AuthRoleCode, readonly ShellRouteDescriptor["key"][]>
 > = {
-  sales: ["sales-workspace", "leads", "deals", "orders", "return-requests"],
-  logistics: ["logistics-workspace", "delivery-tasks"],
-  finance: ["finance-workspace", "payments"],
+  admin: ["admin-workspace", "supplier-requests", "return-requests"],
+  seller: ["seller-workspace", "leads", "deals", "orders", "supplier-requests", "return-requests"],
+  warehouse: ["warehouse-workspace", "orders", "supplier-requests", "return-requests"],
+  logistics: ["logistics-workspace", "delivery-tasks", "supplier-requests", "return-requests"],
+  finance: ["finance-workspace", "payments", "supplier-requests", "return-requests"],
   ceo: [
     "ceo-overview",
     "leads",
     "deals",
     "orders",
+    "supplier-requests",
     "payments",
     "delivery-tasks",
     "return-requests"
-  ]
+  ],
+  driver: ["driver-workspace", "delivery-tasks", "supplier-requests", "return-requests"],
+  marketing: ["marketing-workspace", "leads", "supplier-requests", "return-requests"]
 };
 
 const route_by_key = new Map(backoffice_shell_routes.map(route => [route.key, route]));
 
-export function get_workspace_navigation(workspace: WorkspaceCode): readonly ShellRouteDescriptor[] {
-  return workspace_navigation_contract[workspace]
+export function get_role_navigation(roleCode: AuthRoleCode): readonly ShellRouteDescriptor[] {
+  return role_navigation_contract[roleCode]
     .map(routeKey => route_by_key.get(routeKey))
     .filter((route): route is ShellRouteDescriptor => Boolean(route));
 }
 
-export function resolve_workspace_from_path(pathname: string): WorkspaceCode {
-  const normalizedPath = pathname.toLowerCase();
-  const exactWorkspace = backoffice_shell_routes.find(
-    route => route.scope === "workspace" && route.path === normalizedPath
-  );
-
-  if (exactWorkspace) {
-    return exactWorkspace.defaultWorkspace;
-  }
-
-  const entityRoute = backoffice_shell_routes.find(
-    route => route.scope === "entity" && route.path === normalizedPath
-  );
-
-  return entityRoute?.defaultWorkspace ?? "sales";
+export function resolve_role_home_path(roleCode: AuthRoleCode): string {
+  const homeRoute = route_by_key.get(role_home_route_key[roleCode]);
+  return homeRoute?.path ?? "/backoffice/seller";
 }
 
 export const backoffice_shell_todo_note =
-  "TODO: replace shell-only navigation context with backend-driven RBAC menu once auth/RBAC contracts are wired.";
+  "TODO: keep frontend navigation role-aware from session and move fine-grained field/action policies to backend RBAC contracts.";

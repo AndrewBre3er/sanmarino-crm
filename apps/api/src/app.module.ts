@@ -4,12 +4,13 @@ import { ApiResponseEnvelopeInterceptor } from "./common/http/api-response-envel
 import { RequestContextMiddleware } from "./common/request-context/request-context.middleware";
 import { RequestContextPropagationInterceptor } from "./common/request-context/request-context.propagation.interceptor";
 import { RequestContextStore } from "./common/request-context/request-context.store";
+import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { TransactionalReadModule } from "./modules/read-side/read-side.module";
 import { PrismaModule } from "./prisma/prisma.module";
 
 @Module({
-  imports: [PrismaModule, HealthModule, TransactionalReadModule],
+  imports: [PrismaModule, HealthModule, AuthModule, TransactionalReadModule],
   providers: [
     RequestContextStore,
     RequestContextPropagationInterceptor,

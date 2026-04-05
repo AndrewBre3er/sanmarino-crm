@@ -8,7 +8,7 @@ export default function PaymentsShellPage() {
     <EntityShellPage
       title="Payments"
       subtitle="Payment register shell"
-      workspace="finance"
+      roleCode="finance"
       statuses={payment_statuses}
       columns={payment_columns}
     />

@@ -2,6 +2,26 @@ export interface Env {
   NODE_ENV: string;
   API_HOST: string;
   API_PORT: number;
+  API_CORS_ORIGIN: string;
   DATABASE_URL: string;
   REDIS_URL: string;
+
+  SESSION_COOKIE_SECRET: string;
+  ACCESS_TOKEN_SECRET: string;
+  REFRESH_TOKEN_SECRET: string;
+
+  AUTH_ACCESS_TOKEN_TTL_MINUTES: number;
+  AUTH_REFRESH_TOKEN_TTL_DAYS: number;
+  AUTH_LOGIN_MAX_ATTEMPTS: number;
+  AUTH_LOGIN_WINDOW_MINUTES: number;
+  AUTH_LOGIN_LOCK_MINUTES: number;
+
+  AUTH_COOKIE_ACCESS_NAME: string;
+  AUTH_COOKIE_REFRESH_NAME: string;
+  AUTH_COOKIE_SECURE: boolean;
+  AUTH_COOKIE_DOMAIN: string;
+  AUTH_COOKIE_SAME_SITE: "lax" | "strict" | "none";
+
+  AUTH_BOOTSTRAP_DEFAULT_PASSWORD: string;
+  AUTH_BOOTSTRAP_ACCOUNTS_JSON: string;
 }
