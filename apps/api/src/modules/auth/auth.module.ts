@@ -1,11 +1,11 @@
 import { Module } from "@nestjs/common";
-import { AuthBootstrapAccountsService } from "./auth.bootstrap-accounts";
 import { AuthController } from "./auth.controller";
+import { AuthPrismaAccountsService } from "./auth.prisma-accounts";
 import { AuthLoginRateLimitService } from "./auth.rate-limit";
 import { AuthService } from "./auth.service";
 
 @Module({
   controllers: [AuthController],
-  providers: [AuthBootstrapAccountsService, AuthLoginRateLimitService, AuthService]
+  providers: [AuthPrismaAccountsService, AuthLoginRateLimitService, AuthService]
 })
 export class AuthModule {}

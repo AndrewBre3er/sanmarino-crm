@@ -3,6 +3,7 @@ import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypt
 import { get_env } from "../../config/env";
 import {
   optional_bootstrap_role_codes,
+  resolve_allowed_workspaces,
   required_bootstrap_role_codes,
   type AuthPrincipal,
   type AuthRoleCode
@@ -133,8 +134,12 @@ export class AuthBootstrapAccountsService {
       const passwordHashHex = hash_password(seed.password, saltHex);
       const stored: StoredBootstrapAccount = {
         userId: randomUUID(),
+        email: seed.login,
         login: seed.login,
         displayName: seed.displayName,
+        primaryRole: seed.roleCode,
+        roleCodes: [seed.roleCode],
+        allowedWorkspaces: resolve_allowed_workspaces([seed.roleCode]),
         roleCode: seed.roleCode,
         optionalRole: seed.optionalRole,
         passwordSaltHex: saltHex,
@@ -175,8 +180,12 @@ export class AuthBootstrapAccountsService {
   private to_public(account: StoredBootstrapAccount): AuthPrincipal {
     return {
       userId: account.userId,
+      email: account.email,
       login: account.login,
       displayName: account.displayName,
+      primaryRole: account.primaryRole,
+      roleCodes: account.roleCodes,
+      allowedWorkspaces: account.allowedWorkspaces,
       roleCode: account.roleCode,
       optionalRole: account.optionalRole
     };

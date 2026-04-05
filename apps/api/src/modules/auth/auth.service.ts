@@ -1,8 +1,14 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { get_env } from "../../config/env";
-import { AuthBootstrapAccountsService } from "./auth.bootstrap-accounts";
-import type { AuthPrincipal, AuthSessionView, IssuedTokenPair } from "./auth.contract";
+import {
+  is_optional_role_code,
+  type AuthPrincipal,
+  type AuthRoleCode,
+  type AuthSessionView,
+  type IssuedTokenPair
+} from "./auth.contract";
+import { AuthPrismaAccountsService } from "./auth.prisma-accounts";
 import { AuthLoginRateLimitService } from "./auth.rate-limit";
 import {
   issue_access_token,
@@ -14,7 +20,7 @@ import {
 interface SessionRecord {
   sessionId: string;
   userId: string;
-  roleCode: AuthPrincipal["roleCode"];
+  roleCode: AuthRoleCode;
   issuedAt: string;
   refreshExpiresAt: string;
   refreshTokenHashHex: string;
@@ -45,7 +51,7 @@ export class AuthService {
   private readonly sessions = new Map<string, SessionRecord>();
 
   constructor(
-    private readonly accountsService: AuthBootstrapAccountsService,
+    private readonly accountsService: AuthPrismaAccountsService,
     private readonly loginRateLimitService: AuthLoginRateLimitService
   ) {}
 
@@ -53,7 +59,7 @@ export class AuthService {
     const normalizedLogin = input.login.trim().toLowerCase();
     this.loginRateLimitService.assert_not_locked(normalizedLogin, input.clientIp);
 
-    const principal = this.accountsService.verify_credentials(normalizedLogin, input.password);
+    const principal = await this.accountsService.verify_credentials(normalizedLogin, input.password);
     if (!principal) {
       this.loginRateLimitService.register_failure(normalizedLogin, input.clientIp);
       throw to_unauthorized("Invalid login or password");
@@ -92,13 +98,18 @@ export class AuthService {
       throw to_unauthorized("Session context is invalid");
     }
 
-    const principal = this.accountsService.get_by_user_id(session.userId);
+    const principal = await this.accountsService.get_by_user_id(session.userId);
     if (!principal) {
       this.revoke_session(session.sessionId);
       throw to_unauthorized("Account is unavailable");
     }
 
-    return this.issue_tokens_for_principal(principal, session.sessionId);
+    if (!principal.roleCodes.includes(session.roleCode)) {
+      this.revoke_session(session.sessionId);
+      throw to_unauthorized("Account roles are out of date");
+    }
+
+    return this.issue_tokens_for_principal(principal, session.sessionId, session.roleCode);
   }
 
   async logout(refreshToken: string | undefined): Promise<void> {
@@ -128,13 +139,17 @@ export class AuthService {
       throw to_unauthorized("Session context is invalid");
     }
 
-    const principal = this.accountsService.get_by_user_id(session.userId);
+    const principal = await this.accountsService.get_by_user_id(session.userId);
     if (!principal) {
       throw to_unauthorized("Account is unavailable");
     }
 
+    if (!principal.roleCodes.includes(session.roleCode)) {
+      throw to_unauthorized("Account roles are out of date");
+    }
+
     return {
-      user: principal,
+      user: this.to_session_principal(principal, session.roleCode),
       session: {
         sessionId: session.sessionId,
         issuedAt: session.issuedAt,
@@ -145,24 +160,26 @@ export class AuthService {
 
   private issue_tokens_for_principal(
     principal: AuthPrincipal,
-    existingSessionId?: string
+    existingSessionId?: string,
+    issuedRoleCode?: AuthRoleCode
   ): AuthIssueResult {
     const sessionId = existingSessionId ?? randomUUID();
-    const access = issue_access_token(principal.userId, sessionId, principal.roleCode);
-    const refresh = issue_refresh_token(principal.userId, sessionId, principal.roleCode);
+    const roleCode = issuedRoleCode ?? principal.primaryRole;
+    const access = issue_access_token(principal.userId, sessionId, roleCode);
+    const refresh = issue_refresh_token(principal.userId, sessionId, roleCode);
     const refreshTokenHashHex = this.hash_refresh_token(refresh.token);
 
     this.sessions.set(sessionId, {
       sessionId,
       userId: principal.userId,
-      roleCode: principal.roleCode,
+      roleCode,
       issuedAt: new Date(access.payload.iat * 1000).toISOString(),
       refreshExpiresAt: new Date(refresh.payload.exp * 1000).toISOString(),
       refreshTokenHashHex
     });
 
     return {
-      user: principal,
+      user: this.to_session_principal(principal, roleCode),
       session: {
         sessionId,
         issuedAt: new Date(access.payload.iat * 1000).toISOString(),
@@ -190,5 +207,13 @@ export class AuthService {
   private hash_refresh_token(token: string): string {
     const secret = get_env().SESSION_COOKIE_SECRET;
     return createHmac("sha256", secret).update(token).digest("hex");
+  }
+
+  private to_session_principal(principal: AuthPrincipal, roleCode: AuthRoleCode): AuthPrincipal {
+    return {
+      ...principal,
+      roleCode,
+      optionalRole: is_optional_role_code(roleCode)
+    };
   }
 }
