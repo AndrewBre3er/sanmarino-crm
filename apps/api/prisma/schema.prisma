@@ -13,27 +13,28 @@ datasource db {
 /// - no full CRM/ERP schema implementation yet
 /// TODO(implementation): add remaining business models only in their dedicated domain phases.
 
+enum LeadStatus {
+  NEW           @map("new")
+  IN_PROCESSING @map("in_processing")
+  CANCELLED     @map("cancelled")
+
+  @@schema("crm")
+}
+
 enum DealStatus {
-  DRAFT       @map("draft")
-  QUALIFIED   @map("qualified")
-  PROPOSAL    @map("proposal")
-  NEGOTIATION @map("negotiation")
-  WON         @map("won")
-  LOST        @map("lost")
+  IN_PROGRESS        @map("in_progress")
+  CONVERTED_TO_ORDER @map("converted_to_order")
+  CANCELLED          @map("cancelled")
 
   @@schema("crm")
 }
 
 enum OrderStatus {
-  DRAFT          @map("draft")
-  CONFIRMED      @map("confirmed")
-  RESERVED       @map("reserved")
-  IN_PROGRESS    @map("in_progress")
-  COMPLETED      @map("completed")
-  CLOSED         @map("closed")
-  CANCELLED      @map("cancelled")
-  PARTIAL_RETURN @map("partial_return")
-  FULL_RETURN    @map("full_return")
+  ASSEMBLING                 @map("assembling")
+  READY_FOR_PARTIAL_SHIPMENT @map("ready_for_partial_shipment")
+  READY_FOR_SHIPMENT         @map("ready_for_shipment")
+  PARTIALLY_SHIPPED          @map("partially_shipped")
+  SHIPPED                    @map("shipped")
 
   @@schema("orders")
 }
@@ -68,14 +69,30 @@ enum DeliveryTaskStatus {
 }
 
 enum ReturnRequestStatus {
-  DRAFT     @map("draft")
-  SUBMITTED @map("submitted")
-  APPROVED  @map("approved")
-  REJECTED  @map("rejected")
+  CREATED   @map("created")
+  CONFIRMED @map("confirmed")
   PROCESSED @map("processed")
   CLOSED    @map("closed")
 
   @@schema("orders")
+}
+
+enum SupplierRequestStatus {
+  FORMED                @map("formed")
+  CONFIRMED_BY_SUPPLIER @map("confirmed_by_supplier")
+  PAID                  @map("paid")
+  STOCKED               @map("stocked")
+
+  @@schema("inventory")
+}
+
+enum ProductUnit {
+  PIECE        @map("шт")
+  SQUARE_METER @map("кв.м")
+  LINEAR_METER @map("п.м")
+  SERVICE      @map("услуга")
+
+  @@schema("inventory")
 }
 
 enum PaymentStatus {
@@ -96,16 +113,130 @@ enum PaymentMethod {
   @@schema("payments")
 }
 
+enum RecordStatus {
+  ACTIVE   @map("active")
+  INACTIVE @map("inactive")
+
+  @@schema("users")
+}
+
+model UsersDepartment {
+  id        String       @id @default(uuid()) @db.Uuid
+  code      String       @unique @db.VarChar(64)
+  name      String       @db.VarChar(255)
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  roles     UsersRole[]
+  users     UsersUser[]
+
+  @@map("departments")
+  @@schema("users")
+}
+
+model UsersRole {
+  id              String                @id @default(uuid()) @db.Uuid
+  // Canonical v1 codes are seeded from docs/32: admin, seller, warehouse, logistics, finance, ceo; optional: driver, marketing.
+  code            String                @unique @db.VarChar(64)
+  name            String                @db.VarChar(255)
+  departmentId    String?               @map("department_id") @db.Uuid
+  department      UsersDepartment?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  status          RecordStatus          @default(ACTIVE)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  rolePermissions UsersRolePermission[]
+  userRoles       UsersUserRole[]
+
+  @@map("roles")
+  @@schema("users")
+}
+
+model UsersPermission {
+  id              String                @id @default(uuid()) @db.Uuid
+  code            String                @unique @db.VarChar(128)
+  name            String                @db.VarChar(255)
+  description     String?               @db.Text
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  rolePermissions UsersRolePermission[]
+
+  @@map("permissions")
+  @@schema("users")
+}
+
+model UsersRolePermission {
+  id           String          @id @default(uuid()) @db.Uuid
+  roleId       String          @map("role_id") @db.Uuid
+  role         UsersRole       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permissionId String          @map("permission_id") @db.Uuid
+  permission   UsersPermission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+  @@schema("users")
+}
+
+model UsersUser {
+  id           String           @id @default(uuid()) @db.Uuid
+  email        String           @unique @db.VarChar(320)
+  passwordHash String           @map("password_hash") @db.Text
+  displayName  String           @map("display_name") @db.VarChar(255)
+  departmentId String?          @map("department_id") @db.Uuid
+  department   UsersDepartment? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  isActive     Boolean          @default(true) @map("is_active")
+  mfaEnabled   Boolean          @default(false) @map("mfa_enabled")
+  lastLoginAt  DateTime?        @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  userRoles    UsersUserRole[]
+  crmLeadsResponsible           CrmLead[]                 @relation("CrmLeadResponsibleUser")
+  crmDealsResponsible           CrmDeal[]                 @relation("CrmDealResponsibleUser")
+  crmDealsDeleted               CrmDeal[]                 @relation("CrmDealDeletedByUser")
+  ordersDeleted                 OrdersOrder[]             @relation("OrdersOrderDeletedByUser")
+  deliveryTasksCreated          LogisticsDeliveryTask[]   @relation("LogisticsDeliveryTaskCreatedByUser")
+  returnRequestsRequested       OrdersReturnRequest[]     @relation("OrdersReturnRequestRequestedByUser")
+  returnRequestsCeoApproved     OrdersReturnRequest[]     @relation("OrdersReturnRequestCeoApprovedByUser")
+  returnRequestsDeleted         OrdersReturnRequest[]     @relation("OrdersReturnRequestDeletedByUser")
+  paymentsDeleted               PaymentsPayment[]         @relation("PaymentsPaymentDeletedByUser")
+  inventorySupplierRequestsRequested InventorySupplierRequest[] @relation("InventorySupplierRequestRequestedByUser")
+  inventorySupplierRequestsConfirmed InventorySupplierRequest[] @relation("InventorySupplierRequestConfirmedByUser")
+  inventorySupplierRequestsPaid      InventorySupplierRequest[] @relation("InventorySupplierRequestPaidByUser")
+  inventorySupplierRequestsStocked   InventorySupplierRequest[] @relation("InventorySupplierRequestStockedByUser")
+  inventoryPurchaseReceiptsCreated   InventoryPurchaseReceipt[] @relation("InventoryPurchaseReceiptCreatedByUser")
+  idempotencyRecordsDeleted     SystemIdempotencyRecord[] @relation("SystemIdempotencyRecordDeletedByUser")
+  outboxRecordsDeleted          SystemOutboxRecord[]      @relation("SystemOutboxRecordDeletedByUser")
+  auditEventsActor              AuditLogRecord[]          @relation("AuditLogRecordActorUser")
+  auditEventsDeleted            AuditLogRecord[]          @relation("AuditLogRecordDeletedByUser")
+
+  @@map("users")
+  @@schema("users")
+}
+
+model UsersUserRole {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  user      UsersUser @relation(fields: [userId], references: [id], onDelete: Restrict)
+  roleId    String    @map("role_id") @db.Uuid
+  role      UsersRole @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+  @@schema("users")
+}
+
 model CrmLead {
-  id                String    @id @default(uuid()) @db.Uuid
-  source            String    @db.VarChar(128)
-  status            String    @db.VarChar(64)
-  title             String?   @db.VarChar(255)
-  notes             String?   @db.Text
-  responsibleUserId String?   @map("responsible_user_id") @db.VarChar(128) // TODO: users.user relation in auth/users phase.
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  version           Int       @default(1)
+  id                String     @id @default(uuid()) @db.Uuid
+  source            String     @db.VarChar(128)
+  status            LeadStatus
+  title             String?    @db.VarChar(255)
+  notes             String?    @db.Text
+  responsibleUserId String?    @map("responsible_user_id") @db.Uuid
+  responsibleUser   UsersUser? @relation("CrmLeadResponsibleUser", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  version           Int        @default(1)
   deals             CrmDeal[]
 
   @@index([status])
@@ -115,20 +246,22 @@ model CrmLead {
 }
 
 model CrmDeal {
-  id                String       @id @default(uuid()) @db.Uuid
-  leadId            String?      @map("lead_id") @db.Uuid
-  lead              CrmLead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  id                String     @id @default(uuid()) @db.Uuid
+  leadId            String?    @map("lead_id") @db.Uuid
+  lead              CrmLead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
   status            DealStatus
-  title             String       @db.VarChar(255)
-  notes             String?      @db.Text
-  responsibleUserId String?      @map("responsible_user_id") @db.VarChar(128) // TODO: users.user relation in auth/users phase.
-  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  version           Int          @default(1)
-  deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz(6)
-  deletedBy         String?      @map("deleted_by") @db.VarChar(128)
-  deleteReason      String?      @map("delete_reason") @db.Text
-  isDeleted         Boolean      @default(false) @map("is_deleted")
+  title             String     @db.VarChar(255)
+  notes             String?    @db.Text
+  responsibleUserId String?    @map("responsible_user_id") @db.Uuid
+  responsibleUser   UsersUser? @relation("CrmDealResponsibleUser", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  version           Int        @default(1)
+  deletedAt         DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  deletedBy         String?    @map("deleted_by") @db.Uuid
+  deletedByUser     UsersUser? @relation("CrmDealDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
+  deleteReason      String?    @map("delete_reason") @db.Text
+  isDeleted         Boolean    @default(false) @map("is_deleted")
   orders            OrdersOrder[]
 
   @@index([leadId])
@@ -156,7 +289,8 @@ model OrdersOrder {
   updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
   version        Int                   @default(1)
   deletedAt      DateTime?             @map("deleted_at") @db.Timestamptz(6)
-  deletedBy      String?               @map("deleted_by") @db.VarChar(128)
+  deletedBy      String?               @map("deleted_by") @db.Uuid
+  deletedByUser  UsersUser?            @relation("OrdersOrderDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
   deleteReason   String?               @map("delete_reason") @db.Text
   isDeleted      Boolean               @default(false) @map("is_deleted")
   items          OrdersOrderItem[]
@@ -209,7 +343,8 @@ model LogisticsDeliveryTask {
   addressText    String?            @map("address_text") @db.Text
   recipientName  String?            @map("recipient_name") @db.VarChar(255)
   recipientPhone String?            @map("recipient_phone") @db.VarChar(64)
-  createdBy      String?            @map("created_by") @db.VarChar(128) // TODO: users.user relation in auth/users phase.
+  createdBy      String?            @map("created_by") @db.Uuid
+  createdByUser  UsersUser?         @relation("LogisticsDeliveryTaskCreatedByUser", fields: [createdBy], references: [id], onDelete: SetNull)
   createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
   version        Int                @default(1)
@@ -221,30 +356,136 @@ model LogisticsDeliveryTask {
 }
 
 model OrdersReturnRequest {
-  id                   String              @id @default(uuid()) @db.Uuid
-  orderId              String              @map("order_id") @db.Uuid
-  order                OrdersOrder         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  id                   String      @id @default(uuid()) @db.Uuid
+  orderId              String      @map("order_id") @db.Uuid
+  order                OrdersOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
   status               ReturnRequestStatus
-  reason               String              @db.Text
-  requestedRefundAmount Decimal?           @map("requested_refund_amount") @db.Decimal(14, 2)
-  approvedRefundAmount Decimal?            @map("approved_refund_amount") @db.Decimal(14, 2)
-  submittedAt          DateTime?           @map("submitted_at") @db.Timestamptz(6)
-  approvedAt           DateTime?           @map("approved_at") @db.Timestamptz(6)
-  processedAt          DateTime?           @map("processed_at") @db.Timestamptz(6)
-  closedAt             DateTime?           @map("closed_at") @db.Timestamptz(6)
-  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
-  version              Int                 @default(1)
-  deletedAt            DateTime?           @map("deleted_at") @db.Timestamptz(6)
-  deletedBy            String?             @map("deleted_by") @db.VarChar(128)
-  deleteReason         String?             @map("delete_reason") @db.Text
-  isDeleted            Boolean             @default(false) @map("is_deleted")
+  requestedByUserId    String      @map("requested_by_user_id") @db.Uuid
+  requestedByUser      UsersUser   @relation("OrdersReturnRequestRequestedByUser", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  reason               String      @db.Text
+  requestedRefundAmount Decimal?   @map("requested_refund_amount") @db.Decimal(14, 2)
+  approvedRefundAmount Decimal?    @map("approved_refund_amount") @db.Decimal(14, 2)
+  confirmedAt          DateTime?   @map("confirmed_at") @db.Timestamptz(6)
+  requiresCeoApproval  Boolean     @default(false) @map("requires_ceo_approval")
+  ceoApprovedBy        String?     @map("ceo_approved_by") @db.Uuid
+  ceoApprovedByUser    UsersUser?  @relation("OrdersReturnRequestCeoApprovedByUser", fields: [ceoApprovedBy], references: [id], onDelete: SetNull)
+  ceoApprovedAt        DateTime?   @map("ceo_approved_at") @db.Timestamptz(6)
+  processedAt          DateTime?   @map("processed_at") @db.Timestamptz(6)
+  closedAt             DateTime?   @map("closed_at") @db.Timestamptz(6)
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  version              Int         @default(1)
+  deletedAt            DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  deletedBy            String?     @map("deleted_by") @db.Uuid
+  deletedByUser        UsersUser?  @relation("OrdersReturnRequestDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
+  deleteReason         String?     @map("delete_reason") @db.Text
+  isDeleted            Boolean     @default(false) @map("is_deleted")
 
   @@index([orderId])
   @@index([status])
   @@index([isDeleted])
   @@map("return_requests")
   @@schema("orders")
+}
+
+model InventorySupplier {
+  id              String                   @id @default(uuid()) @db.Uuid
+  name            String                   @db.VarChar(255)
+  phone           String?                  @db.VarChar(64)
+  email           String?                  @db.VarChar(320)
+  notes           String?                  @db.Text
+  createdAt       DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  supplierRequests InventorySupplierRequest[]
+  purchaseReceipts InventoryPurchaseReceipt[]
+
+  @@map("suppliers")
+  @@schema("inventory")
+}
+
+model InventorySupplierRequest {
+  id                  String                       @id @default(uuid()) @db.Uuid
+  supplierId          String                       @map("supplier_id") @db.Uuid
+  supplier            InventorySupplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  // Allowed v1 values are fixed by docs/32: deal | order.
+  businessSourceType  String                       @map("business_source_type") @db.VarChar(32)
+  businessSourceId    String                       @map("business_source_id") @db.Uuid
+  status              SupplierRequestStatus
+  expectedSupplyDate  DateTime                     @map("expected_supply_date") @db.Date
+  requestedBy         String                       @map("requested_by") @db.Uuid
+  requestedByUser     UsersUser                    @relation("InventorySupplierRequestRequestedByUser", fields: [requestedBy], references: [id], onDelete: Restrict)
+  confirmedBy         String?                      @map("confirmed_by") @db.Uuid
+  confirmedByUser     UsersUser?                   @relation("InventorySupplierRequestConfirmedByUser", fields: [confirmedBy], references: [id], onDelete: SetNull)
+  paidBy              String?                      @map("paid_by") @db.Uuid
+  paidByUser          UsersUser?                   @relation("InventorySupplierRequestPaidByUser", fields: [paidBy], references: [id], onDelete: SetNull)
+  paidAt              DateTime?                    @map("paid_at") @db.Timestamptz(6)
+  stockedBy           String?                      @map("stocked_by") @db.Uuid
+  stockedByUser       UsersUser?                   @relation("InventorySupplierRequestStockedByUser", fields: [stockedBy], references: [id], onDelete: SetNull)
+  stockedAt           DateTime?                    @map("stocked_at") @db.Timestamptz(6)
+  supplierDocumentUrl String?                      @map("supplier_document_url") @db.Text
+  createdAt           DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  items               InventorySupplierRequestItem[]
+  purchaseReceipts    InventoryPurchaseReceipt[]
+
+  @@map("supplier_requests")
+  @@schema("inventory")
+}
+
+model InventorySupplierRequestItem {
+  id                   String                       @id @default(uuid()) @db.Uuid
+  supplierRequestId    String                       @map("supplier_request_id") @db.Uuid
+  supplierRequest      InventorySupplierRequest     @relation(fields: [supplierRequestId], references: [id], onDelete: Restrict)
+  productId            String                       @map("product_id") @db.Uuid // TODO: inventory.products relation in inventory phase.
+  qty                  Decimal                      @db.Decimal(14, 3)
+  unit                 ProductUnit
+  sourceLineRef        String                       @map("source_line_ref") @db.VarChar(128)
+  sourceLineContext    Json?                        @map("source_line_context")
+  createdAt            DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  purchaseReceiptItems InventoryPurchaseReceiptItem[]
+
+  @@map("supplier_request_items")
+  @@schema("inventory")
+}
+
+model InventoryPurchaseReceipt {
+  id                String                       @id @default(uuid()) @db.Uuid
+  receiptNumber     String                       @unique @map("receipt_number") @db.VarChar(64)
+  warehouseId       String                       @map("warehouse_id") @db.Uuid // TODO: inventory.warehouses relation in inventory phase.
+  supplierId        String                       @map("supplier_id") @db.Uuid
+  supplier          InventorySupplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplierRequestId String?                      @map("supplier_request_id") @db.Uuid
+  supplierRequest   InventorySupplierRequest?    @relation(fields: [supplierRequestId], references: [id], onDelete: SetNull)
+  receivedAt        DateTime                     @map("received_at") @db.Timestamptz(6)
+  createdBy         String                       @map("created_by") @db.Uuid
+  createdByUser     UsersUser                    @relation("InventoryPurchaseReceiptCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt         DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  items             InventoryPurchaseReceiptItem[]
+
+  @@map("purchase_receipts")
+  @@schema("inventory")
+}
+
+model InventoryPurchaseReceiptItem {
+  id                    String                        @id @default(uuid()) @db.Uuid
+  purchaseReceiptId     String                        @map("purchase_receipt_id") @db.Uuid
+  purchaseReceipt       InventoryPurchaseReceipt      @relation(fields: [purchaseReceiptId], references: [id], onDelete: Restrict)
+  productId             String                        @map("product_id") @db.Uuid // TODO: inventory.products relation in inventory phase.
+  qty                   Decimal                       @db.Decimal(14, 3)
+  unit                  ProductUnit
+  unitCost              Decimal                       @map("unit_cost") @db.Decimal(14, 2)
+  lineTotal             Decimal                       @map("line_total") @db.Decimal(14, 2)
+  supplierRequestItemId String?                       @map("supplier_request_item_id") @db.Uuid
+  supplierRequestItem   InventorySupplierRequestItem? @relation(fields: [supplierRequestItemId], references: [id], onDelete: SetNull)
+  createdAt             DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([purchaseReceiptId])
+  @@index([productId])
+  @@map("purchase_receipt_items")
+  @@schema("inventory")
 }
 
 model PaymentsPayment {
@@ -262,7 +503,8 @@ model PaymentsPayment {
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   version           Int           @default(1)
   deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz(6)
-  deletedBy         String?       @map("deleted_by") @db.VarChar(128)
+  deletedBy         String?       @map("deleted_by") @db.Uuid
+  deletedByUser     UsersUser?    @relation("PaymentsPaymentDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
   deleteReason      String?       @map("delete_reason") @db.Text
   isDeleted         Boolean       @default(false) @map("is_deleted")
 
@@ -304,7 +546,8 @@ model SystemIdempotencyRecord {
   updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   version            Int?
   deletedAt          DateTime?         @map("deleted_at") @db.Timestamptz(6)
-  deletedBy          String?           @map("deleted_by") @db.VarChar(128)
+  deletedBy          String?           @map("deleted_by") @db.Uuid
+  deletedByUser      UsersUser?        @relation("SystemIdempotencyRecordDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
   deleteReason       String?           @map("delete_reason") @db.Text
   isDeleted          Boolean           @default(false) @map("is_deleted")
 
@@ -331,7 +574,8 @@ model SystemOutboxRecord {
   updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   version       Int?
   deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(6)
-  deletedBy     String?      @map("deleted_by") @db.VarChar(128)
+  deletedBy     String?      @map("deleted_by") @db.Uuid
+  deletedByUser UsersUser?   @relation("SystemOutboxRecordDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
   deleteReason  String?      @map("delete_reason") @db.Text
   isDeleted     Boolean      @default(false) @map("is_deleted")
 
@@ -350,7 +594,8 @@ model AuditLogRecord {
   action        String    @db.VarChar(128)
   entityType    String    @map("entity_type") @db.VarChar(128)
   entityId      String    @map("entity_id") @db.VarChar(128)
-  actorUserId   String?   @map("actor_user_id") @db.VarChar(128)
+  actorUserId   String?   @map("actor_user_id") @db.Uuid
+  actorUser     UsersUser? @relation("AuditLogRecordActorUser", fields: [actorUserId], references: [id], onDelete: SetNull)
   requestId     String?   @map("request_id") @db.VarChar(128)
   correlationId String?   @map("correlation_id") @db.VarChar(128)
   payload       Json?
@@ -358,7 +603,8 @@ model AuditLogRecord {
   updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   version       Int?
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
-  deletedBy     String?   @map("deleted_by") @db.VarChar(128)
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  deletedByUser UsersUser? @relation("AuditLogRecordDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
   deleteReason  String?   @map("delete_reason") @db.Text
   isDeleted     Boolean   @default(false) @map("is_deleted")
 

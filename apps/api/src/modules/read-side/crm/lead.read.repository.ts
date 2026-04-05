@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { CrmLead, Prisma } from "@prisma/client";
+import type { CrmLead, LeadStatus as PrismaLeadStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
 import type {
   ReadCollectionQueryInput,
@@ -23,6 +23,20 @@ export interface CrmLeadReadModel {
 export interface CrmLeadReadRepositoryContract {
   list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<CrmLeadReadModel>>;
   getById(leadId: string): Promise<CrmLeadReadModel | null>;
+}
+
+const lead_status_to_prisma: Record<string, PrismaLeadStatus> = {
+  new: "NEW",
+  in_processing: "IN_PROCESSING",
+  cancelled: "CANCELLED"
+};
+
+function map_read_statuses_to_prisma(statuses: readonly string[]): PrismaLeadStatus[] {
+  const mapped = statuses
+    .map((status) => lead_status_to_prisma[status.toLowerCase()])
+    .filter((status): status is PrismaLeadStatus => Boolean(status));
+
+  return Array.from(new Set(mapped));
 }
 
 function map_crm_lead_read_model(record: CrmLead): CrmLeadReadModel {
@@ -55,11 +69,12 @@ export class PrismaCrmLeadReadRepository implements CrmLeadReadRepositoryContrac
     }
 
     if (query.status && query.status.length > 0) {
-      const [first_status] = query.status;
-      if (query.status.length === 1 && first_status) {
+      const mapped_statuses = map_read_statuses_to_prisma(query.status);
+      const [first_status] = mapped_statuses;
+      if (mapped_statuses.length === 1 && first_status) {
         where.status = first_status;
-      } else {
-        where.status = { in: query.status };
+      } else if (mapped_statuses.length > 1) {
+        where.status = { in: mapped_statuses };
       }
     }
 
