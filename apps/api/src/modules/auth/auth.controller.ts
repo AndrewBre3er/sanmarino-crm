@@ -5,12 +5,16 @@ import {
   Post,
   Req,
   Res,
+  UseGuards,
   UnauthorizedException
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { IsString, MinLength } from "class-validator";
 import { get_env } from "../../config/env";
 import { api_openapi_tags } from "../../contracts/openapi.contract";
+import { authenticated_only } from "./auth.access.decorator";
+import { AuthAccessGuard } from "./auth.access.guard";
+import { get_authenticated_access, type AuthenticatedRequestLike } from "./auth.access.helpers";
 import { AuthService } from "./auth.service";
 import {
   clear_auth_cookies,
@@ -116,8 +120,9 @@ export class AuthController {
   }
 
   @Get("me")
-  async me(@Req() request: RequestLike) {
-    const accessToken = require_cookie(request, get_env().AUTH_COOKIE_ACCESS_NAME);
-    return this.authService.get_current_user(accessToken);
+  @UseGuards(AuthAccessGuard)
+  @authenticated_only()
+  async me(@Req() request: RequestLike & AuthenticatedRequestLike) {
+    return get_authenticated_access(request);
   }
 }

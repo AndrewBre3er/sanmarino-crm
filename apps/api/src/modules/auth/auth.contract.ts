@@ -43,6 +43,7 @@ export interface AuthPrincipal {
   primaryRole: AuthRoleCode;
   roleCodes: readonly AuthRoleCode[];
   allowedWorkspaces: readonly AuthWorkspaceCode[];
+  permissionCodes: readonly string[];
   roleCode: AuthRoleCode;
   optionalRole: boolean;
 }

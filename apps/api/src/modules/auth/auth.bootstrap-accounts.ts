@@ -140,6 +140,7 @@ export class AuthBootstrapAccountsService {
         primaryRole: seed.roleCode,
         roleCodes: [seed.roleCode],
         allowedWorkspaces: resolve_allowed_workspaces([seed.roleCode]),
+        permissionCodes: [],
         roleCode: seed.roleCode,
         optionalRole: seed.optionalRole,
         passwordSaltHex: saltHex,
@@ -186,6 +187,7 @@ export class AuthBootstrapAccountsService {
       primaryRole: account.primaryRole,
       roleCodes: account.roleCodes,
       allowedWorkspaces: account.allowedWorkspaces,
+      permissionCodes: account.permissionCodes,
       roleCode: account.roleCode,
       optionalRole: account.optionalRole
     };

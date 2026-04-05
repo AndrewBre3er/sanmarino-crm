@@ -16,6 +16,11 @@ interface DbUserRoleRecord {
   role: {
     code: string;
     status: RecordStatus;
+    rolePermissions: Array<{
+      permission: {
+        code: string;
+      };
+    }>;
   };
 }
 
@@ -131,7 +136,16 @@ export class AuthPrismaAccountsService {
             role: {
               select: {
                 code: true,
-                status: true
+                status: true,
+                rolePermissions: {
+                  select: {
+                    permission: {
+                      select: {
+                        code: true
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -154,7 +168,16 @@ export class AuthPrismaAccountsService {
             role: {
               select: {
                 code: true,
-                status: true
+                status: true,
+                rolePermissions: {
+                  select: {
+                    permission: {
+                      select: {
+                        code: true
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -178,6 +201,7 @@ export class AuthPrismaAccountsService {
       primaryRole,
       roleCodes,
       allowedWorkspaces: resolve_allowed_workspaces(roleCodes),
+      permissionCodes: this.extract_permission_codes(user.userRoles),
       roleCode: primaryRole,
       optionalRole: is_optional_role_code(primaryRole)
     };
@@ -200,5 +224,24 @@ export class AuthPrismaAccountsService {
     }
 
     return roleCodes;
+  }
+
+  private extract_permission_codes(userRoles: DbUserRoleRecord[]): string[] {
+    const permissionCodes = new Set<string>();
+
+    for (const userRole of userRoles) {
+      if (userRole.role.status !== RecordStatus.ACTIVE) {
+        continue;
+      }
+
+      for (const rolePermission of userRole.role.rolePermissions) {
+        const code = rolePermission.permission.code.trim();
+        if (code.length > 0) {
+          permissionCodes.add(code);
+        }
+      }
+    }
+
+    return [...permissionCodes].sort((left, right) => left.localeCompare(right));
   }
 }

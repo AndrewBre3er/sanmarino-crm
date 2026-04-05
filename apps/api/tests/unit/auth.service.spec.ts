@@ -18,6 +18,11 @@ interface AuthUserRecord {
     role: {
       code: string;
       status: RecordStatus;
+      rolePermissions: Array<{
+        permission: {
+          code: string;
+        };
+      }>;
     };
   }>;
 }
@@ -75,8 +80,8 @@ describe("auth service skeleton", () => {
         displayName: "DB Seller",
         isActive: true,
         userRoles: [
-          { role: { code: "seller", status: RecordStatus.ACTIVE } },
-          { role: { code: "logistics", status: RecordStatus.ACTIVE } }
+          { role: { code: "seller", status: RecordStatus.ACTIVE, rolePermissions: [] } },
+          { role: { code: "logistics", status: RecordStatus.ACTIVE, rolePermissions: [] } }
         ]
       }
     ]);
@@ -112,7 +117,7 @@ describe("auth service skeleton", () => {
         passwordHash: hash_seed_password(login, "change-me"),
         displayName: "DB Finance",
         isActive: false,
-        userRoles: [{ role: { code: "finance", status: RecordStatus.ACTIVE } }]
+        userRoles: [{ role: { code: "finance", status: RecordStatus.ACTIVE, rolePermissions: [] } }]
       }
     ]);
 
@@ -134,7 +139,7 @@ describe("auth service skeleton", () => {
         passwordHash: hash_seed_password(login, "change-me"),
         displayName: "DB Finance",
         isActive: true,
-        userRoles: [{ role: { code: "finance", status: RecordStatus.ACTIVE } }]
+        userRoles: [{ role: { code: "finance", status: RecordStatus.ACTIVE, rolePermissions: [] } }]
       }
     ]);
 
@@ -161,7 +166,7 @@ describe("auth service skeleton", () => {
         passwordHash: hash_seed_password(login, "change-me"),
         displayName: "DB Warehouse",
         isActive: true,
-        userRoles: [{ role: { code: "warehouse", status: RecordStatus.ACTIVE } }]
+        userRoles: [{ role: { code: "warehouse", status: RecordStatus.ACTIVE, rolePermissions: [] } }]
       }
     ]);
 
@@ -191,7 +196,7 @@ describe("auth service skeleton", () => {
         passwordHash: hash_seed_password(login, "change-me"),
         displayName: "DB Seller",
         isActive: true,
-        userRoles: [{ role: { code: "seller", status: RecordStatus.ACTIVE } }]
+        userRoles: [{ role: { code: "seller", status: RecordStatus.ACTIVE, rolePermissions: [] } }]
       }
     ]);
 
