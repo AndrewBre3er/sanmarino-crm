@@ -7,10 +7,11 @@ import { RequestContextStore } from "./common/request-context/request-context.st
 import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { TransactionalReadModule } from "./modules/read-side/read-side.module";
+import { UsersModule } from "./modules/users/users.module";
 import { PrismaModule } from "./prisma/prisma.module";
 
 @Module({
-  imports: [PrismaModule, HealthModule, AuthModule, TransactionalReadModule],
+  imports: [PrismaModule, HealthModule, AuthModule, UsersModule, TransactionalReadModule],
   providers: [
     RequestContextStore,
     RequestContextPropagationInterceptor,
