@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assert_deal_status_transition,
+  assert_lead_status_transition,
   assert_delivery_task_status_transition,
   assert_order_status_transition,
   assert_payment_status_transition,
@@ -15,6 +16,12 @@ describe("transactional status transition guards", () => {
     expect(() =>
       assert_deal_status_transition("converted_to_order", "in_progress")
     ).toThrowError();
+  });
+
+  it("allows only new -> in_processing/cancelled for lead", () => {
+    expect(() => assert_lead_status_transition("new", "in_processing")).not.toThrow();
+    expect(() => assert_lead_status_transition("new", "cancelled")).not.toThrow();
+    expect(() => assert_lead_status_transition("in_processing", "cancelled")).toThrowError();
   });
 
   it("blocks order transitions outside accepted matrix", () => {

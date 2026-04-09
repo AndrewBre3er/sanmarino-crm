@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min
@@ -159,6 +160,11 @@ export class LeadsReadQueryDto extends BaseReadCollectionQueryDto {
   @IsArray()
   @IsIn(lead_statuses, { each: true })
   status?: LeadStatus[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  responsibleUserId?: string;
 }
 
 export class DealsReadQueryDto extends BaseReadCollectionQueryDto {

@@ -23,9 +23,16 @@ export interface CrmLeadReadModel {
   version: number;
 }
 
+export interface CrmLeadReadScope {
+  responsibleUserId?: string;
+}
+
 export interface CrmLeadReadRepositoryContract {
-  list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<CrmLeadReadModel>>;
-  getById(leadId: string): Promise<CrmLeadReadModel | null>;
+  list(
+    query: ReadCollectionQueryInput,
+    scope?: CrmLeadReadScope
+  ): Promise<ReadCollectionResult<CrmLeadReadModel>>;
+  getById(leadId: string, scope?: CrmLeadReadScope): Promise<CrmLeadReadModel | null>;
 }
 
 const lead_status_to_prisma: Record<string, PrismaLeadStatus> = {
@@ -62,7 +69,10 @@ function map_crm_lead_read_model(record: CrmLead): CrmLeadReadModel {
 export class PrismaCrmLeadReadRepository implements CrmLeadReadRepositoryContract {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
-  async list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<CrmLeadReadModel>> {
+  async list(
+    query: ReadCollectionQueryInput,
+    scope?: CrmLeadReadScope
+  ): Promise<ReadCollectionResult<CrmLeadReadModel>> {
     const where: Prisma.CrmLeadWhereInput = {};
 
     if (query.search) {
@@ -81,6 +91,10 @@ export class PrismaCrmLeadReadRepository implements CrmLeadReadRepositoryContrac
       } else if (mapped_statuses.length > 1) {
         where.status = { in: mapped_statuses };
       }
+    }
+
+    if (scope?.responsibleUserId) {
+      where.responsibleUserId = scope.responsibleUserId;
     }
 
     const orderBy = {
@@ -105,9 +119,12 @@ export class PrismaCrmLeadReadRepository implements CrmLeadReadRepositoryContrac
     };
   }
 
-  async getById(leadId: string): Promise<CrmLeadReadModel | null> {
-    const lead = await this.prismaService.crmLead.findUnique({
-      where: { id: leadId }
+  async getById(leadId: string, scope?: CrmLeadReadScope): Promise<CrmLeadReadModel | null> {
+    const lead = await this.prismaService.crmLead.findFirst({
+      where: {
+        id: leadId,
+        ...(scope?.responsibleUserId ? { responsibleUserId: scope.responsibleUserId } : {})
+      }
     });
 
     return lead ? map_crm_lead_read_model(lead) : null;

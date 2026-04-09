@@ -6,12 +6,20 @@ import { RequestContextPropagationInterceptor } from "./common/request-context/r
 import { RequestContextStore } from "./common/request-context/request-context.store";
 import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
+import { LeadsModule } from "./modules/leads/leads.module";
 import { TransactionalReadModule } from "./modules/read-side/read-side.module";
 import { UsersModule } from "./modules/users/users.module";
 import { PrismaModule } from "./prisma/prisma.module";
 
 @Module({
-  imports: [PrismaModule, HealthModule, AuthModule, UsersModule, TransactionalReadModule],
+  imports: [
+    PrismaModule,
+    HealthModule,
+    AuthModule,
+    UsersModule,
+    LeadsModule,
+    TransactionalReadModule
+  ],
   providers: [
     RequestContextStore,
     RequestContextPropagationInterceptor,

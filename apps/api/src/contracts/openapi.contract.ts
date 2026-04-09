@@ -32,7 +32,12 @@ export const api_openapi_tags = {
   crmRead: {
     name: "crm-read",
     description:
-      "Read-only CRM endpoints: leads and deals (clients/contacts/client-participants are contract-frozen for CRM Step 1 and remain implementation-deferred)"
+      "Read-only CRM endpoints: deals (clients/contacts/client-participants remain implementation-deferred)"
+  },
+  crmLeads: {
+    name: "crm-leads",
+    description:
+      "Lead baseline endpoints: list/detail/create/status-transition with backend state-machine and role-aware access baseline"
   },
   ordersRead: {
     name: "orders-read",

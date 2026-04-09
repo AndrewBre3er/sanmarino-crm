@@ -55,6 +55,7 @@ async function bootstrap(): Promise<void> {
     .addTag(api_openapi_tags.health.name, api_openapi_tags.health.description)
     .addTag(api_openapi_tags.infra.name, api_openapi_tags.infra.description)
     .addTag(api_openapi_tags.crmRead.name, api_openapi_tags.crmRead.description)
+    .addTag(api_openapi_tags.crmLeads.name, api_openapi_tags.crmLeads.description)
     .addTag(api_openapi_tags.ordersRead.name, api_openapi_tags.ordersRead.description)
     .addTag(api_openapi_tags.paymentsRead.name, api_openapi_tags.paymentsRead.description)
     .addTag(api_openapi_tags.logisticsRead.name, api_openapi_tags.logisticsRead.description)

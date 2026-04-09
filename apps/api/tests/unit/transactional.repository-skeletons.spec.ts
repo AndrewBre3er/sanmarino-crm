@@ -3,7 +3,6 @@ import { PrismaService } from "../../src/prisma/prisma.service";
 import {
   DeferredSkeletonError,
   PrismaCrmDealRepository,
-  PrismaCrmLeadRepository,
   PrismaLogisticsDeliveryTaskRepository,
   PrismaOrdersOrderItemRepository,
   PrismaOrdersOrderRepository,
@@ -14,18 +13,7 @@ import {
 describe("transactional repository skeletons", () => {
   const prismaService = new PrismaService();
 
-  it("throws deferred error for crm lead skeleton methods", async () => {
-    const repository = new PrismaCrmLeadRepository(prismaService);
-
-    await expect(
-      repository.create({
-        source: "manual",
-        status: "new"
-      })
-    ).rejects.toBeInstanceOf(DeferredSkeletonError);
-  });
-
-  it("keeps all core transactional repositories in deferred skeleton mode", async () => {
+  it("keeps deferred skeleton mode for domains outside lead baseline", async () => {
     const dealRepository = new PrismaCrmDealRepository(prismaService);
     const orderRepository = new PrismaOrdersOrderRepository(prismaService);
     const orderItemRepository = new PrismaOrdersOrderItemRepository(prismaService);
