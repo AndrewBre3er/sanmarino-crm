@@ -39,14 +39,15 @@ describe("supply + inventory contract freeze", () => {
     expect(supply_inventory_status_contract.inventoryBucket).toEqual(inventory_bucket_statuses);
   });
 
-  it("marks read-side resources as deferred for Supply Step 1", () => {
+  it("marks read-side resources split between implemented and deferred for Supply Step 3", () => {
     expect(supply_inventory_read_side_contract.freezePhase).toBe(
-      "supply-step-1-contract-freeze"
+      "supply-step-3-supplier-backend-baseline"
     );
-    expect(supply_inventory_read_side_contract.implementedCollections).toEqual([]);
-    expect(supply_inventory_read_side_contract.deferredCollections).toEqual([
+    expect(supply_inventory_read_side_contract.implementedCollections).toEqual([
       "suppliers",
-      "supplier-requests",
+      "supplier-requests"
+    ]);
+    expect(supply_inventory_read_side_contract.deferredCollections).toEqual([
       "purchase-receipts",
       "products",
       "warehouses",
@@ -57,4 +58,3 @@ describe("supply + inventory contract freeze", () => {
     ]);
   });
 });
-

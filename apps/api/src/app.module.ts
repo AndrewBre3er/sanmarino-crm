@@ -9,6 +9,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { TransactionalReadModule } from "./modules/read-side/read-side.module";
+import { SupplyModule } from "./modules/supply/supply.module";
 import { UsersModule } from "./modules/users/users.module";
 import { PrismaModule } from "./prisma/prisma.module";
 
@@ -20,7 +21,8 @@ import { PrismaModule } from "./prisma/prisma.module";
     UsersModule,
     LeadsModule,
     CrmRelationsModule,
-    TransactionalReadModule
+    TransactionalReadModule,
+    SupplyModule
   ],
   providers: [
     RequestContextStore,

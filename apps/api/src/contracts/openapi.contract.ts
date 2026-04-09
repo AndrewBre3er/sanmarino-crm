@@ -61,6 +61,11 @@ export const api_openapi_tags = {
     name: "returns-read",
     description: "Read-only return request endpoints"
   },
+  supply: {
+    name: "supply",
+    description:
+      "Supply baseline endpoints: suppliers and supplier-requests list/detail/create with Seller create access for supplier requests"
+  },
   auth: {
     name: "auth",
     description: "Authentication skeleton endpoints: login, refresh, logout, me"

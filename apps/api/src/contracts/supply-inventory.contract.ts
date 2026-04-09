@@ -32,10 +32,8 @@ export const supply_inventory_status_contract = {
 } as const;
 
 export const supply_inventory_read_side_contract = {
-  implementedCollections: [] as const,
+  implementedCollections: ["suppliers", "supplier-requests"] as const,
   deferredCollections: [
-    "suppliers",
-    "supplier-requests",
     "purchase-receipts",
     "products",
     "warehouses",
@@ -44,6 +42,5 @@ export const supply_inventory_read_side_contract = {
     "reservations",
     "inventory-movements"
   ] as const,
-  freezePhase: "supply-step-1-contract-freeze"
+  freezePhase: "supply-step-3-supplier-backend-baseline"
 } as const;
-
