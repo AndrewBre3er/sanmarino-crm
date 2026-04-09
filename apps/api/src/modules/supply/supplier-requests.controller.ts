@@ -1,5 +1,6 @@
 import {
   ArrayMinSize,
+  IsBase64,
   IsArray,
   IsDateString,
   IsIn,
@@ -13,7 +14,17 @@ import {
   ValidateNested
 } from "class-validator";
 import { Transform, Type } from "class-transformer";
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  NotImplementedException,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { api_openapi_tags } from "../../contracts/openapi.contract";
 import { require_roles } from "../auth/auth.access.decorator";
@@ -107,6 +118,27 @@ class CreateSupplierRequestDto {
   items!: CreateSupplierRequestItemDto[];
 }
 
+class ConfirmBySupplierDto {
+  @IsDateString()
+  expectedSupplyDate!: string;
+}
+
+class AttachSupplierRequestFileDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  fileName!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  contentType!: string;
+
+  @IsString()
+  @IsBase64()
+  contentBase64!: string;
+}
+
 @ApiTags(api_openapi_tags.supply.name)
 @UseGuards(AuthAccessGuard)
 @require_roles(...bootstrap_role_codes)
@@ -128,8 +160,9 @@ export class SupplierRequestsController {
   }
 
   @Get(":id")
-  async detail(@Param("id") id: string) {
-    const supplierRequest = await this.supplyService.getSupplierRequest(id);
+  async detail(@Param("id") id: string, @Req() request: AuthenticatedRequestLike) {
+    const access = get_authenticated_access(request);
+    const supplierRequest = await this.supplyService.getSupplierRequest(id, access.user);
     return { data: supplierRequest };
   }
 
@@ -142,5 +175,60 @@ export class SupplierRequestsController {
     const access = get_authenticated_access(request);
     const created = await this.supplyService.createSupplierRequest(payload, access.user);
     return { data: created };
+  }
+
+  @Post(":id/confirm-by-supplier")
+  @require_roles("seller")
+  async confirmBySupplier(
+    @Param("id") id: string,
+    @Body() payload: ConfirmBySupplierDto,
+    @Req() request: AuthenticatedRequestLike
+  ) {
+    const access = get_authenticated_access(request);
+    const updated = await this.supplyService.confirmSupplierRequestBySupplier(
+      id,
+      payload,
+      access.user
+    );
+    return { data: updated };
+  }
+
+  @Post(":id/mark-paid")
+  @require_roles("finance", "ceo")
+  async markPaid(@Param("id") id: string, @Req() request: AuthenticatedRequestLike) {
+    const access = get_authenticated_access(request);
+    const updated = await this.supplyService.markSupplierRequestPaid(id, access.user);
+    return { data: updated };
+  }
+
+  @Post(":id/mark-stocked")
+  @require_roles("warehouse")
+  async markStocked(@Param("id") id: string, @Req() request: AuthenticatedRequestLike) {
+    const access = get_authenticated_access(request);
+    const updated = await this.supplyService.markSupplierRequestStocked(id, access.user);
+    return { data: updated };
+  }
+
+  @Get(":id/attachments")
+  @require_roles("warehouse", "finance", "ceo")
+  async listAttachments(@Param("id") _id: string) {
+    throw new NotImplementedException({
+      code: "DEFERRED_IMPLEMENTATION",
+      message:
+        "SupplierRequest attachment storage/view implementation is deferred; access matrix is fixed at guard level"
+    });
+  }
+
+  @Post(":id/attachments")
+  @require_roles("warehouse", "finance", "ceo")
+  async attachFile(
+    @Param("id") _id: string,
+    @Body() _payload: AttachSupplierRequestFileDto
+  ) {
+    throw new NotImplementedException({
+      code: "DEFERRED_IMPLEMENTATION",
+      message:
+        "SupplierRequest attachment storage/upload implementation is deferred; access matrix is fixed at guard level"
+    });
   }
 }

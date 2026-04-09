@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -7,16 +8,26 @@ import {
 } from "@nestjs/common";
 import type { AuthPrincipal } from "../auth/auth.contract";
 import type { ReadCollectionQueryInput } from "../read-side/shared/read-model.contract";
-import type { ProductUnit } from "../transactional/shared/status.contract";
+import type {
+  ProductUnit,
+  SupplierRequestStatus
+} from "../transactional/shared/status.contract";
+import { StatusTransitionError } from "../transactional/shared/transition.guard";
+import { assert_supplier_request_status_transition } from "./supplier-request.transition.guard";
 import {
   PrismaSupplyRepository,
   type CreateSupplierInput,
-  type CreateSupplierRequestInput
+  type CreateSupplierRequestInput,
+  type SupplierRequestReadModel
 } from "./supply.repository";
 
 const supplier_write_role_codes = new Set(["seller", "admin", "ceo"] as const);
 const supplier_request_create_role_codes = new Set(["seller"] as const);
+const supplier_request_confirm_role_codes = new Set(["seller"] as const);
+const supplier_request_paid_role_codes = new Set(["finance", "ceo"] as const);
+const supplier_request_stocked_role_codes = new Set(["warehouse"] as const);
 const supplier_request_business_source_types = ["deal", "order"] as const;
+const supplier_request_file_role_codes = new Set(["warehouse", "finance", "ceo"] as const);
 
 export interface CreateSupplierPayload {
   name: string;
@@ -39,6 +50,10 @@ export interface CreateSupplierRequestPayload {
   businessSourceId: string;
   expectedSupplyDate: string;
   items: CreateSupplierRequestItemPayload[];
+}
+
+export interface ConfirmSupplierRequestBySupplierPayload {
+  expectedSupplyDate: string;
 }
 
 @Injectable()
@@ -71,13 +86,9 @@ export class SupplyService {
     return this.supplyRepository.listSupplierRequests(query);
   }
 
-  async getSupplierRequest(supplierRequestId: string) {
-    const supplierRequest = await this.supplyRepository.getSupplierRequestById(supplierRequestId);
-    if (!supplierRequest) {
-      throw new NotFoundException(`SupplierRequest '${supplierRequestId}' was not found`);
-    }
-
-    return supplierRequest;
+  async getSupplierRequest(supplierRequestId: string, actor: AuthPrincipal) {
+    const supplierRequest = await this.get_supplier_request_or_throw(supplierRequestId);
+    return this.apply_file_visibility_baseline(supplierRequest, actor);
   }
 
   async createSupplierRequest(input: CreateSupplierRequestPayload, actor: AuthPrincipal) {
@@ -115,7 +126,54 @@ export class SupplyService {
       items: normalizedItems
     };
 
-    return this.supplyRepository.createSupplierRequest(createInput);
+    const created = await this.supplyRepository.createSupplierRequest(createInput);
+    return this.apply_file_visibility_baseline(created, actor);
+  }
+
+  async confirmSupplierRequestBySupplier(
+    supplierRequestId: string,
+    input: ConfirmSupplierRequestBySupplierPayload,
+    actor: AuthPrincipal
+  ) {
+    this.assert_supplier_request_confirm_access(actor);
+    const current = await this.get_supplier_request_or_throw(supplierRequestId);
+    this.assert_supplier_request_transition(current.status, "confirmed_by_supplier");
+
+    const updated = await this.supplyRepository.updateSupplierRequestById(supplierRequestId, {
+      status: "confirmed_by_supplier",
+      expectedSupplyDate: input.expectedSupplyDate,
+      confirmedBy: actor.userId
+    });
+
+    return this.apply_file_visibility_baseline(updated, actor);
+  }
+
+  async markSupplierRequestPaid(supplierRequestId: string, actor: AuthPrincipal) {
+    this.assert_supplier_request_paid_access(actor);
+    const current = await this.get_supplier_request_or_throw(supplierRequestId);
+    this.assert_supplier_request_transition(current.status, "paid");
+
+    const updated = await this.supplyRepository.updateSupplierRequestById(supplierRequestId, {
+      status: "paid",
+      paidBy: actor.userId,
+      paidAt: new Date().toISOString()
+    });
+
+    return this.apply_file_visibility_baseline(updated, actor);
+  }
+
+  async markSupplierRequestStocked(supplierRequestId: string, actor: AuthPrincipal) {
+    this.assert_supplier_request_stocked_access(actor);
+    const current = await this.get_supplier_request_or_throw(supplierRequestId);
+    this.assert_supplier_request_transition(current.status, "stocked");
+
+    const updated = await this.supplyRepository.updateSupplierRequestById(supplierRequestId, {
+      status: "stocked",
+      stockedBy: actor.userId,
+      stockedAt: new Date().toISOString()
+    });
+
+    return this.apply_file_visibility_baseline(updated, actor);
   }
 
   private to_create_supplier_input(input: CreateSupplierPayload): CreateSupplierInput {
@@ -151,6 +209,92 @@ export class SupplyService {
         message: "SupplierRequest create action is allowed only for seller role"
       });
     }
+  }
+
+  private assert_supplier_request_confirm_access(actor: AuthPrincipal): void {
+    const isAllowed = actor.roleCodes.some((roleCode) =>
+      supplier_request_confirm_role_codes.has(roleCode as "seller")
+    );
+
+    if (!isAllowed) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "SupplierRequest confirm-by-supplier action is allowed only for seller role"
+      });
+    }
+  }
+
+  private assert_supplier_request_paid_access(actor: AuthPrincipal): void {
+    const isAllowed = actor.roleCodes.some((roleCode) =>
+      supplier_request_paid_role_codes.has(roleCode as "finance" | "ceo")
+    );
+
+    if (!isAllowed) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "SupplierRequest mark-paid action is allowed only for finance or ceo role"
+      });
+    }
+  }
+
+  private assert_supplier_request_stocked_access(actor: AuthPrincipal): void {
+    const isAllowed = actor.roleCodes.some((roleCode) =>
+      supplier_request_stocked_role_codes.has(roleCode as "warehouse")
+    );
+
+    if (!isAllowed) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "SupplierRequest mark-stocked action is allowed only for warehouse role"
+      });
+    }
+  }
+
+  private assert_supplier_request_transition(
+    from: SupplierRequestStatus,
+    to: SupplierRequestStatus
+  ): void {
+    try {
+      assert_supplier_request_status_transition(from, to);
+    } catch (error) {
+      if (error instanceof StatusTransitionError) {
+        throw new ConflictException({
+          code: "TRANSITION_NOT_ALLOWED",
+          message: error.message
+        });
+      }
+
+      throw error;
+    }
+  }
+
+  private async get_supplier_request_or_throw(
+    supplierRequestId: string
+  ): Promise<SupplierRequestReadModel> {
+    const supplierRequest = await this.supplyRepository.getSupplierRequestById(supplierRequestId);
+    if (!supplierRequest) {
+      throw new NotFoundException(`SupplierRequest '${supplierRequestId}' was not found`);
+    }
+
+    return supplierRequest;
+  }
+
+  private apply_file_visibility_baseline(
+    supplierRequest: SupplierRequestReadModel,
+    actor: AuthPrincipal
+  ): SupplierRequestReadModel {
+    const canViewFile = actor.roleCodes.some((roleCode) =>
+      supplier_request_file_role_codes.has(roleCode as "warehouse" | "finance" | "ceo")
+    );
+
+    if (canViewFile) {
+      return supplierRequest;
+    }
+
+    return {
+      ...supplierRequest,
+      supplierDocumentUrl: null
+    };
   }
 }
 

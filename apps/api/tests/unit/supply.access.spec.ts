@@ -42,4 +42,60 @@ describe("supply access baseline", () => {
     expect(supplierRequestCreateRequirements?.authenticated).toBe(true);
     expect(supplierRequestCreateRequirements?.requiredRoleCodes).toEqual(["seller"]);
   });
+
+  it("keeps role matrix for supplier request status commands", () => {
+    const confirmRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      SupplierRequestsController.prototype.confirmBySupplier
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+    const markPaidRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      SupplierRequestsController.prototype.markPaid
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+    const markStockedRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      SupplierRequestsController.prototype.markStocked
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+
+    expect(confirmRequirements?.requiredRoleCodes).toEqual(["seller"]);
+    expect(markPaidRequirements?.requiredRoleCodes).toEqual(["finance", "ceo"]);
+    expect(markStockedRequirements?.requiredRoleCodes).toEqual(["warehouse"]);
+  });
+
+  it("keeps attachment access matrix for upload and view endpoints", () => {
+    const listAttachmentsRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      SupplierRequestsController.prototype.listAttachments
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+    const attachFileRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      SupplierRequestsController.prototype.attachFile
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+
+    expect(listAttachmentsRequirements?.requiredRoleCodes).toEqual([
+      "warehouse",
+      "finance",
+      "ceo"
+    ]);
+    expect(attachFileRequirements?.requiredRoleCodes).toEqual([
+      "warehouse",
+      "finance",
+      "ceo"
+    ]);
+  });
 });

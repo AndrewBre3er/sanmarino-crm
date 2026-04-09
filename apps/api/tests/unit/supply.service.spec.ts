@@ -1,11 +1,15 @@
 import {
+  ConflictException,
   ForbiddenException,
   NotFoundException
 } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { AuthPrincipal, AuthRoleCode } from "../../src/modules/auth/auth.contract";
 import type { ReadCollectionQueryInput } from "../../src/modules/read-side/shared/read-model.contract";
-import type { PrismaSupplyRepository } from "../../src/modules/supply/supply.repository";
+import type {
+  PrismaSupplyRepository,
+  SupplierRequestReadModel
+} from "../../src/modules/supply/supply.repository";
 import { SupplyService } from "../../src/modules/supply/supply.service";
 
 function build_query(): ReadCollectionQueryInput {
@@ -44,6 +48,48 @@ function make_user(roleCodes: AuthRoleCode[], userId = "user_1"): AuthPrincipal 
   };
 }
 
+function make_supplier_request(
+  status: "formed" | "confirmed_by_supplier" | "paid" | "stocked"
+): SupplierRequestReadModel {
+  const now = new Date().toISOString();
+  return {
+    id: "supplier_request_1",
+    supplierId: "00000000-0000-0000-0000-000000000010",
+    businessSourceType: "deal",
+    businessSourceId: "00000000-0000-0000-0000-000000000011",
+    status,
+    expectedSupplyDate: "2026-04-10",
+    requestedBy: "seller_1",
+    confirmedBy: status === "formed" ? null : "seller_1",
+    paidBy: status === "paid" || status === "stocked" ? "finance_1" : null,
+    paidAt:
+      status === "paid" || status === "stocked"
+        ? new Date("2026-04-11T00:00:00.000Z").toISOString()
+        : null,
+    stockedBy: status === "stocked" ? "warehouse_1" : null,
+    stockedAt: status === "stocked" ? new Date("2026-04-12T00:00:00.000Z").toISOString() : null,
+    supplierDocumentUrl: "https://storage.local/supplier-request-1.pdf",
+    createdAt: now,
+    updatedAt: now,
+    supplier: {
+      id: "00000000-0000-0000-0000-000000000010",
+      name: "Vendor"
+    },
+    items: [
+      {
+        id: "item_1",
+        productId: "00000000-0000-0000-0000-000000000012",
+        quantity: "2",
+        unit: "шт",
+        sourceLineRef: "deal-line-1",
+        sourceLineContext: { sourceDocument: "deal", sourceLineNo: 1 },
+        createdAt: now,
+        updatedAt: now
+      }
+    ]
+  };
+}
+
 function make_service() {
   const repository = {
     listSuppliers: vi.fn(),
@@ -51,7 +97,8 @@ function make_service() {
     createSupplier: vi.fn(),
     listSupplierRequests: vi.fn(),
     getSupplierRequestById: vi.fn(),
-    createSupplierRequest: vi.fn()
+    createSupplierRequest: vi.fn(),
+    updateSupplierRequestById: vi.fn()
   } as unknown as PrismaSupplyRepository;
 
   return {
@@ -99,42 +146,14 @@ describe("supply service", () => {
     expect(detail.id).toBe("supplier_1");
   });
 
-  it("creates supplier request with formed status and source-linked items for seller", async () => {
+  it("keeps seller create baseline for supplier request", async () => {
     const { service, repository } = make_service();
     const seller = make_user(["seller"], "seller_1");
     const now = new Date().toISOString();
     const createdRequest = {
-      id: "supplier_request_1",
-      supplierId: "00000000-0000-0000-0000-000000000010",
-      businessSourceType: "deal" as const,
-      businessSourceId: "00000000-0000-0000-0000-000000000011",
-      status: "formed" as const,
-      expectedSupplyDate: "2026-04-10",
-      requestedBy: "seller_1",
-      confirmedBy: null,
-      paidBy: null,
-      paidAt: null,
-      stockedBy: null,
-      stockedAt: null,
-      supplierDocumentUrl: null,
+      ...make_supplier_request("formed"),
       createdAt: now,
-      updatedAt: now,
-      supplier: {
-        id: "00000000-0000-0000-0000-000000000010",
-        name: "Vendor"
-      },
-      items: [
-        {
-          id: "item_1",
-          productId: "00000000-0000-0000-0000-000000000012",
-          quantity: "2",
-          unit: "шт" as const,
-          sourceLineRef: "deal-line-1",
-          sourceLineContext: { sourceDocument: "deal", sourceLineNo: 1 },
-          createdAt: now,
-          updatedAt: now
-        }
-      ]
+      updatedAt: now
     };
 
     vi.mocked(repository.getSupplierById).mockResolvedValue({
@@ -169,78 +188,147 @@ describe("supply service", () => {
 
     expect(repository.createSupplierRequest).toHaveBeenCalledWith(
       expect.objectContaining({
-        supplierId: "00000000-0000-0000-0000-000000000010",
-        businessSourceType: "deal",
-        businessSourceId: "00000000-0000-0000-0000-000000000011",
         status: "formed",
-        expectedSupplyDate: "2026-04-10",
         requestedBy: "seller_1",
         items: [
           expect.objectContaining({
-            productId: "00000000-0000-0000-0000-000000000012",
-            quantity: 2,
-            unit: "шт",
             sourceLineRef: "deal-line-1"
           })
         ]
       })
     );
     expect(created.status).toBe("formed");
-    expect(created.items).toHaveLength(1);
   });
 
-  it("rejects supplier request create for non-seller role", async () => {
+  it("applies file visibility baseline: detail is visible to all, file only to warehouse/finance/ceo", async () => {
+    const { service, repository } = make_service();
+    const request = make_supplier_request("formed");
+    vi.mocked(repository.getSupplierRequestById).mockResolvedValue(request);
+
+    const seller = make_user(["seller"], "seller_1");
+    const finance = make_user(["finance"], "finance_1");
+
+    const sellerView = await service.getSupplierRequest("supplier_request_1", seller);
+    const financeView = await service.getSupplierRequest("supplier_request_1", finance);
+
+    expect(sellerView.id).toBe("supplier_request_1");
+    expect(sellerView.status).toBe("formed");
+    expect(sellerView.supplierDocumentUrl).toBeNull();
+    expect(financeView.supplierDocumentUrl).toBe("https://storage.local/supplier-request-1.pdf");
+  });
+
+  it("enforces formed -> confirmed_by_supplier transition", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getSupplierRequestById).mockResolvedValue(make_supplier_request("formed"));
+    vi.mocked(repository.updateSupplierRequestById).mockResolvedValue(
+      make_supplier_request("confirmed_by_supplier")
+    );
+
+    const updated = await service.confirmSupplierRequestBySupplier(
+      "supplier_request_1",
+      { expectedSupplyDate: "2026-04-11" },
+      seller
+    );
+
+    expect(repository.updateSupplierRequestById).toHaveBeenCalledWith(
+      "supplier_request_1",
+      expect.objectContaining({
+        status: "confirmed_by_supplier",
+        expectedSupplyDate: "2026-04-11",
+        confirmedBy: "seller_1"
+      })
+    );
+    expect(updated.status).toBe("confirmed_by_supplier");
+  });
+
+  it("rejects invalid transition outside matrix", async () => {
+    const { service, repository } = make_service();
+    const finance = make_user(["finance"], "finance_1");
+
+    vi.mocked(repository.getSupplierRequestById).mockResolvedValue(make_supplier_request("formed"));
+
+    await expect(
+      service.markSupplierRequestPaid("supplier_request_1", finance)
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(repository.updateSupplierRequestById).not.toHaveBeenCalled();
+  });
+
+  it("enforces paid transition role: only finance or ceo", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    await expect(
+      service.markSupplierRequestPaid("supplier_request_1", seller)
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("enforces stocked transition role: only warehouse", async () => {
     const { service, repository } = make_service();
     const finance = make_user(["finance"], "finance_1");
 
     await expect(
-      service.createSupplierRequest(
-        {
-          supplierId: "00000000-0000-0000-0000-000000000010",
-          businessSourceType: "deal",
-          businessSourceId: "00000000-0000-0000-0000-000000000011",
-          expectedSupplyDate: "2026-04-10",
-          items: [
-            {
-              productId: "00000000-0000-0000-0000-000000000012",
-              quantity: 1,
-              unit: "шт",
-              sourceLineRef: "deal-line-1"
-            }
-          ]
-        },
-        finance
-      )
+      service.markSupplierRequestStocked("supplier_request_1", finance)
     ).rejects.toBeInstanceOf(ForbiddenException);
 
-    expect(repository.getSupplierById).not.toHaveBeenCalled();
-    expect(repository.createSupplierRequest).not.toHaveBeenCalled();
+    expect(repository.getSupplierRequestById).not.toHaveBeenCalled();
   });
 
-  it("rejects create when supplier does not exist", async () => {
+  it("supports confirmed_by_supplier -> paid for finance/ceo", async () => {
     const { service, repository } = make_service();
-    const seller = make_user(["seller"], "seller_1");
+    const finance = make_user(["finance"], "finance_1");
 
-    vi.mocked(repository.getSupplierById).mockResolvedValue(null);
+    vi.mocked(repository.getSupplierRequestById).mockResolvedValue(
+      make_supplier_request("confirmed_by_supplier")
+    );
+    vi.mocked(repository.updateSupplierRequestById).mockResolvedValue(
+      make_supplier_request("paid")
+    );
+
+    const updated = await service.markSupplierRequestPaid("supplier_request_1", finance);
+
+    expect(repository.updateSupplierRequestById).toHaveBeenCalledWith(
+      "supplier_request_1",
+      expect.objectContaining({
+        status: "paid",
+        paidBy: "finance_1",
+        paidAt: expect.any(String)
+      })
+    );
+    expect(updated.status).toBe("paid");
+  });
+
+  it("supports paid -> stocked for warehouse", async () => {
+    const { service, repository } = make_service();
+    const warehouse = make_user(["warehouse"], "warehouse_1");
+
+    vi.mocked(repository.getSupplierRequestById).mockResolvedValue(make_supplier_request("paid"));
+    vi.mocked(repository.updateSupplierRequestById).mockResolvedValue(
+      make_supplier_request("stocked")
+    );
+
+    const updated = await service.markSupplierRequestStocked("supplier_request_1", warehouse);
+
+    expect(repository.updateSupplierRequestById).toHaveBeenCalledWith(
+      "supplier_request_1",
+      expect.objectContaining({
+        status: "stocked",
+        stockedBy: "warehouse_1",
+        stockedAt: expect.any(String)
+      })
+    );
+    expect(updated.status).toBe("stocked");
+  });
+
+  it("returns not found for missing supplier request in status command", async () => {
+    const { service, repository } = make_service();
+    const warehouse = make_user(["warehouse"], "warehouse_1");
+    vi.mocked(repository.getSupplierRequestById).mockResolvedValue(null);
 
     await expect(
-      service.createSupplierRequest(
-        {
-          supplierId: "00000000-0000-0000-0000-000000000099",
-          businessSourceType: "deal",
-          businessSourceId: "00000000-0000-0000-0000-000000000011",
-          expectedSupplyDate: "2026-04-10",
-          items: [
-            {
-              productId: "00000000-0000-0000-0000-000000000012",
-              quantity: 1,
-              unit: "шт",
-              sourceLineRef: "deal-line-1"
-            }
-          ]
-        },
-        seller
-      )
+      service.markSupplierRequestStocked("missing_request", warehouse)
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

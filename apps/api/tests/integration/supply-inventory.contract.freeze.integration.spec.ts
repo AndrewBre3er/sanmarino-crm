@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  supplier_request_file_access_contract,
+  supplier_request_role_matrix_contract,
   supply_inventory_entities,
   supply_inventory_read_side_contract,
   supply_inventory_status_contract
@@ -39,9 +41,9 @@ describe("supply + inventory contract freeze", () => {
     expect(supply_inventory_status_contract.inventoryBucket).toEqual(inventory_bucket_statuses);
   });
 
-  it("marks read-side resources split between implemented and deferred for Supply Step 3", () => {
+  it("marks read-side resources split between implemented and deferred for Supply Step 4", () => {
     expect(supply_inventory_read_side_contract.freezePhase).toBe(
-      "supply-step-3-supplier-backend-baseline"
+      "supply-step-4-supplier-request-status-role-matrix"
     );
     expect(supply_inventory_read_side_contract.implementedCollections).toEqual([
       "suppliers",
@@ -56,5 +58,29 @@ describe("supply + inventory contract freeze", () => {
       "reservations",
       "inventory-movements"
     ]);
+  });
+
+  it("keeps supplier request role matrix fixed for status command flow", () => {
+    expect(supplier_request_role_matrix_contract.create).toEqual(["seller"]);
+    expect(supplier_request_role_matrix_contract.confirmBySupplier).toEqual(["seller"]);
+    expect(supplier_request_role_matrix_contract.markPaid).toEqual(["finance", "ceo"]);
+    expect(supplier_request_role_matrix_contract.markStocked).toEqual(["warehouse"]);
+    expect(supplier_request_role_matrix_contract.listAndStatusVisibility).toBe("all_roles");
+  });
+
+  it("keeps attachment matrix at contract/access baseline with explicit deferred storage", () => {
+    expect(supplier_request_file_access_contract.attachRoles).toEqual([
+      "warehouse",
+      "finance",
+      "ceo"
+    ]);
+    expect(supplier_request_file_access_contract.viewRoles).toEqual([
+      "warehouse",
+      "finance",
+      "ceo"
+    ]);
+    expect(supplier_request_file_access_contract.storageImplementation).toBe(
+      "deferred_step_4_contract_access_baseline"
+    );
   });
 });

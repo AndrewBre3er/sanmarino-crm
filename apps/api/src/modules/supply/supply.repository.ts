@@ -123,6 +123,16 @@ export interface CreateSupplierRequestInput {
   items: CreateSupplierRequestItemInput[];
 }
 
+export interface UpdateSupplierRequestInput {
+  status?: SupplierRequestStatus;
+  expectedSupplyDate?: string;
+  confirmedBy?: string | null;
+  paidBy?: string | null;
+  paidAt?: string;
+  stockedBy?: string | null;
+  stockedAt?: string;
+}
+
 type SupplierRequestWithItemsRecord = InventorySupplierRequest & {
   supplier: InventorySupplier;
   items: InventorySupplierRequestItem[];
@@ -364,6 +374,43 @@ export class PrismaSupplyRepository {
     }
 
     return map_supplier_request_detail_record(supplierRequest as SupplierRequestWithItemsRecord);
+  }
+
+  async updateSupplierRequestById(
+    supplierRequestId: string,
+    input: UpdateSupplierRequestInput
+  ): Promise<SupplierRequestReadModel> {
+    const updated = await this.prismaService.inventorySupplierRequest.update({
+      where: { id: supplierRequestId },
+      data: {
+        ...(input.status !== undefined
+          ? { status: to_prisma_enum<PrismaSupplierRequestStatus>(input.status) }
+          : {}),
+        ...(input.expectedSupplyDate !== undefined
+          ? { expectedSupplyDate: new Date(input.expectedSupplyDate) }
+          : {}),
+        ...(input.confirmedBy !== undefined ? { confirmedBy: input.confirmedBy } : {}),
+        ...(input.paidBy !== undefined ? { paidBy: input.paidBy } : {}),
+        ...(input.paidAt !== undefined ? { paidAt: new Date(input.paidAt) } : {}),
+        ...(input.stockedBy !== undefined ? { stockedBy: input.stockedBy } : {}),
+        ...(input.stockedAt !== undefined ? { stockedAt: new Date(input.stockedAt) } : {})
+      },
+      include: {
+        supplier: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        items: {
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    return map_supplier_request_detail_record(updated as SupplierRequestWithItemsRecord);
   }
 
   async createSupplierRequest(input: CreateSupplierRequestInput): Promise<SupplierRequestReadModel> {
