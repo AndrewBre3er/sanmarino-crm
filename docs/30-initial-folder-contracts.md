@@ -84,6 +84,20 @@ Not allowed:
 - screenshots unless specifically needed
 - hidden scratch notes used as pseudo-authority
 
+## 2.3.1 `/.beads`
+Purpose:
+- repo-local task tracking and development workflow metadata
+
+Allowed:
+- issue/task tracking data
+- execution planning metadata
+- branch-aware workflow artifacts related to implementation tracking
+
+Rules:
+- `.beads/` is not a source of truth for business logic, architecture, API contracts, or domain rules
+- canonical product and architecture decisions remain in `docs/*`
+- `.beads/` may track tasks and dependencies, but must not override accepted documentation
+
 ## 2.4 `/deploy`
 Purpose:
 - VPS deployment assets, Compose files, Nginx configs, deploy scripts, and environment templates
