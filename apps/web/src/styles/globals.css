@@ -284,6 +284,55 @@ a {
   padding: 10px 12px;
 }
 
+.bo-crm-item {
+  display: grid;
+  gap: 6px;
+}
+
+.bo-crm-item-selected {
+  border-color: var(--bo-brand);
+  background: #eef4ff;
+}
+
+.bo-crm-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.bo-crm-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.bo-crm-link {
+  color: var(--bo-brand);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bo-crm-link:hover {
+  opacity: 0.9;
+}
+
+.bo-crm-detail-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.bo-crm-detail-item {
+  border: 1px solid var(--bo-border);
+  border-radius: 8px;
+  background: #f9fbff;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+}
+
 .bo-badge-row {
   display: flex;
   flex-wrap: wrap;
