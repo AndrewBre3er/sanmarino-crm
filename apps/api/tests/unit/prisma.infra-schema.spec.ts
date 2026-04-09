@@ -7,8 +7,8 @@ function load_schema(): string {
   return readFileSync(schema_path, "utf8");
 }
 
-describe("prisma schema foundation (infra + users + CRM core + minimal core transactional)", () => {
-  it("contains approved infra/system models, users models, and aligned CRM core models", () => {
+describe("prisma schema foundation (infra + users + CRM core + supply inventory contract baseline)", () => {
+  it("contains approved infra/system models, users models, and supply/inventory foundation models", () => {
     const schema = load_schema();
 
     expect(schema).toContain("model SystemIdempotencyRecord");
@@ -36,6 +36,12 @@ describe("prisma schema foundation (infra + users + CRM core + minimal core tran
     expect(schema).toContain("model InventorySupplierRequestItem");
     expect(schema).toContain("model InventoryPurchaseReceipt");
     expect(schema).toContain("model InventoryPurchaseReceiptItem");
+    expect(schema).toContain("model InventoryProduct");
+    expect(schema).toContain("model InventoryWarehouse");
+    expect(schema).toContain("model InventoryStockBalance");
+    expect(schema).toContain("model InventoryStockLock");
+    expect(schema).toContain("model InventoryReservation");
+    expect(schema).toContain("model InventoryInventoryMovement");
     expect(schema).toContain("enum LeadStatus");
     expect(schema).toContain('NEW           @map("new")');
     expect(schema).toContain("enum DealStatus");
@@ -53,6 +59,14 @@ describe("prisma schema foundation (infra + users + CRM core + minimal core tran
     expect(schema).toContain('FORMED                @map("formed")');
     expect(schema).toContain("enum ProductUnit");
     expect(schema).toContain('PIECE        @map("шт")');
+    expect(schema).toContain("enum StockLockStatus");
+    expect(schema).toContain('ACTIVE   @map("active")');
+    expect(schema).toContain("enum ReservationStatus");
+    expect(schema).toContain('CONSUMED  @map("consumed")');
+    expect(schema).toContain("enum InventoryMovementType");
+    expect(schema).toContain('TRANSFER_TO_QUARANTINE  @map("transfer_to_quarantine")');
+    expect(schema).toContain("enum InventoryBucket");
+    expect(schema).toContain('QUARANTINE @map("quarantine")');
     expect(schema).toContain("enum OrderFulfillmentType");
     expect(schema).toContain('fulfillmentType OrderFulfillmentType');
     expect(schema).toContain('businessSourceType');
@@ -73,8 +87,6 @@ describe("prisma schema foundation (infra + users + CRM core + minimal core tran
     expect(schema).toContain('@map("requires_ceo_approval")');
 
     const forbidden_deferred_models = [
-      "model InventoryStockBalance",
-      "model InventoryReservation",
       "model FinanceEntry",
       "model AnalyticsLiveKpiMetric",
       "model MarketingExpense"

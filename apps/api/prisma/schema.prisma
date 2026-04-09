@@ -8,9 +8,9 @@ datasource db {
   schemas  = ["users", "crm", "orders", "inventory", "payments", "logistics", "finance", "analytics", "audit", "reconciliation", "system"]
 }
 
-/// Phase 8 scope:
-/// - infra/system models + minimal core transactional foundation
-/// - no full CRM/ERP schema implementation yet
+/// Phase 12 scope:
+/// - infra/system models + users + CRM core + supply/inventory contract foundation
+/// - transactional domain workflows remain deferred until dedicated implementation slices
 /// TODO(implementation): add remaining business models only in their dedicated domain phases.
 
 enum LeadStatus {
@@ -91,6 +91,48 @@ enum ProductUnit {
   SQUARE_METER @map("кв.м")
   LINEAR_METER @map("п.м")
   SERVICE      @map("услуга")
+
+  @@schema("inventory")
+}
+
+enum StockLockStatus {
+  ACTIVE   @map("active")
+  EXPIRED  @map("expired")
+  RELEASED @map("released")
+  PROMOTED @map("promoted")
+
+  @@schema("inventory")
+}
+
+enum ReservationStatus {
+  ACTIVE    @map("active")
+  RELEASED  @map("released")
+  EXPIRED   @map("expired")
+  CONSUMED  @map("consumed")
+  CANCELLED @map("cancelled")
+
+  @@schema("inventory")
+}
+
+enum InventoryMovementType {
+  RECEIPT                 @map("receipt")
+  ISSUE                   @map("issue")
+  RETURN_TO_STOCK         @map("return_to_stock")
+  WRITEOFF                @map("writeoff")
+  ADJUSTMENT              @map("adjustment")
+  RESERVATION_CREATE      @map("reservation_create")
+  RESERVATION_RELEASE     @map("reservation_release")
+  TRANSFER_TO_QUARANTINE  @map("transfer_to_quarantine")
+  RELEASE_FROM_QUARANTINE @map("release_from_quarantine")
+
+  @@schema("inventory")
+}
+
+enum InventoryBucket {
+  ON_HAND    @map("on_hand")
+  RESERVED   @map("reserved")
+  AVAILABLE  @map("available")
+  QUARANTINE @map("quarantine")
 
   @@schema("inventory")
 }
@@ -204,6 +246,9 @@ model UsersUser {
   inventorySupplierRequestsPaid      InventorySupplierRequest[] @relation("InventorySupplierRequestPaidByUser")
   inventorySupplierRequestsStocked   InventorySupplierRequest[] @relation("InventorySupplierRequestStockedByUser")
   inventoryPurchaseReceiptsCreated   InventoryPurchaseReceipt[] @relation("InventoryPurchaseReceiptCreatedByUser")
+  inventoryStockLocksCreated         InventoryStockLock[]       @relation("InventoryStockLockCreatedByUser")
+  inventoryReservationsCreated       InventoryReservation[]     @relation("InventoryReservationCreatedByUser")
+  inventoryMovementsPerformed        InventoryInventoryMovement[] @relation("InventoryInventoryMovementPerformedByUser")
   idempotencyRecordsDeleted     SystemIdempotencyRecord[] @relation("SystemIdempotencyRecordDeletedByUser")
   outboxRecordsDeleted          SystemOutboxRecord[]      @relation("SystemOutboxRecordDeletedByUser")
   auditEventsActor              AuditLogRecord[]          @relation("AuditLogRecordActorUser")
@@ -318,6 +363,7 @@ model CrmDeal {
   isDeleted         Boolean     @default(false) @map("is_deleted")
   clientParticipants CrmClientParticipant[] @relation("CrmClientParticipantDeal")
   orders            OrdersOrder[]
+  stockLocks        InventoryStockLock[]
 
   @@unique([leadId])
   @@index([clientId])
@@ -378,6 +424,9 @@ model OrdersOrder {
   deliveryTasks  LogisticsDeliveryTask[]
   returnRequests OrdersReturnRequest[]
   payments       PaymentsPayment[]
+  stockLocks     InventoryStockLock[]
+  reservations   InventoryReservation[]
+  inventoryMovements InventoryInventoryMovement[]
   clientParticipants CrmClientParticipant[] @relation("CrmClientParticipantOrder")
 
   @@index([dealId])
@@ -461,12 +510,164 @@ model OrdersReturnRequest {
   deletedByUser        UsersUser?  @relation("OrdersReturnRequestDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
   deleteReason         String?     @map("delete_reason") @db.Text
   isDeleted            Boolean     @default(false) @map("is_deleted")
+  inventoryMovements   InventoryInventoryMovement[]
 
   @@index([orderId])
   @@index([status])
   @@index([isDeleted])
   @@map("return_requests")
   @@schema("orders")
+}
+
+model InventoryProduct {
+  id                  String                        @id @default(uuid()) @db.Uuid
+  sku                 String                        @unique @db.VarChar(128)
+  name                String                        @db.VarChar(255)
+  productType         String?                       @map("product_type") @db.VarChar(64)
+  unit                ProductUnit
+  isActive            Boolean                       @default(true) @map("is_active")
+  createdAt           DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  supplierRequestItems InventorySupplierRequestItem[]
+  purchaseReceiptItems InventoryPurchaseReceiptItem[]
+  stockBalances       InventoryStockBalance[]
+  stockLocks          InventoryStockLock[]
+  reservations        InventoryReservation[]
+  inventoryMovements  InventoryInventoryMovement[]
+
+  @@index([name])
+  @@map("products")
+  @@schema("inventory")
+}
+
+model InventoryWarehouse {
+  id                 String                       @id @default(uuid()) @db.Uuid
+  code               String                       @unique @db.VarChar(64)
+  name               String                       @db.VarChar(255)
+  isActive           Boolean                      @default(true) @map("is_active")
+  createdAt          DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  stockBalances      InventoryStockBalance[]
+  stockLocks         InventoryStockLock[]
+  reservations       InventoryReservation[]
+  purchaseReceipts   InventoryPurchaseReceipt[]
+  inventoryMovements InventoryInventoryMovement[]
+
+  @@map("warehouses")
+  @@schema("inventory")
+}
+
+model InventoryStockBalance {
+  id              String             @id @default(uuid()) @db.Uuid
+  productId       String             @map("product_id") @db.Uuid
+  product         InventoryProduct   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouseId     String             @map("warehouse_id") @db.Uuid
+  warehouse       InventoryWarehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  onHandQty       Decimal            @default(0) @map("on_hand_qty") @db.Decimal(14, 3)
+  reservedQty     Decimal            @default(0) @map("reserved_qty") @db.Decimal(14, 3)
+  availableQty    Decimal            @default(0) @map("available_qty") @db.Decimal(14, 3)
+  quarantineQty   Decimal            @default(0) @map("quarantine_qty") @db.Decimal(14, 3)
+  weightedAvgCost Decimal            @default(0) @map("weighted_avg_cost") @db.Decimal(14, 2)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([productId, warehouseId])
+  @@index([warehouseId, productId])
+  @@map("stock_balances")
+  @@schema("inventory")
+}
+
+model InventoryStockLock {
+  id                   String                @id @default(uuid()) @db.Uuid
+  productId            String                @map("product_id") @db.Uuid
+  product              InventoryProduct      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouseId          String                @map("warehouse_id") @db.Uuid
+  warehouse            InventoryWarehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  orderId              String?               @map("order_id") @db.Uuid
+  order                OrdersOrder?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  dealId               String?               @map("deal_id") @db.Uuid
+  deal                 CrmDeal?              @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  qty                  Decimal               @db.Decimal(14, 3)
+  status               StockLockStatus       @default(ACTIVE)
+  idempotencyKey       String?               @map("idempotency_key") @db.VarChar(128)
+  expiresAt            DateTime              @map("expires_at") @db.Timestamptz(6)
+  releasedAt           DateTime?             @map("released_at") @db.Timestamptz(6)
+  promotedReservationId String?              @map("promoted_reservation_id") @db.Uuid
+  promotedReservation  InventoryReservation? @relation(fields: [promotedReservationId], references: [id], onDelete: SetNull)
+  createdBy            String                @map("created_by") @db.Uuid
+  createdByUser        UsersUser             @relation("InventoryStockLockCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([productId, warehouseId, status])
+  @@index([orderId])
+  @@index([dealId])
+  @@index([expiresAt])
+  @@map("stock_locks")
+  @@schema("inventory")
+}
+
+model InventoryReservation {
+  id                 String                      @id @default(uuid()) @db.Uuid
+  orderId            String                      @map("order_id") @db.Uuid
+  order              OrdersOrder                 @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  productId          String                      @map("product_id") @db.Uuid
+  product            InventoryProduct            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouseId        String                      @map("warehouse_id") @db.Uuid
+  warehouse          InventoryWarehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  qty                Decimal                     @db.Decimal(14, 3)
+  status             ReservationStatus           @default(ACTIVE)
+  expiresAt          DateTime                    @map("expires_at") @db.Timestamptz(6)
+  releasedAt         DateTime?                   @map("released_at") @db.Timestamptz(6)
+  consumedAt         DateTime?                   @map("consumed_at") @db.Timestamptz(6)
+  createdBy          String                      @map("created_by") @db.Uuid
+  createdByUser      UsersUser                   @relation("InventoryReservationCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt          DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  stockLocksPromoted InventoryStockLock[]
+  inventoryMovements InventoryInventoryMovement[]
+
+  @@index([orderId])
+  @@index([productId, warehouseId, status])
+  @@index([expiresAt])
+  @@map("reservations")
+  @@schema("inventory")
+}
+
+model InventoryInventoryMovement {
+  id               String                   @id @default(uuid()) @db.Uuid
+  movementType     InventoryMovementType    @map("movement_type")
+  productId        String                   @map("product_id") @db.Uuid
+  product          InventoryProduct         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouseId      String                   @map("warehouse_id") @db.Uuid
+  warehouse        InventoryWarehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  qty              Decimal                  @db.Decimal(14, 3)
+  bucketFrom       InventoryBucket?         @map("bucket_from")
+  bucketTo         InventoryBucket?         @map("bucket_to")
+  unitCost         Decimal?                 @map("unit_cost") @db.Decimal(14, 2)
+  totalCost        Decimal?                 @map("total_cost") @db.Decimal(14, 2)
+  orderId          String?                  @map("order_id") @db.Uuid
+  order            OrdersOrder?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  fulfillmentId    String?                  @map("fulfillment_id") @db.Uuid // TODO(phase12+): link to orders.fulfillments model when fulfillment foundation is introduced.
+  returnRequestId  String?                  @map("return_request_id") @db.Uuid
+  returnRequest    OrdersReturnRequest?     @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  reservationId    String?                  @map("reservation_id") @db.Uuid
+  reservation      InventoryReservation?    @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  purchaseReceiptId String?                 @map("purchase_receipt_id") @db.Uuid
+  purchaseReceipt  InventoryPurchaseReceipt? @relation(fields: [purchaseReceiptId], references: [id], onDelete: SetNull)
+  reason           String?                  @db.Text
+  performedBy      String                   @map("performed_by") @db.Uuid
+  performedByUser  UsersUser                @relation("InventoryInventoryMovementPerformedByUser", fields: [performedBy], references: [id], onDelete: Restrict)
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([productId, warehouseId, createdAt])
+  @@index([orderId])
+  @@index([returnRequestId])
+  @@index([reservationId])
+  @@index([purchaseReceiptId])
+  @@map("inventory_movements")
+  @@schema("inventory")
 }
 
 model InventorySupplier {
@@ -517,7 +718,8 @@ model InventorySupplierRequestItem {
   id                   String                       @id @default(uuid()) @db.Uuid
   supplierRequestId    String                       @map("supplier_request_id") @db.Uuid
   supplierRequest      InventorySupplierRequest     @relation(fields: [supplierRequestId], references: [id], onDelete: Restrict)
-  productId            String                       @map("product_id") @db.Uuid // TODO: inventory.products relation in inventory phase.
+  productId            String                       @map("product_id") @db.Uuid
+  product              InventoryProduct             @relation(fields: [productId], references: [id], onDelete: Restrict)
   qty                  Decimal                      @db.Decimal(14, 3)
   unit                 ProductUnit
   sourceLineRef        String                       @map("source_line_ref") @db.VarChar(128)
@@ -526,6 +728,7 @@ model InventorySupplierRequestItem {
   updatedAt            DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
   purchaseReceiptItems InventoryPurchaseReceiptItem[]
 
+  @@index([productId])
   @@map("supplier_request_items")
   @@schema("inventory")
 }
@@ -533,7 +736,8 @@ model InventorySupplierRequestItem {
 model InventoryPurchaseReceipt {
   id                String                       @id @default(uuid()) @db.Uuid
   receiptNumber     String                       @unique @map("receipt_number") @db.VarChar(64)
-  warehouseId       String                       @map("warehouse_id") @db.Uuid // TODO: inventory.warehouses relation in inventory phase.
+  warehouseId       String                       @map("warehouse_id") @db.Uuid
+  warehouse         InventoryWarehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   supplierId        String                       @map("supplier_id") @db.Uuid
   supplier          InventorySupplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   supplierRequestId String?                      @map("supplier_request_id") @db.Uuid
@@ -544,6 +748,7 @@ model InventoryPurchaseReceipt {
   createdAt         DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
   items             InventoryPurchaseReceiptItem[]
+  inventoryMovements InventoryInventoryMovement[]
 
   @@map("purchase_receipts")
   @@schema("inventory")
@@ -553,7 +758,8 @@ model InventoryPurchaseReceiptItem {
   id                    String                        @id @default(uuid()) @db.Uuid
   purchaseReceiptId     String                        @map("purchase_receipt_id") @db.Uuid
   purchaseReceipt       InventoryPurchaseReceipt      @relation(fields: [purchaseReceiptId], references: [id], onDelete: Restrict)
-  productId             String                        @map("product_id") @db.Uuid // TODO: inventory.products relation in inventory phase.
+  productId             String                        @map("product_id") @db.Uuid
+  product               InventoryProduct              @relation(fields: [productId], references: [id], onDelete: Restrict)
   qty                   Decimal                       @db.Decimal(14, 3)
   unit                  ProductUnit
   unitCost              Decimal                       @map("unit_cost") @db.Decimal(14, 2)

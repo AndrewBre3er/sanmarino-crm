@@ -6,16 +6,17 @@ export const api_openapi_contract = {
   description: [
     "Bootstrap shell.",
     "",
-    "Phase 10 read-side + auth skeleton baseline:",
+    "Phase 12 supply/inventory contract freeze baseline:",
     "- request/correlation/idempotency/audit-boundary API shell conventions",
     "- normalized response envelope and exception mapping",
     "- read-only list/detail endpoints for core transactional entities",
     "- custom auth skeleton endpoints with httpOnly cookies and refresh token rotation baseline",
+    "- supply/inventory domain contract freeze for statuses, entities, and schema foundation",
     "- pagination/filter/sort query contracts aligned with shared platform types",
     "",
-    "TODO: users domain, full RBAC/field-level enforcement, and MFA implementation are deferred."
+    "TODO: supply/inventory read endpoints and transactional mutation workflows remain deferred."
   ].join("\n"),
-  version: "0.11.1",
+  version: "0.12.0",
   docsPath: "api/docs",
   globalPrefix: "api"
 } as const;
@@ -68,7 +69,7 @@ export const api_openapi_tags = {
 
 export const api_openapi_extensions = {
   platformContractsPackage: "@sanmarino/types",
-  bootstrapPhase: "phase-11-api-auth-skeleton",
+  bootstrapPhase: "phase-12-supply-inventory-contract-freeze",
   declaredErrorCodes: api_error_codes,
   requestContextHeaders: request_context_headers,
   idempotencyHeaderContract: {
@@ -79,5 +80,5 @@ export const api_openapi_extensions = {
   auditBoundaryNote:
     "Audit context is extracted at API boundary only. Business audit implementation is deferred.",
   readBoundaryNote:
-    "Read-side endpoints are enabled for core transactional entities. CRM Step 1 additionally freezes clients/contacts/client-participants contracts without endpoint implementation. Mutation/business workflows remain TODO."
+    "Read-side endpoints are enabled for core transactional entities. CRM Step 1 and Supply Step 1 freeze contracts without forcing endpoint implementation. Mutation/business workflows remain TODO."
 } as const;

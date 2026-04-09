@@ -46,6 +46,49 @@ export const return_request_statuses = [
   "closed"
 ] as const;
 
+export const supplier_request_statuses = [
+  "formed",
+  "confirmed_by_supplier",
+  "paid",
+  "stocked"
+] as const;
+
+export const product_units = ["шт", "кв.м", "п.м", "услуга"] as const;
+
+export const stock_lock_statuses = [
+  "active",
+  "expired",
+  "released",
+  "promoted"
+] as const;
+
+export const reservation_statuses = [
+  "active",
+  "released",
+  "expired",
+  "consumed",
+  "cancelled"
+] as const;
+
+export const inventory_movement_types = [
+  "receipt",
+  "issue",
+  "return_to_stock",
+  "writeoff",
+  "adjustment",
+  "reservation_create",
+  "reservation_release",
+  "transfer_to_quarantine",
+  "release_from_quarantine"
+] as const;
+
+export const inventory_bucket_statuses = [
+  "on_hand",
+  "reserved",
+  "available",
+  "quarantine"
+] as const;
+
 export const payment_statuses = ["pending", "completed", "refunded"] as const;
 
 export const payment_methods = ["cash", "bank_transfer", "card", "sbp", "other"] as const;
@@ -64,6 +107,12 @@ export type OrderDeliveryStatus = (typeof order_delivery_statuses)[number];
 export type OrderFulfillmentType = (typeof order_fulfillment_types)[number];
 export type DeliveryTaskStatus = (typeof delivery_task_statuses)[number];
 export type ReturnRequestStatus = (typeof return_request_statuses)[number];
+export type SupplierRequestStatus = (typeof supplier_request_statuses)[number];
+export type ProductUnit = (typeof product_units)[number];
+export type StockLockStatus = (typeof stock_lock_statuses)[number];
+export type ReservationStatus = (typeof reservation_statuses)[number];
+export type InventoryMovementType = (typeof inventory_movement_types)[number];
+export type InventoryBucketStatus = (typeof inventory_bucket_statuses)[number];
 export type PaymentStatus = (typeof payment_statuses)[number];
 export type PaymentMethod = (typeof payment_methods)[number];
 
