@@ -8,6 +8,7 @@ import type {
   TransactionContext
 } from "../../../common/persistence";
 import type { PrismaService } from "../../../prisma/prisma.service";
+import type { CrmDeal, DealStatus as PrismaDealStatus } from "@prisma/client";
 import { throw_deferred_skeleton } from "../shared/deferred-skeleton.error";
 import type { DealStatus } from "../shared/status.contract";
 
@@ -50,6 +51,19 @@ export interface CrmDealUpdateInput {
 export interface CrmDealRepositoryContract
   extends RepositoryBaseContract<CrmDealRecord, CrmDealCreateInput, CrmDealUpdateInput> {
   withTransaction(context: TransactionContext): CrmDealRepositoryContract;
+  ensureFromLead(
+    input: EnsureDealFromLeadInput,
+    options?: RepositoryUpdateOptions
+  ): Promise<CrmDealRecord>;
+}
+
+export interface EnsureDealFromLeadInput {
+  leadId: string;
+  clientId: string;
+  contactId?: string | null;
+  responsibleUserId: string;
+  title: string;
+  notes?: string | null;
 }
 
 export class PrismaCrmDealRepository implements CrmDealRepositoryContract {
@@ -60,6 +74,30 @@ export class PrismaCrmDealRepository implements CrmDealRepositoryContract {
 
   withTransaction(context: TransactionContext): CrmDealRepositoryContract {
     return new PrismaCrmDealRepository(this.prismaService, context);
+  }
+
+  async ensureFromLead(
+    input: EnsureDealFromLeadInput,
+    options?: RepositoryUpdateOptions
+  ): Promise<CrmDealRecord> {
+    void options;
+
+    const client = this.get_client();
+    const deal = await client.crmDeal.upsert({
+      where: { leadId: input.leadId },
+      update: {},
+      create: {
+        leadId: input.leadId,
+        clientId: input.clientId,
+        ...(input.contactId !== undefined ? { contactId: input.contactId } : {}),
+        status: "IN_PROGRESS",
+        title: input.title,
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+        responsibleUserId: input.responsibleUserId
+      }
+    });
+
+    return map_crm_deal_record(deal);
   }
 
   async findById(id: string, options?: RepositoryFindOptions): Promise<CrmDealRecord | null> {
@@ -110,8 +148,64 @@ export class PrismaCrmDealRepository implements CrmDealRepositoryContract {
   }
 
   private touch_context(id: string): void {
-    const client = this.transactionContext?.client ?? this.prismaService;
+    const client = this.get_client();
     void client;
     void id;
   }
+
+  private get_client(): PrismaService {
+    return (this.transactionContext?.client ?? this.prismaService) as PrismaService;
+  }
+}
+
+const prisma_status_to_deal: Record<PrismaDealStatus, DealStatus> = {
+  IN_PROGRESS: "in_progress",
+  CONVERTED_TO_ORDER: "converted_to_order",
+  CANCELLED: "cancelled"
+};
+
+function to_iso_datetime(value: Date): string {
+  return value.toISOString();
+}
+
+function map_decimal_to_string(value: unknown): string | null {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value.toString();
+  }
+
+  if (typeof value === "object" && typeof (value as { toString?: unknown }).toString === "function") {
+    return (value as { toString: () => string }).toString();
+  }
+
+  return null;
+}
+
+function map_crm_deal_record(record: CrmDeal): CrmDealRecord {
+  return {
+    id: record.id,
+    leadId: record.leadId,
+    clientId: record.clientId,
+    contactId: record.contactId,
+    status: prisma_status_to_deal[record.status],
+    title: record.title,
+    deliveryMode: record.deliveryMode,
+    expectedValue: map_decimal_to_string(record.expectedValue),
+    notes: record.notes,
+    responsibleUserId: record.responsibleUserId,
+    createdAt: to_iso_datetime(record.createdAt),
+    updatedAt: to_iso_datetime(record.updatedAt),
+    version: record.version,
+    deletedAt: record.deletedAt ? to_iso_datetime(record.deletedAt) : null,
+    deletedBy: record.deletedBy,
+    deleteReason: record.deleteReason,
+    isDeleted: record.isDeleted
+  };
 }

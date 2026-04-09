@@ -14,6 +14,10 @@ import {
   type CrmLeadRecord,
   type CrmLeadUpdateInput
 } from "../transactional/crm/lead.repository";
+import {
+  PrismaCrmDealRepository,
+  type EnsureDealFromLeadInput
+} from "../transactional/crm/deal.repository";
 import type { LeadStatus } from "../transactional/shared/status.contract";
 import {
   PrismaCrmLeadReadRepository,
@@ -44,7 +48,9 @@ export class LeadsService {
     @Inject(PrismaCrmLeadReadRepository)
     private readonly leadReadRepository: PrismaCrmLeadReadRepository,
     @Inject(PrismaCrmLeadRepository)
-    private readonly leadRepository: PrismaCrmLeadRepository
+    private readonly leadRepository: PrismaCrmLeadRepository,
+    @Inject(PrismaCrmDealRepository)
+    private readonly dealRepository: PrismaCrmDealRepository
   ) {}
 
   async listLeads(
@@ -83,7 +89,20 @@ export class LeadsService {
     }
 
     this.assert_can_access_lead(actor, currentLead);
+
+    if (currentLead.status === input.status) {
+      if (input.status === "in_processing") {
+        await this.ensure_deal_for_lead_in_processing(currentLead);
+      }
+
+      return map_record_to_read_model(currentLead);
+    }
+
     this.assert_status_update_rules(currentLead, input);
+
+    if (input.status === "in_processing") {
+      await this.ensure_deal_for_lead_in_processing(currentLead);
+    }
 
     const updateInput: CrmLeadUpdateInput = {
       status: input.status,
@@ -177,6 +196,38 @@ export class LeadsService {
       }
     }
   }
+
+  private async ensure_deal_for_lead_in_processing(currentLead: CrmLeadRecord): Promise<void> {
+    const input = this.to_ensure_deal_from_lead_input(currentLead);
+    await this.dealRepository.ensureFromLead(input);
+  }
+
+  private to_ensure_deal_from_lead_input(currentLead: CrmLeadRecord): EnsureDealFromLeadInput {
+    const clientId = currentLead.clientId;
+    if (!clientId) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Lead requires clientId before transition to in_processing"
+      });
+    }
+
+    const responsibleUserId = currentLead.responsibleUserId;
+    if (!responsibleUserId) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Lead requires responsibleUserId before transition to in_processing"
+      });
+    }
+
+    return {
+      leadId: currentLead.id,
+      clientId,
+      ...(currentLead.contactId !== undefined ? { contactId: currentLead.contactId } : {}),
+      responsibleUserId,
+      title: resolve_deal_title(currentLead),
+      ...(currentLead.notes !== undefined ? { notes: currentLead.notes } : {})
+    };
+  }
 }
 
 function has_privileged_access(actor: AuthPrincipal): boolean {
@@ -221,4 +272,13 @@ function build_cancel_reason_note(existingNotes: string | null | undefined, reas
   }
 
   return `${existingNotes}\n${reasonLine}`;
+}
+
+function resolve_deal_title(currentLead: CrmLeadRecord): string {
+  const normalizedTitle = currentLead.title?.trim();
+  if (normalizedTitle && normalizedTitle.length > 0) {
+    return normalizedTitle;
+  }
+
+  return `Lead ${currentLead.id}`;
 }
