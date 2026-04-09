@@ -12,7 +12,7 @@ describe("read-side query contracts", () => {
     const dto: DealsReadQueryDto = {
       search: "pipeline",
       sortBy: "unsupported_field",
-      status: ["qualified"]
+      status: ["in_progress"]
     };
 
     const query = build_read_collection_query(dto, {
@@ -26,12 +26,12 @@ describe("read-side query contracts", () => {
     expect(query.pageSize).toBe(20);
     expect(query.sortField).toBe("updatedAt");
     expect(query.sortDirection).toBe("desc");
-    expect(query.status).toEqual(["qualified"]);
+    expect(query.status).toEqual(["in_progress"]);
     expect(query.contract.pagination?.mode).toBe("page");
     expect(query.contract.filters?.[0]).toEqual({
       field: "status",
       operator: "eq",
-      value: "qualified"
+      value: "in_progress"
     });
   });
 

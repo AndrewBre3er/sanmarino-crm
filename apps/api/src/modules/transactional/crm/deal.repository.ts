@@ -13,26 +13,38 @@ import type { DealStatus } from "../shared/status.contract";
 
 export interface CrmDealRecord extends PersistenceRecordBase {
   leadId?: string | null;
+  clientId: string;
+  contactId?: string | null;
   status: DealStatus;
   title: string;
+  deliveryMode?: string | null;
+  expectedValue?: string | null;
   notes?: string | null;
-  responsibleUserId?: string | null;
+  responsibleUserId: string;
 }
 
 export interface CrmDealCreateInput {
   leadId?: string | null;
+  clientId: string;
+  contactId?: string | null;
   status: DealStatus;
   title: string;
+  deliveryMode?: string | null;
+  expectedValue?: string | null;
   notes?: string | null;
-  responsibleUserId?: string | null;
+  responsibleUserId: string;
 }
 
 export interface CrmDealUpdateInput {
   leadId?: string | null;
+  clientId?: string;
+  contactId?: string | null;
   status?: DealStatus;
   title?: string;
+  deliveryMode?: string | null;
+  expectedValue?: string | null;
   notes?: string | null;
-  responsibleUserId?: string | null;
+  responsibleUserId?: string;
 }
 
 export interface CrmDealRepositoryContract

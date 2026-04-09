@@ -13,11 +13,13 @@ import {
 import {
   deal_statuses,
   delivery_task_statuses,
+  lead_statuses,
   order_statuses,
   payment_statuses,
   return_request_statuses,
   type DealStatus,
   type DeliveryTaskStatus,
+  type LeadStatus,
   type OrderStatus,
   type PaymentStatus,
   type ReturnRequestStatus
@@ -155,8 +157,8 @@ export class LeadsReadQueryDto extends BaseReadCollectionQueryDto {
   @IsOptional()
   @Transform(({ value }) => to_string_array(value))
   @IsArray()
-  @IsString({ each: true })
-  status?: string[];
+  @IsIn(lead_statuses, { each: true })
+  status?: LeadStatus[];
 }
 
 export class DealsReadQueryDto extends BaseReadCollectionQueryDto {

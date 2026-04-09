@@ -1,17 +1,20 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { CrmLead, LeadStatus as PrismaLeadStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
+import type { LeadStatus } from "../../transactional/shared/status.contract";
 import type {
   ReadCollectionQueryInput,
   ReadCollectionResult
 } from "../shared/read-model.contract";
 import { build_page_pagination_meta } from "../shared/read-query.dto";
-import { to_iso_datetime } from "../shared/prisma-read.mapper";
+import { from_prisma_enum, to_iso_datetime } from "../shared/prisma-read.mapper";
 
 export interface CrmLeadReadModel {
   id: string;
   source: string;
-  status: string;
+  status: LeadStatus;
+  clientId: string | null;
+  contactId: string | null;
   title: string | null;
   notes: string | null;
   responsibleUserId: string | null;
@@ -43,7 +46,9 @@ function map_crm_lead_read_model(record: CrmLead): CrmLeadReadModel {
   return {
     id: record.id,
     source: record.source,
-    status: record.status,
+    status: from_prisma_enum(record.status) as LeadStatus,
+    clientId: record.clientId,
+    contactId: record.contactId,
     title: record.title,
     notes: record.notes,
     responsibleUserId: record.responsibleUserId,

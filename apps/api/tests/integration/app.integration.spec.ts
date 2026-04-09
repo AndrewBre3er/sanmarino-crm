@@ -4,7 +4,7 @@ import { api_openapi_contract, api_openapi_extensions } from "../../src/contract
 
 describe("api shell integration contracts", () => {
   it("keeps openapi shell metadata aligned with infra contracts", () => {
-    expect(api_openapi_contract.version).toBe("0.11.0");
+    expect(api_openapi_contract.version).toBe("0.11.1");
     expect(api_openapi_extensions.declaredErrorCodes).toEqual(api_error_codes);
     expect(api_openapi_extensions.requestContextHeaders.requestId).toBe("X-Request-Id");
     expect(api_openapi_extensions.idempotencyHeaderContract.header).toBe("Idempotency-Key");

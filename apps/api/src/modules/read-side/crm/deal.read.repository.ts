@@ -16,6 +16,8 @@ import {
 export interface CrmDealReadModel {
   id: string;
   leadId: string | null;
+  clientId: string;
+  contactId: string | null;
   status: DealStatus;
   title: string;
   notes: string | null;
@@ -38,6 +40,8 @@ function map_crm_deal_read_model(record: CrmDeal): CrmDealReadModel {
   return {
     id: record.id,
     leadId: record.leadId,
+    clientId: record.clientId,
+    contactId: record.contactId,
     status: from_prisma_enum(record.status) as DealStatus,
     title: record.title,
     notes: record.notes,

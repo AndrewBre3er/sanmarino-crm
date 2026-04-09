@@ -17,6 +17,8 @@ import type { LeadStatus } from "../shared/status.contract";
 export interface CrmLeadRecord extends PersistenceRecordBase {
   source: string;
   status: LeadStatus;
+  clientId?: string | null;
+  contactId?: string | null;
   title?: string | null;
   notes?: string | null;
   responsibleUserId?: string | null;
@@ -25,6 +27,8 @@ export interface CrmLeadRecord extends PersistenceRecordBase {
 export interface CrmLeadCreateInput {
   source: string;
   status: LeadStatus;
+  clientId?: string | null;
+  contactId?: string | null;
   title?: string | null;
   notes?: string | null;
   responsibleUserId?: string | null;
@@ -33,6 +37,8 @@ export interface CrmLeadCreateInput {
 export interface CrmLeadUpdateInput {
   source?: string;
   status?: LeadStatus;
+  clientId?: string | null;
+  contactId?: string | null;
   title?: string | null;
   notes?: string | null;
   responsibleUserId?: string | null;

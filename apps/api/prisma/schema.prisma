@@ -226,10 +226,57 @@ model UsersUserRole {
   @@schema("users")
 }
 
+model CrmClient {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  clientType         String                 @map("client_type") @db.VarChar(32)
+  name               String                 @db.VarChar(255)
+  legalName          String?                @map("legal_name") @db.VarChar(255)
+  phone              String?                @db.VarChar(64)
+  email              String?                @db.VarChar(320)
+  taxId              String?                @map("tax_id") @db.VarChar(64)
+  notes              String?                @db.Text
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  contacts           CrmContact[]
+  leads              CrmLead[]              @relation("CrmLeadClient")
+  deals              CrmDeal[]              @relation("CrmDealClient")
+  clientParticipants CrmClientParticipant[] @relation("CrmClientParticipantClient")
+
+  @@index([name])
+  @@index([phone])
+  @@index([email])
+  @@map("clients")
+  @@schema("crm")
+}
+
+model CrmContact {
+  id              String                 @id @default(uuid()) @db.Uuid
+  clientId        String                 @map("client_id") @db.Uuid
+  client          CrmClient              @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  name            String                 @db.VarChar(255)
+  phone           String?                @db.VarChar(64)
+  email           String?                @db.VarChar(320)
+  position        String?                @db.VarChar(255)
+  isPrimary       Boolean                @default(false) @map("is_primary")
+  notes           String?                @db.Text
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  leads           CrmLead[]              @relation("CrmLeadContact")
+  deals           CrmDeal[]              @relation("CrmDealContact")
+
+  @@index([clientId])
+  @@map("contacts")
+  @@schema("crm")
+}
+
 model CrmLead {
   id                String     @id @default(uuid()) @db.Uuid
   source            String     @db.VarChar(128)
   status            LeadStatus
+  clientId          String?    @map("client_id") @db.Uuid
+  client            CrmClient? @relation("CrmLeadClient", fields: [clientId], references: [id], onDelete: SetNull)
+  contactId         String?    @map("contact_id") @db.Uuid
+  contact           CrmContact? @relation("CrmLeadContact", fields: [contactId], references: [id], onDelete: SetNull)
   title             String?    @db.VarChar(255)
   notes             String?    @db.Text
   responsibleUserId String?    @map("responsible_user_id") @db.Uuid
@@ -241,33 +288,66 @@ model CrmLead {
 
   @@index([status])
   @@index([source])
+  @@index([responsibleUserId])
   @@map("leads")
   @@schema("crm")
 }
 
 model CrmDeal {
-  id                String     @id @default(uuid()) @db.Uuid
-  leadId            String?    @map("lead_id") @db.Uuid
-  lead              CrmLead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  id                String      @id @default(uuid()) @db.Uuid
+  leadId            String?     @map("lead_id") @db.Uuid
+  lead              CrmLead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  clientId          String      @map("client_id") @db.Uuid
+  client            CrmClient   @relation("CrmDealClient", fields: [clientId], references: [id], onDelete: Restrict)
+  contactId         String?     @map("contact_id") @db.Uuid
+  contact           CrmContact? @relation("CrmDealContact", fields: [contactId], references: [id], onDelete: SetNull)
   status            DealStatus
-  title             String     @db.VarChar(255)
-  notes             String?    @db.Text
-  responsibleUserId String?    @map("responsible_user_id") @db.Uuid
-  responsibleUser   UsersUser? @relation("CrmDealResponsibleUser", fields: [responsibleUserId], references: [id], onDelete: SetNull)
-  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  version           Int        @default(1)
-  deletedAt         DateTime?  @map("deleted_at") @db.Timestamptz(6)
-  deletedBy         String?    @map("deleted_by") @db.Uuid
-  deletedByUser     UsersUser? @relation("CrmDealDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
-  deleteReason      String?    @map("delete_reason") @db.Text
-  isDeleted         Boolean    @default(false) @map("is_deleted")
+  title             String      @db.VarChar(255)
+  deliveryMode      String?     @map("delivery_mode") @db.VarChar(32)
+  notes             String?     @db.Text
+  expectedValue     Decimal?    @map("expected_value") @db.Decimal(14, 2)
+  responsibleUserId String      @map("responsible_user_id") @db.Uuid
+  responsibleUser   UsersUser   @relation("CrmDealResponsibleUser", fields: [responsibleUserId], references: [id], onDelete: Restrict)
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  version           Int         @default(1)
+  deletedAt         DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  deletedBy         String?     @map("deleted_by") @db.Uuid
+  deletedByUser     UsersUser?  @relation("CrmDealDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
+  deleteReason      String?     @map("delete_reason") @db.Text
+  isDeleted         Boolean     @default(false) @map("is_deleted")
+  clientParticipants CrmClientParticipant[] @relation("CrmClientParticipantDeal")
   orders            OrdersOrder[]
 
-  @@index([leadId])
+  @@unique([leadId])
+  @@index([clientId])
   @@index([status])
+  @@index([responsibleUserId])
   @@index([isDeleted])
   @@map("deals")
+  @@schema("crm")
+}
+
+model CrmClientParticipant {
+  id        String      @id @default(uuid()) @db.Uuid
+  clientId  String      @map("client_id") @db.Uuid
+  client    CrmClient   @relation("CrmClientParticipantClient", fields: [clientId], references: [id], onDelete: Restrict)
+  dealId    String?     @map("deal_id") @db.Uuid
+  deal      CrmDeal?    @relation("CrmClientParticipantDeal", fields: [dealId], references: [id], onDelete: SetNull)
+  orderId   String?     @map("order_id") @db.Uuid
+  order     OrdersOrder? @relation("CrmClientParticipantOrder", fields: [orderId], references: [id], onDelete: SetNull)
+  roleType  String      @map("role_type") @db.VarChar(32)
+  name      String      @db.VarChar(255)
+  phone     String?     @db.VarChar(64)
+  notes     String?     @db.Text
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([clientId])
+  @@index([dealId])
+  @@index([orderId])
+  @@index([roleType])
+  @@map("client_participants")
   @@schema("crm")
 }
 
@@ -298,6 +378,7 @@ model OrdersOrder {
   deliveryTasks  LogisticsDeliveryTask[]
   returnRequests OrdersReturnRequest[]
   payments       PaymentsPayment[]
+  clientParticipants CrmClientParticipant[] @relation("CrmClientParticipantOrder")
 
   @@index([dealId])
   @@index([status])

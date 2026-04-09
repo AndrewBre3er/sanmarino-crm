@@ -15,7 +15,7 @@ export const api_openapi_contract = {
     "",
     "TODO: users domain, full RBAC/field-level enforcement, and MFA implementation are deferred."
   ].join("\n"),
-  version: "0.11.0",
+  version: "0.11.1",
   docsPath: "api/docs",
   globalPrefix: "api"
 } as const;
@@ -31,7 +31,8 @@ export const api_openapi_tags = {
   },
   crmRead: {
     name: "crm-read",
-    description: "Read-only CRM endpoints: leads and deals"
+    description:
+      "Read-only CRM endpoints: leads and deals (clients/contacts/client-participants are contract-frozen for CRM Step 1 and remain implementation-deferred)"
   },
   ordersRead: {
     name: "orders-read",
@@ -68,5 +69,5 @@ export const api_openapi_extensions = {
   auditBoundaryNote:
     "Audit context is extracted at API boundary only. Business audit implementation is deferred.",
   readBoundaryNote:
-    "Read-side endpoints are enabled for core transactional entities. Mutation/business workflows remain TODO."
+    "Read-side endpoints are enabled for core transactional entities. CRM Step 1 additionally freezes clients/contacts/client-participants contracts without endpoint implementation. Mutation/business workflows remain TODO."
 } as const;

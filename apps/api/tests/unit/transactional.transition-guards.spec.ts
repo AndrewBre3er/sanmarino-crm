@@ -8,9 +8,13 @@ import {
 } from "../../src/modules/transactional";
 
 describe("transactional status transition guards", () => {
-  it("allows explicit deal transition rollback and blocks won rollback", () => {
-    expect(() => assert_deal_status_transition("negotiation", "proposal")).not.toThrow();
-    expect(() => assert_deal_status_transition("won", "proposal")).toThrowError();
+  it("allows canonical deal transition and blocks rollback from converted state", () => {
+    expect(() =>
+      assert_deal_status_transition("in_progress", "converted_to_order")
+    ).not.toThrow();
+    expect(() =>
+      assert_deal_status_transition("converted_to_order", "in_progress")
+    ).toThrowError();
   });
 
   it("blocks order transitions outside accepted matrix", () => {

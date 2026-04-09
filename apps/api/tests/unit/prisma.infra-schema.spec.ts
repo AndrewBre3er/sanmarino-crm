@@ -7,8 +7,8 @@ function load_schema(): string {
   return readFileSync(schema_path, "utf8");
 }
 
-describe("prisma schema foundation (infra + users + minimal core transactional)", () => {
-  it("contains approved infra/system models, users models, and aligned core transactional models", () => {
+describe("prisma schema foundation (infra + users + CRM core + minimal core transactional)", () => {
+  it("contains approved infra/system models, users models, and aligned CRM core models", () => {
     const schema = load_schema();
 
     expect(schema).toContain("model SystemIdempotencyRecord");
@@ -21,8 +21,11 @@ describe("prisma schema foundation (infra + users + minimal core transactional)"
     expect(schema).toContain("model UsersRolePermission");
     expect(schema).toContain("model UsersUser");
     expect(schema).toContain("model UsersUserRole");
+    expect(schema).toContain("model CrmClient");
+    expect(schema).toContain("model CrmContact");
     expect(schema).toContain("model CrmLead");
     expect(schema).toContain("model CrmDeal");
+    expect(schema).toContain("model CrmClientParticipant");
     expect(schema).toContain("model OrdersOrder");
     expect(schema).toContain("model OrdersOrderItem");
     expect(schema).toContain("model LogisticsDeliveryTask");
@@ -37,6 +40,11 @@ describe("prisma schema foundation (infra + users + minimal core transactional)"
     expect(schema).toContain('NEW           @map("new")');
     expect(schema).toContain("enum DealStatus");
     expect(schema).toContain('IN_PROGRESS        @map("in_progress")');
+    expect(schema).toContain('CONVERTED_TO_ORDER @map("converted_to_order")');
+    expect(schema).toContain('clientId          String?    @map("client_id") @db.Uuid');
+    expect(schema).toContain('contactId         String?    @map("contact_id") @db.Uuid');
+    expect(schema).toContain('clientId          String      @map("client_id") @db.Uuid');
+    expect(schema).toContain('roleType  String      @map("role_type") @db.VarChar(32)');
     expect(schema).toContain("enum OrderStatus");
     expect(schema).toContain('ASSEMBLING                 @map("assembling")');
     expect(schema).toContain("enum ReturnRequestStatus");

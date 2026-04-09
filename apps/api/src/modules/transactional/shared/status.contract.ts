@@ -1,11 +1,10 @@
 export const deal_statuses = [
-  "draft",
-  "qualified",
-  "proposal",
-  "negotiation",
-  "won",
-  "lost"
+  "in_progress",
+  "converted_to_order",
+  "cancelled"
 ] as const;
+
+export const lead_statuses = ["new", "in_processing", "cancelled"] as const;
 
 export const order_statuses = [
   "draft",
@@ -59,7 +58,7 @@ export const active_delivery_task_statuses = [
 ] as const;
 
 export type DealStatus = (typeof deal_statuses)[number];
-export type LeadStatus = string;
+export type LeadStatus = (typeof lead_statuses)[number];
 export type OrderStatus = (typeof order_statuses)[number];
 export type OrderDeliveryStatus = (typeof order_delivery_statuses)[number];
 export type OrderFulfillmentType = (typeof order_fulfillment_types)[number];
@@ -71,6 +70,3 @@ export type PaymentMethod = (typeof payment_methods)[number];
 export function is_active_delivery_task_status(status: DeliveryTaskStatus): boolean {
   return (active_delivery_task_statuses as readonly string[]).includes(status);
 }
-
-export const lead_status_todo =
-  "TODO: lead status machine remains partially open and must be finalized in dedicated CRM phase.";

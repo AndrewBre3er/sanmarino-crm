@@ -5,12 +5,9 @@ import {
 } from "../shared/transition.guard";
 
 export const deal_status_transition_matrix = {
-  draft: ["qualified", "lost"],
-  qualified: ["proposal", "lost"],
-  proposal: ["negotiation", "lost"],
-  negotiation: ["proposal", "won", "lost"],
-  won: [],
-  lost: []
+  in_progress: ["converted_to_order", "cancelled"],
+  converted_to_order: [],
+  cancelled: []
 } as const satisfies Record<DealStatus, readonly DealStatus[]>;
 
 export const deal_status_transition_guard: StatusTransitionGuard<DealStatus> =

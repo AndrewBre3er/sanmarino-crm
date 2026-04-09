@@ -20,7 +20,7 @@ describe("transactional repository skeletons", () => {
     await expect(
       repository.create({
         source: "manual",
-        status: "draft"
+        status: "new"
       })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
   });
@@ -34,7 +34,12 @@ describe("transactional repository skeletons", () => {
     const paymentRepository = new PrismaPaymentsPaymentRepository(prismaService);
 
     await expect(
-      dealRepository.create({ status: "draft", title: "Deal skeleton" })
+      dealRepository.create({
+        clientId: "client_1",
+        status: "in_progress",
+        title: "Deal skeleton",
+        responsibleUserId: "user_1"
+      })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
 
     await expect(
