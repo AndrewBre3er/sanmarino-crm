@@ -4,6 +4,7 @@ import { ApiResponseEnvelopeInterceptor } from "./common/http/api-response-envel
 import { RequestContextMiddleware } from "./common/request-context/request-context.middleware";
 import { RequestContextPropagationInterceptor } from "./common/request-context/request-context.propagation.interceptor";
 import { RequestContextStore } from "./common/request-context/request-context.store";
+import { CrmRelationsModule } from "./modules/crm-relations/crm-relations.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { LeadsModule } from "./modules/leads/leads.module";
@@ -18,6 +19,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     AuthModule,
     UsersModule,
     LeadsModule,
+    CrmRelationsModule,
     TransactionalReadModule
   ],
   providers: [

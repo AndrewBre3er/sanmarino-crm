@@ -101,9 +101,17 @@ export class PrismaCrmDealRepository implements CrmDealRepositoryContract {
   }
 
   async findById(id: string, options?: RepositoryFindOptions): Promise<CrmDealRecord | null> {
-    void options;
-    this.touch_context(id);
-    throw_deferred_skeleton("PrismaCrmDealRepository", "findById");
+    const client = this.get_client();
+    const deal = await client.crmDeal.findUnique({ where: { id } });
+    if (!deal) {
+      return null;
+    }
+
+    if (!options?.includeDeleted && deal.isDeleted) {
+      return null;
+    }
+
+    return map_crm_deal_record(deal);
   }
 
   async list(

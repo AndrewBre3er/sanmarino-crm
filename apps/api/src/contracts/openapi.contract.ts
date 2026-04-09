@@ -39,6 +39,11 @@ export const api_openapi_tags = {
     description:
       "Lead baseline endpoints: list/detail/create/status-transition with backend state-machine and role-aware access baseline"
   },
+  crmRelations: {
+    name: "crm-relations",
+    description:
+      "Client/Contact/ClientParticipant baseline endpoints with safe CRM linkage and technical participant role validation"
+  },
   ordersRead: {
     name: "orders-read",
     description: "Read-only Orders endpoints"
