@@ -32,8 +32,19 @@ export interface CrmDealReadModel {
 }
 
 export interface CrmDealReadRepositoryContract {
-  list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<CrmDealReadModel>>;
-  getById(dealId: string, includeDeleted?: boolean): Promise<CrmDealReadModel | null>;
+  list(
+    query: ReadCollectionQueryInput,
+    scope?: CrmDealReadScope
+  ): Promise<ReadCollectionResult<CrmDealReadModel>>;
+  getById(
+    dealId: string,
+    includeDeleted?: boolean,
+    scope?: CrmDealReadScope
+  ): Promise<CrmDealReadModel | null>;
+}
+
+export interface CrmDealReadScope {
+  responsibleUserId?: string;
 }
 
 function map_crm_deal_read_model(record: CrmDeal): CrmDealReadModel {
@@ -60,7 +71,10 @@ function map_crm_deal_read_model(record: CrmDeal): CrmDealReadModel {
 export class PrismaCrmDealReadRepository implements CrmDealReadRepositoryContract {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
-  async list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<CrmDealReadModel>> {
+  async list(
+    query: ReadCollectionQueryInput,
+    scope?: CrmDealReadScope
+  ): Promise<ReadCollectionResult<CrmDealReadModel>> {
     const where: Prisma.CrmDealWhereInput = {};
 
     if (!query.includeDeleted) {
@@ -82,6 +96,10 @@ export class PrismaCrmDealReadRepository implements CrmDealReadRepositoryContrac
       } else {
         where.status = { in: mapped };
       }
+    }
+
+    if (scope?.responsibleUserId) {
+      where.responsibleUserId = scope.responsibleUserId;
     }
 
     const orderBy = {
@@ -106,9 +124,16 @@ export class PrismaCrmDealReadRepository implements CrmDealReadRepositoryContrac
     };
   }
 
-  async getById(dealId: string, includeDeleted = false): Promise<CrmDealReadModel | null> {
-    const deal = await this.prismaService.crmDeal.findUnique({
-      where: { id: dealId }
+  async getById(
+    dealId: string,
+    includeDeleted = false,
+    scope?: CrmDealReadScope
+  ): Promise<CrmDealReadModel | null> {
+    const deal = await this.prismaService.crmDeal.findFirst({
+      where: {
+        id: dealId,
+        ...(scope?.responsibleUserId ? { responsibleUserId: scope.responsibleUserId } : {})
+      }
     });
 
     if (!deal) {

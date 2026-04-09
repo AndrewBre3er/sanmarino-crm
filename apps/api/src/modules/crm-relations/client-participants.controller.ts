@@ -85,7 +85,7 @@ export class ClientParticipantsController {
     @Query() query: ClientParticipantsReadQueryDto,
     @Req() request: AuthenticatedRequestLike
   ) {
-    void get_authenticated_access(request);
+    const access = get_authenticated_access(request);
     const readQuery = build_read_collection_query(query, {
       defaultSortField: "createdAt",
       allowedSortFields: ["createdAt", "updatedAt", "name", "roleType"]
@@ -95,14 +95,14 @@ export class ClientParticipantsController {
       ...(query.clientId ? { clientId: query.clientId } : {}),
       ...(query.dealId ? { dealId: query.dealId } : {}),
       ...(query.roleType ? { roleType: query.roleType } : {})
-    });
+    }, access.user);
     return to_read_collection_response(result);
   }
 
   @Get(":id")
   async detail(@Param("id") id: string, @Req() request: AuthenticatedRequestLike) {
-    void get_authenticated_access(request);
-    const participant = await this.crmRelationsService.getClientParticipant(id);
+    const access = get_authenticated_access(request);
+    const participant = await this.crmRelationsService.getClientParticipant(id, access.user);
     return { data: participant };
   }
 
@@ -111,8 +111,8 @@ export class ClientParticipantsController {
     @Body() payload: CreateClientParticipantDto,
     @Req() request: AuthenticatedRequestLike
   ) {
-    void get_authenticated_access(request);
-    const created = await this.crmRelationsService.createClientParticipant(payload);
+    const access = get_authenticated_access(request);
+    const created = await this.crmRelationsService.createClientParticipant(payload, access.user);
     return { data: created };
   }
 }

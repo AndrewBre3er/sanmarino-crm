@@ -34,6 +34,10 @@ export interface CrmContactListFilters {
   clientId?: string;
 }
 
+export interface CrmContactAccessScope {
+  responsibleUserId?: string;
+}
+
 function to_iso_datetime(value: Date): string {
   return value.toISOString();
 }
@@ -59,21 +63,40 @@ export class PrismaCrmContactRepository {
 
   async list(
     query: ReadCollectionQueryInput,
-    filters: CrmContactListFilters = {}
+    filters: CrmContactListFilters = {},
+    scope?: CrmContactAccessScope
   ): Promise<ReadCollectionResult<CrmContactRecord>> {
     const where: Prisma.CrmContactWhereInput = {};
+    const andClauses: Prisma.CrmContactWhereInput[] = [];
 
     if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: "insensitive" } },
-        { phone: { contains: query.search, mode: "insensitive" } },
-        { email: { contains: query.search, mode: "insensitive" } },
-        { position: { contains: query.search, mode: "insensitive" } }
-      ];
+      andClauses.push({
+        OR: [
+          { name: { contains: query.search, mode: "insensitive" } },
+          { phone: { contains: query.search, mode: "insensitive" } },
+          { email: { contains: query.search, mode: "insensitive" } },
+          { position: { contains: query.search, mode: "insensitive" } }
+        ]
+      });
     }
 
     if (filters.clientId) {
-      where.clientId = filters.clientId;
+      andClauses.push({ clientId: filters.clientId });
+    }
+
+    if (scope?.responsibleUserId) {
+      andClauses.push({
+        OR: [
+          { client: { leads: { some: { responsibleUserId: scope.responsibleUserId } } } },
+          { client: { deals: { some: { responsibleUserId: scope.responsibleUserId } } } },
+          { leads: { some: { responsibleUserId: scope.responsibleUserId } } },
+          { deals: { some: { responsibleUserId: scope.responsibleUserId } } }
+        ]
+      });
+    }
+
+    if (andClauses.length > 0) {
+      where.AND = andClauses;
     }
 
     const orderBy = {
@@ -98,8 +121,25 @@ export class PrismaCrmContactRepository {
     };
   }
 
-  async findById(id: string): Promise<CrmContactRecord | null> {
-    const contact = await this.prismaService.crmContact.findUnique({ where: { id } });
+  async findById(id: string, scope?: CrmContactAccessScope): Promise<CrmContactRecord | null> {
+    const andClauses: Prisma.CrmContactWhereInput[] = [{ id }];
+
+    if (scope?.responsibleUserId) {
+      andClauses.push({
+        OR: [
+          { client: { leads: { some: { responsibleUserId: scope.responsibleUserId } } } },
+          { client: { deals: { some: { responsibleUserId: scope.responsibleUserId } } } },
+          { leads: { some: { responsibleUserId: scope.responsibleUserId } } },
+          { deals: { some: { responsibleUserId: scope.responsibleUserId } } }
+        ]
+      });
+    }
+
+    const contact = await this.prismaService.crmContact.findFirst({
+      where: {
+        AND: andClauses
+      }
+    });
     return contact ? map_contact_record(contact) : null;
   }
 

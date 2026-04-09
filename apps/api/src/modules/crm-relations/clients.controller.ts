@@ -72,27 +72,27 @@ export class ClientsController {
     @Query() query: ClientsReadQueryDto,
     @Req() request: AuthenticatedRequestLike
   ) {
-    void get_authenticated_access(request);
+    const access = get_authenticated_access(request);
     const readQuery = build_read_collection_query(query, {
       defaultSortField: "createdAt",
       allowedSortFields: ["createdAt", "updatedAt", "name", "clientType"]
     });
 
-    const result = await this.crmRelationsService.listClients(readQuery);
+    const result = await this.crmRelationsService.listClients(readQuery, access.user);
     return to_read_collection_response(result);
   }
 
   @Get(":id")
   async detail(@Param("id") id: string, @Req() request: AuthenticatedRequestLike) {
-    void get_authenticated_access(request);
-    const client = await this.crmRelationsService.getClient(id);
+    const access = get_authenticated_access(request);
+    const client = await this.crmRelationsService.getClient(id, access.user);
     return { data: client };
   }
 
   @Post()
   async create(@Body() payload: CreateClientDto, @Req() request: AuthenticatedRequestLike) {
-    void get_authenticated_access(request);
-    const created = await this.crmRelationsService.createClient(payload);
+    const access = get_authenticated_access(request);
+    const created = await this.crmRelationsService.createClient(payload, access.user);
     return { data: created };
   }
 }

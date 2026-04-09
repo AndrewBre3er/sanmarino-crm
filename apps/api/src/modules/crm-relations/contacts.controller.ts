@@ -80,7 +80,7 @@ export class ContactsController {
     @Query() query: ContactsReadQueryDto,
     @Req() request: AuthenticatedRequestLike
   ) {
-    void get_authenticated_access(request);
+    const access = get_authenticated_access(request);
     const readQuery = build_read_collection_query(query, {
       defaultSortField: "createdAt",
       allowedSortFields: ["createdAt", "updatedAt", "name", "isPrimary"]
@@ -88,21 +88,21 @@ export class ContactsController {
 
     const result = await this.crmRelationsService.listContacts(readQuery, {
       ...(query.clientId ? { clientId: query.clientId } : {})
-    });
+    }, access.user);
     return to_read_collection_response(result);
   }
 
   @Get(":id")
   async detail(@Param("id") id: string, @Req() request: AuthenticatedRequestLike) {
-    void get_authenticated_access(request);
-    const contact = await this.crmRelationsService.getContact(id);
+    const access = get_authenticated_access(request);
+    const contact = await this.crmRelationsService.getContact(id, access.user);
     return { data: contact };
   }
 
   @Post()
   async create(@Body() payload: CreateContactDto, @Req() request: AuthenticatedRequestLike) {
-    void get_authenticated_access(request);
-    const created = await this.crmRelationsService.createContact(payload);
+    const access = get_authenticated_access(request);
+    const created = await this.crmRelationsService.createContact(payload, access.user);
     return { data: created };
   }
 }

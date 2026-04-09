@@ -38,6 +38,10 @@ export interface CrmClientParticipantListFilters {
   roleType?: CrmClientParticipantRoleType;
 }
 
+export interface CrmClientParticipantAccessScope {
+  responsibleUserId?: string;
+}
+
 function to_iso_datetime(value: Date): string {
   return value.toISOString();
 }
@@ -75,29 +79,47 @@ export class PrismaCrmClientParticipantRepository {
 
   async list(
     query: ReadCollectionQueryInput,
-    filters: CrmClientParticipantListFilters = {}
+    filters: CrmClientParticipantListFilters = {},
+    scope?: CrmClientParticipantAccessScope
   ): Promise<ReadCollectionResult<CrmClientParticipantRecord>> {
     const where: Prisma.CrmClientParticipantWhereInput = {};
+    const andClauses: Prisma.CrmClientParticipantWhereInput[] = [];
 
     if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: "insensitive" } },
-        { phone: { contains: query.search, mode: "insensitive" } },
-        { notes: { contains: query.search, mode: "insensitive" } },
-        { roleType: { contains: query.search, mode: "insensitive" } }
-      ];
+      andClauses.push({
+        OR: [
+          { name: { contains: query.search, mode: "insensitive" } },
+          { phone: { contains: query.search, mode: "insensitive" } },
+          { notes: { contains: query.search, mode: "insensitive" } },
+          { roleType: { contains: query.search, mode: "insensitive" } }
+        ]
+      });
     }
 
     if (filters.clientId) {
-      where.clientId = filters.clientId;
+      andClauses.push({ clientId: filters.clientId });
     }
 
     if (filters.dealId) {
-      where.dealId = filters.dealId;
+      andClauses.push({ dealId: filters.dealId });
     }
 
     if (filters.roleType) {
-      where.roleType = filters.roleType;
+      andClauses.push({ roleType: filters.roleType });
+    }
+
+    if (scope?.responsibleUserId) {
+      andClauses.push({
+        OR: [
+          { client: { leads: { some: { responsibleUserId: scope.responsibleUserId } } } },
+          { client: { deals: { some: { responsibleUserId: scope.responsibleUserId } } } },
+          { deal: { responsibleUserId: scope.responsibleUserId } }
+        ]
+      });
+    }
+
+    if (andClauses.length > 0) {
+      where.AND = andClauses;
     }
 
     const orderBy = {
@@ -122,8 +144,27 @@ export class PrismaCrmClientParticipantRepository {
     };
   }
 
-  async findById(id: string): Promise<CrmClientParticipantRecord | null> {
-    const participant = await this.prismaService.crmClientParticipant.findUnique({ where: { id } });
+  async findById(
+    id: string,
+    scope?: CrmClientParticipantAccessScope
+  ): Promise<CrmClientParticipantRecord | null> {
+    const andClauses: Prisma.CrmClientParticipantWhereInput[] = [{ id }];
+
+    if (scope?.responsibleUserId) {
+      andClauses.push({
+        OR: [
+          { client: { leads: { some: { responsibleUserId: scope.responsibleUserId } } } },
+          { client: { deals: { some: { responsibleUserId: scope.responsibleUserId } } } },
+          { deal: { responsibleUserId: scope.responsibleUserId } }
+        ]
+      });
+    }
+
+    const participant = await this.prismaService.crmClientParticipant.findFirst({
+      where: {
+        AND: andClauses
+      }
+    });
     return participant ? map_client_participant_record(participant) : null;
   }
 

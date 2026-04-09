@@ -1,5 +1,6 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
+import type { AuthPrincipal, AuthRoleCode } from "../../src/modules/auth/auth.contract";
 import { CrmRelationsService } from "../../src/modules/crm-relations/crm-relations.service";
 import type { PrismaCrmClientParticipantRepository } from "../../src/modules/crm-relations/client-participants.repository";
 import type { PrismaCrmClientRepository } from "../../src/modules/crm-relations/clients.repository";
@@ -24,6 +25,22 @@ function build_query(): ReadCollectionQueryInput {
       },
       sort: [{ field: "createdAt", direction: "desc" }]
     }
+  };
+}
+
+function make_user(roleCodes: AuthRoleCode[], userId = "user_1"): AuthPrincipal {
+  const primaryRole = roleCodes[0] ?? "seller";
+  return {
+    userId,
+    email: `${userId}@local`,
+    login: `${userId}@local`,
+    displayName: userId,
+    primaryRole,
+    roleCodes,
+    allowedWorkspaces: roleCodes,
+    permissionCodes: [],
+    roleCode: primaryRole,
+    optionalRole: false
   };
 }
 
@@ -65,8 +82,9 @@ function make_service() {
 }
 
 describe("crm relations service", () => {
-  it("supports create/list/detail for client", async () => {
+  it("supports create/list/detail for client with seller baseline scope", async () => {
     const { service, clientRepository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
     const query = build_query();
     const clientRecord = {
       id: "client_1",
@@ -88,18 +106,21 @@ describe("crm relations service", () => {
     });
     vi.mocked(clientRepository.findById).mockResolvedValue(clientRecord);
 
-    const created = await service.createClient({ clientType: " individual ", name: " Client " });
-    const listed = await service.listClients(query);
-    const detail = await service.getClient("client_1");
+    const created = await service.createClient({ clientType: " individual ", name: " Client " }, seller);
+    const listed = await service.listClients(query, seller);
+    const detail = await service.getClient("client_1", seller);
 
     expect(created.clientType).toBe("individual");
     expect(created.name).toBe("Client");
     expect(listed.items).toHaveLength(1);
     expect(detail.id).toBe("client_1");
+    expect(clientRepository.list).toHaveBeenCalledWith(query, { responsibleUserId: "seller_1" });
+    expect(clientRepository.findById).toHaveBeenCalledWith("client_1", { responsibleUserId: "seller_1" });
   });
 
-  it("supports create/list/detail for contact", async () => {
+  it("supports create/list/detail for contact in seller contour", async () => {
     const { service, clientRepository, contactRepository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
     const query = build_query();
     const clientRecord = {
       id: "client_1",
@@ -134,18 +155,21 @@ describe("crm relations service", () => {
     });
     vi.mocked(contactRepository.findById).mockResolvedValue(contactRecord);
 
-    const created = await service.createContact({ clientId: "client_1", name: " Contact " });
-    const listed = await service.listContacts(query, { clientId: "client_1" });
-    const detail = await service.getContact("contact_1");
+    const created = await service.createContact({ clientId: "client_1", name: " Contact " }, seller);
+    const listed = await service.listContacts(query, { clientId: "client_1" }, seller);
+    const detail = await service.getContact("contact_1", seller);
 
     expect(created.name).toBe("Contact");
     expect(listed.items).toHaveLength(1);
     expect(detail.id).toBe("contact_1");
+    expect(clientRepository.findById).toHaveBeenCalledWith("client_1", { responsibleUserId: "seller_1" });
   });
 
-  it("supports create/list/detail for client participant", async () => {
+  it("supports create/list/detail for client participant in seller contour", async () => {
     const { service, clientRepository, participantRepository, dealRepository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
     const query = build_query();
+
     const clientRecord = {
       id: "client_1",
       clientType: "individual",
@@ -190,34 +214,42 @@ describe("crm relations service", () => {
     });
     vi.mocked(participantRepository.findById).mockResolvedValue(participantRecord);
 
-    const created = await service.createClientParticipant({
-      clientId: "client_1",
-      dealId: "deal_1",
-      roleType: "installer",
-      name: " Participant "
-    });
-    const listed = await service.listClientParticipants(query, { clientId: "client_1" });
-    const detail = await service.getClientParticipant("participant_1");
+    const created = await service.createClientParticipant(
+      {
+        clientId: "client_1",
+        dealId: "deal_1",
+        roleType: "installer",
+        name: " Participant "
+      },
+      seller
+    );
+    const listed = await service.listClientParticipants(query, { clientId: "client_1" }, seller);
+    const detail = await service.getClientParticipant("participant_1", seller);
 
     expect(created.roleType).toBe("installer");
     expect(listed.items).toHaveLength(1);
     expect(detail.id).toBe("participant_1");
   });
 
-  it("rejects contact linkage to missing client", async () => {
+  it("rejects contact linkage to inaccessible/missing client for seller", async () => {
     const { service, clientRepository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
     vi.mocked(clientRepository.findById).mockResolvedValue(null);
 
     await expect(
-      service.createContact({
-        clientId: "missing_client",
-        name: "Contact"
-      })
+      service.createContact(
+        {
+          clientId: "missing_client",
+          name: "Contact"
+        },
+        seller
+      )
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("rejects invalid participant type", async () => {
     const { service, clientRepository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
     const clientRecord = {
       id: "client_1",
       clientType: "individual",
@@ -233,17 +265,21 @@ describe("crm relations service", () => {
     vi.mocked(clientRepository.findById).mockResolvedValue(clientRecord);
 
     await expect(
-      service.createClientParticipant({
-        clientId: "client_1",
-        roleType: "architect" as "installer",
-        name: "Participant"
-      })
+      service.createClientParticipant(
+        {
+          clientId: "client_1",
+          roleType: "architect" as "installer",
+          name: "Participant"
+        },
+        seller
+      )
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rejects participant linkage to missing deal", async () => {
     const { service, clientRepository, dealRepository } = make_service();
-    vi.mocked(clientRepository.findById).mockResolvedValue({
+    const seller = make_user(["seller"], "seller_1");
+    const clientRecord = {
       id: "client_1",
       clientType: "individual",
       name: "Client",
@@ -254,22 +290,28 @@ describe("crm relations service", () => {
       notes: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    });
+    };
+
+    vi.mocked(clientRepository.findById).mockResolvedValue(clientRecord);
     vi.mocked(dealRepository.findById).mockResolvedValue(null);
 
     await expect(
-      service.createClientParticipant({
-        clientId: "client_1",
-        dealId: "missing_deal",
-        roleType: "designer",
-        name: "Participant"
-      })
+      service.createClientParticipant(
+        {
+          clientId: "client_1",
+          dealId: "missing_deal",
+          roleType: "designer",
+          name: "Participant"
+        },
+        seller
+      )
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it("rejects participant linkage when deal belongs to another client", async () => {
+  it("rejects seller linkage to foreign deal", async () => {
     const { service, clientRepository, dealRepository } = make_service();
-    vi.mocked(clientRepository.findById).mockResolvedValue({
+    const seller = make_user(["seller"], "seller_1");
+    const clientRecord = {
       id: "client_1",
       clientType: "individual",
       name: "Client",
@@ -280,25 +322,43 @@ describe("crm relations service", () => {
       notes: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    });
+    };
+    vi.mocked(clientRepository.findById).mockResolvedValue(clientRecord);
     vi.mocked(dealRepository.findById).mockResolvedValue({
       id: "deal_1",
       leadId: "lead_1",
-      clientId: "client_other",
+      clientId: "client_1",
       status: "in_progress" as const,
       title: "Deal",
-      responsibleUserId: "seller_1",
+      responsibleUserId: "seller_other",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
 
     await expect(
-      service.createClientParticipant({
-        clientId: "client_1",
-        dealId: "deal_1",
-        roleType: "designer",
-        name: "Participant"
-      })
-    ).rejects.toBeInstanceOf(BadRequestException);
+      service.createClientParticipant(
+        {
+          clientId: "client_1",
+          dealId: "deal_1",
+          roleType: "designer",
+          name: "Participant"
+        },
+        seller
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("allows admin to read without seller scope", async () => {
+    const { service, clientRepository } = make_service();
+    const admin = make_user(["admin"], "admin_1");
+    const query = build_query();
+
+    vi.mocked(clientRepository.list).mockResolvedValue({
+      items: [],
+      pagination: { page: 1, pageSize: 20, totalItems: 0, totalPages: 0 }
+    });
+
+    await service.listClients(query, admin);
+    expect(clientRepository.list).toHaveBeenCalledWith(query, {});
   });
 });

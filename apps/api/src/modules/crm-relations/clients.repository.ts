@@ -30,6 +30,10 @@ export interface CrmClientCreateInput {
   notes?: string | null;
 }
 
+export interface CrmClientAccessScope {
+  responsibleUserId?: string;
+}
+
 function to_iso_datetime(value: Date): string {
   return value.toISOString();
 }
@@ -53,17 +57,36 @@ function map_client_record(record: CrmClient): CrmClientRecord {
 export class PrismaCrmClientRepository {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
-  async list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<CrmClientRecord>> {
+  async list(
+    query: ReadCollectionQueryInput,
+    scope?: CrmClientAccessScope
+  ): Promise<ReadCollectionResult<CrmClientRecord>> {
     const where: Prisma.CrmClientWhereInput = {};
+    const andClauses: Prisma.CrmClientWhereInput[] = [];
 
     if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: "insensitive" } },
-        { legalName: { contains: query.search, mode: "insensitive" } },
-        { phone: { contains: query.search, mode: "insensitive" } },
-        { email: { contains: query.search, mode: "insensitive" } },
-        { taxId: { contains: query.search, mode: "insensitive" } }
-      ];
+      andClauses.push({
+        OR: [
+          { name: { contains: query.search, mode: "insensitive" } },
+          { legalName: { contains: query.search, mode: "insensitive" } },
+          { phone: { contains: query.search, mode: "insensitive" } },
+          { email: { contains: query.search, mode: "insensitive" } },
+          { taxId: { contains: query.search, mode: "insensitive" } }
+        ]
+      });
+    }
+
+    if (scope?.responsibleUserId) {
+      andClauses.push({
+        OR: [
+          { leads: { some: { responsibleUserId: scope.responsibleUserId } } },
+          { deals: { some: { responsibleUserId: scope.responsibleUserId } } }
+        ]
+      });
+    }
+
+    if (andClauses.length > 0) {
+      where.AND = andClauses;
     }
 
     const orderBy = {
@@ -88,8 +111,23 @@ export class PrismaCrmClientRepository {
     };
   }
 
-  async findById(id: string): Promise<CrmClientRecord | null> {
-    const client = await this.prismaService.crmClient.findUnique({ where: { id } });
+  async findById(id: string, scope?: CrmClientAccessScope): Promise<CrmClientRecord | null> {
+    const andClauses: Prisma.CrmClientWhereInput[] = [{ id }];
+
+    if (scope?.responsibleUserId) {
+      andClauses.push({
+        OR: [
+          { leads: { some: { responsibleUserId: scope.responsibleUserId } } },
+          { deals: { some: { responsibleUserId: scope.responsibleUserId } } }
+        ]
+      });
+    }
+
+    const client = await this.prismaService.crmClient.findFirst({
+      where: {
+        AND: andClauses
+      }
+    });
     return client ? map_client_record(client) : null;
   }
 

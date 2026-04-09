@@ -173,6 +173,11 @@ export class DealsReadQueryDto extends BaseReadCollectionQueryDto {
   @IsArray()
   @IsIn(deal_statuses, { each: true })
   status?: DealStatus[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  responsibleUserId?: string;
 }
 
 export class OrdersReadQueryDto extends BaseReadCollectionQueryDto {
