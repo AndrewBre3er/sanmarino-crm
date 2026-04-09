@@ -22,7 +22,7 @@ function first_query_value(value: string | string[] | undefined): string | undef
 export default async function LoginPage(props: LoginPageProps) {
   const activeSession = await read_current_session();
   if (activeSession) {
-    redirect(resolve_role_home_path(activeSession.user.roleCode));
+    redirect(resolve_role_home_path(activeSession.user.primaryRole));
   }
 
   const params = ((await props.searchParams) ?? {}) as SearchParams;

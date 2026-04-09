@@ -17,7 +17,7 @@ export default async function OrdersShellPage() {
     <EntityShellPage
       title="Orders"
       subtitle="Order list shell"
-      roleCode={session.user.roleCode}
+      roleCode={session.user.primaryRole}
       statuses={order_statuses}
       columns={order_columns}
     />

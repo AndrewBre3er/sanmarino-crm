@@ -12,6 +12,7 @@ export const optional_auth_role_codes = ["driver", "marketing"] as const;
 export const auth_role_codes = [...required_auth_role_codes, ...optional_auth_role_codes] as const;
 
 export type AuthRoleCode = (typeof auth_role_codes)[number];
+export type AuthWorkspaceCode = AuthRoleCode;
 
 export const role_russian_labels: Readonly<Record<AuthRoleCode, string>> = {
   admin: "Админ",
@@ -37,6 +38,8 @@ export interface ShellRouteDescriptor {
     | "leads"
     | "deals"
     | "orders"
+    | "users"
+    | "roles"
     | "supplier-requests"
     | "payments"
     | "delivery-tasks"
@@ -126,6 +129,20 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     shellOnly: true
   },
   {
+    key: "users",
+    title: "Users",
+    path: "/backoffice/users",
+    scope: "entity",
+    shellOnly: true
+  },
+  {
+    key: "roles",
+    title: "Roles",
+    path: "/backoffice/roles",
+    scope: "entity",
+    shellOnly: true
+  },
+  {
     key: "supplier-requests",
     title: "Supplier Requests",
     path: "/backoffice/supplier-requests",
@@ -169,7 +186,7 @@ const role_home_route_key: Readonly<Record<AuthRoleCode, ShellRouteDescriptor["k
 export const role_navigation_contract: Readonly<
   Record<AuthRoleCode, readonly ShellRouteDescriptor["key"][]>
 > = {
-  admin: ["admin-workspace", "supplier-requests", "return-requests"],
+  admin: ["admin-workspace", "users", "roles"],
   seller: ["seller-workspace", "leads", "deals", "orders", "supplier-requests", "return-requests"],
   warehouse: ["warehouse-workspace", "orders", "supplier-requests", "return-requests"],
   logistics: ["logistics-workspace", "delivery-tasks", "supplier-requests", "return-requests"],
@@ -189,11 +206,82 @@ export const role_navigation_contract: Readonly<
 };
 
 const route_by_key = new Map(backoffice_shell_routes.map(route => [route.key, route]));
+const route_by_path = new Map(backoffice_shell_routes.map(route => [route.path, route]));
+const workspace_by_route_key: Readonly<
+  Partial<Record<ShellRouteDescriptor["key"], AuthWorkspaceCode>>
+> = {
+  "admin-workspace": "admin",
+  "seller-workspace": "seller",
+  "warehouse-workspace": "warehouse",
+  "logistics-workspace": "logistics",
+  "finance-workspace": "finance",
+  "ceo-overview": "ceo",
+  "driver-workspace": "driver",
+  "marketing-workspace": "marketing"
+};
+
+function normalize_path(pathname: string): string {
+  if (pathname.length > 1 && pathname.endsWith("/")) {
+    return pathname.slice(0, -1);
+  }
+
+  return pathname;
+}
+
+function dedupe_role_codes(roleCodes: readonly AuthRoleCode[]): AuthRoleCode[] {
+  return [...new Set(roleCodes)];
+}
 
 export function get_role_navigation(roleCode: AuthRoleCode): readonly ShellRouteDescriptor[] {
   return role_navigation_contract[roleCode]
     .map(routeKey => route_by_key.get(routeKey))
     .filter((route): route is ShellRouteDescriptor => Boolean(route));
+}
+
+export function get_user_navigation(
+  roleCodes: readonly AuthRoleCode[],
+  allowedWorkspaces: readonly AuthWorkspaceCode[]
+): readonly ShellRouteDescriptor[] {
+  const routeKeys = new Set<ShellRouteDescriptor["key"]>();
+
+  for (const roleCode of dedupe_role_codes(roleCodes)) {
+    const roleRouteKeys = role_navigation_contract[roleCode] ?? [];
+    for (const routeKey of roleRouteKeys) {
+      routeKeys.add(routeKey);
+    }
+  }
+
+  const workspaceCodes = new Set(allowedWorkspaces);
+  return backoffice_shell_routes.filter(route => {
+    if (!routeKeys.has(route.key)) {
+      return false;
+    }
+
+    if (route.scope !== "workspace") {
+      return true;
+    }
+
+    const workspaceCode = workspace_by_route_key[route.key];
+    if (!workspaceCode) {
+      return false;
+    }
+
+    return workspaceCodes.has(workspaceCode);
+  });
+}
+
+export function can_access_backoffice_path(
+  pathname: string,
+  roleCodes: readonly AuthRoleCode[],
+  allowedWorkspaces: readonly AuthWorkspaceCode[]
+): boolean {
+  const normalizedPath = normalize_path(pathname);
+  const route = route_by_path.get(normalizedPath);
+  if (!route) {
+    return true;
+  }
+
+  return get_user_navigation(roleCodes, allowedWorkspaces).some(item => item.key === route.key);
 }
 
 export function resolve_role_home_path(roleCode: AuthRoleCode): string {

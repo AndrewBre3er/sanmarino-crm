@@ -8,5 +8,5 @@ export default async function BackofficeIndexPage() {
     redirect("/login");
   }
 
-  redirect(resolve_role_home_path(session.user.roleCode));
+  redirect(resolve_role_home_path(session.user.primaryRole));
 }

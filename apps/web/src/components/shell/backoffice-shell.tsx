@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   backoffice_shell_todo_note,
-  get_role_navigation,
+  get_user_navigation,
   role_russian_labels
 } from "../../contracts/backoffice-shell.contract";
 import type { AuthUserView } from "../../lib/auth/auth-session";
@@ -16,7 +16,7 @@ interface BackofficeShellProps {
 
 function RoleNavigation({ viewer }: { viewer: AuthUserView }) {
   const pathname = usePathname();
-  const items = get_role_navigation(viewer.roleCode);
+  const items = get_user_navigation(viewer.roleCodes, viewer.allowedWorkspaces);
 
   return (
     <nav aria-label="Role-aware navigation" className="bo-sidebar-nav">
@@ -42,7 +42,8 @@ function RoleNavigation({ viewer }: { viewer: AuthUserView }) {
 }
 
 export function BackofficeShell({ children, viewer }: BackofficeShellProps) {
-  const roleLabel = role_russian_labels[viewer.roleCode];
+  const primaryRoleLabel = role_russian_labels[viewer.primaryRole];
+  const allRoleLabels = viewer.roleCodes.map(roleCode => role_russian_labels[roleCode]).join(", ");
 
   return (
     <div className="bo-shell-root">
@@ -50,12 +51,13 @@ export function BackofficeShell({ children, viewer }: BackofficeShellProps) {
         <div className="bo-topbar-title-wrap">
           <p className="bo-kicker">Backoffice Shell</p>
           <h1>Sanmarino CRM/ERP</h1>
-          <p className="bo-muted">Роль: {roleLabel}</p>
+          <p className="bo-muted">Primary role: {primaryRoleLabel}</p>
+          <p className="bo-muted">Роли: {allRoleLabels}</p>
         </div>
 
         <div className="bo-user-box">
           <p className="bo-user-name">{viewer.displayName}</p>
-          <p className="bo-user-login">{viewer.login}</p>
+          <p className="bo-user-login">{viewer.email}</p>
           <form action="/logout" method="post">
             <button type="submit" className="bo-logout-button">
               Выйти
@@ -66,7 +68,7 @@ export function BackofficeShell({ children, viewer }: BackofficeShellProps) {
 
       <div className="bo-shell-frame">
         <aside className="bo-sidebar">
-          <h2>{roleLabel}</h2>
+          <h2>{primaryRoleLabel}</h2>
           <RoleNavigation viewer={viewer} />
           <p className="bo-sidebar-note">{backoffice_shell_todo_note}</p>
         </aside>

@@ -1,11 +1,17 @@
-import { auth_role_codes, type AuthRoleCode } from "../../contracts/backoffice-shell.contract";
+import {
+  auth_role_codes,
+  type AuthRoleCode,
+  type AuthWorkspaceCode
+} from "../../contracts/backoffice-shell.contract";
 
 export interface AuthUserView {
   userId: string;
+  email: string;
   login: string;
   displayName: string;
-  roleCode: AuthRoleCode;
-  optionalRole: boolean;
+  primaryRole: AuthRoleCode;
+  roleCodes: readonly AuthRoleCode[];
+  allowedWorkspaces: readonly AuthWorkspaceCode[];
 }
 
 export interface AuthSessionView {
@@ -41,6 +47,24 @@ function as_auth_role_code(value: unknown): AuthRoleCode | null {
   return auth_role_code_set.has(roleCode as AuthRoleCode) ? (roleCode as AuthRoleCode) : null;
 }
 
+function as_auth_role_code_list(value: unknown): AuthRoleCode[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const roleCodes: AuthRoleCode[] = [];
+  for (const item of value) {
+    const roleCode = as_auth_role_code(item);
+    if (!roleCode || roleCodes.includes(roleCode)) {
+      continue;
+    }
+
+    roleCodes.push(roleCode);
+  }
+
+  return roleCodes;
+}
+
 function as_record(value: unknown): ParsedRecord | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -71,25 +95,50 @@ export function parse_auth_session_payload(payload: unknown): AuthSessionSnapsho
     return null;
   }
 
-  const roleCode = as_auth_role_code(userRecord.roleCode);
+  const primaryRole =
+    as_auth_role_code(userRecord.primaryRole) ?? as_auth_role_code(userRecord.roleCode);
+  if (!primaryRole) {
+    return null;
+  }
+
+  const roleCodes = as_auth_role_code_list(userRecord.roleCodes);
+  if (!roleCodes.includes(primaryRole)) {
+    roleCodes.unshift(primaryRole);
+  }
+
+  const allowedWorkspaces = as_auth_role_code_list(userRecord.allowedWorkspaces);
+  const resolvedAllowedWorkspaces = allowedWorkspaces.length > 0 ? allowedWorkspaces : roleCodes;
+
   const userId = as_non_empty_string(userRecord.userId);
-  const login = as_non_empty_string(userRecord.login);
+  const email = as_non_empty_string(userRecord.email);
+  const login = as_non_empty_string(userRecord.login) ?? email;
+  const resolvedEmail = email ?? login;
   const displayName = as_non_empty_string(userRecord.displayName);
   const sessionId = as_non_empty_string(sessionRecord.sessionId);
   const issuedAt = as_non_empty_string(sessionRecord.issuedAt);
   const refreshExpiresAt = as_non_empty_string(sessionRecord.refreshExpiresAt);
 
-  if (!roleCode || !userId || !login || !displayName || !sessionId || !issuedAt || !refreshExpiresAt) {
+  if (
+    !userId ||
+    !login ||
+    !resolvedEmail ||
+    !displayName ||
+    !sessionId ||
+    !issuedAt ||
+    !refreshExpiresAt
+  ) {
     return null;
   }
 
   return {
     user: {
       userId,
+      email: resolvedEmail,
       login,
       displayName,
-      roleCode,
-      optionalRole: Boolean(userRecord.optionalRole)
+      primaryRole,
+      roleCodes,
+      allowedWorkspaces: resolvedAllowedWorkspaces
     },
     session: {
       sessionId,

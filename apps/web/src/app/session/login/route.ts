@@ -52,7 +52,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const response = NextResponse.redirect(
-    new URL(resolve_role_home_path(session.user.roleCode), request.url),
+    new URL(resolve_role_home_path(session.user.primaryRole), request.url),
     303
   );
   append_set_cookie_headers(response.headers, authResponse);

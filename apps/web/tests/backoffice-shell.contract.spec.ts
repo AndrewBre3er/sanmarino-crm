@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   backoffice_shell_routes,
-  get_role_navigation,
+  can_access_backoffice_path,
+  get_user_navigation,
   required_auth_role_codes,
   resolve_role_home_path,
   role_russian_labels
@@ -15,6 +16,8 @@ describe("backoffice shell contracts", () => {
     expect(routePaths).toContain("/backoffice/leads");
     expect(routePaths).toContain("/backoffice/deals");
     expect(routePaths).toContain("/backoffice/orders");
+    expect(routePaths).toContain("/backoffice/users");
+    expect(routePaths).toContain("/backoffice/roles");
     expect(routePaths).toContain("/backoffice/supplier-requests");
     expect(routePaths).toContain("/backoffice/payments");
     expect(routePaths).toContain("/backoffice/delivery-tasks");
@@ -45,11 +48,17 @@ describe("backoffice shell contracts", () => {
     }
   });
 
-  it("keeps role-aware navigation scoped by auth role", () => {
-    const sellerNav = get_role_navigation("seller").map(item => item.path);
-    const logisticsNav = get_role_navigation("logistics").map(item => item.path);
-    const financeNav = get_role_navigation("finance").map(item => item.path);
+  it("builds navigation from all assigned roles", () => {
+    const sellerFinanceNav = get_user_navigation(["seller", "finance"], ["seller", "finance"]).map(
+      item => item.path
+    );
+    const logisticsNav = get_user_navigation(["logistics"], ["logistics"]).map(item => item.path);
+    const financeNav = get_user_navigation(["finance"], ["finance"]).map(item => item.path);
+    const sellerNav = get_user_navigation(["seller"], ["seller"]).map(item => item.path);
+    const adminNav = get_user_navigation(["admin"], ["admin"]).map(item => item.path);
 
+    expect(sellerFinanceNav).toContain("/backoffice/leads");
+    expect(sellerFinanceNav).toContain("/backoffice/payments");
     expect(sellerNav).toContain("/backoffice/leads");
     expect(sellerNav).toContain("/backoffice/supplier-requests");
     expect(sellerNav).toContain("/backoffice/return-requests");
@@ -61,5 +70,16 @@ describe("backoffice shell contracts", () => {
     expect(financeNav).toContain("/backoffice/return-requests");
     expect(financeNav).toContain("/backoffice/payments");
     expect(financeNav).not.toContain("/backoffice/leads");
+    expect(adminNav).toContain("/backoffice/users");
+    expect(adminNav).toContain("/backoffice/roles");
+    expect(sellerNav).not.toContain("/backoffice/users");
+    expect(sellerNav).not.toContain("/backoffice/roles");
+  });
+
+  it("denies direct admin paths for non-admin users", () => {
+    expect(can_access_backoffice_path("/backoffice/users", ["admin"], ["admin"])).toBe(true);
+    expect(can_access_backoffice_path("/backoffice/roles", ["admin"], ["admin"])).toBe(true);
+    expect(can_access_backoffice_path("/backoffice/users", ["seller"], ["seller"])).toBe(false);
+    expect(can_access_backoffice_path("/backoffice/roles", ["seller"], ["seller"])).toBe(false);
   });
 });

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolve_role_home_path } from "./contracts/backoffice-shell.contract";
+import {
+  can_access_backoffice_path,
+  resolve_role_home_path
+} from "./contracts/backoffice-shell.contract";
 import { fetch_auth_session_by_cookie_header } from "./lib/auth/auth-session";
 
 function to_login_redirect(request: NextRequest): NextResponse {
@@ -17,12 +20,18 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       return NextResponse.next();
     }
 
-    return NextResponse.redirect(new URL(resolve_role_home_path(session.user.roleCode), request.url));
+    return NextResponse.redirect(new URL(resolve_role_home_path(session.user.primaryRole), request.url));
   }
 
   if (pathname.startsWith("/backoffice")) {
     if (!session) {
       return to_login_redirect(request);
+    }
+
+    if (
+      !can_access_backoffice_path(pathname, session.user.roleCodes, session.user.allowedWorkspaces)
+    ) {
+      return NextResponse.redirect(new URL(resolve_role_home_path(session.user.primaryRole), request.url));
     }
   }
 

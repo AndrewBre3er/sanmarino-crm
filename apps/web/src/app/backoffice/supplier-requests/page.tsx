@@ -16,7 +16,7 @@ export default async function SupplierRequestsShellPage() {
     <EntityShellPage
       title="Supplier Requests"
       subtitle="Supplier request shell"
-      roleCode={session.user.roleCode}
+      roleCode={session.user.primaryRole}
       statuses={supplier_request_statuses}
       columns={supplier_request_columns}
     />

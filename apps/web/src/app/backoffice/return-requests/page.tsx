@@ -11,7 +11,7 @@ export default async function ReturnRequestsShellPage() {
     <EntityShellPage
       title="Return Requests"
       subtitle="Return request shell"
-      roleCode={session.user.roleCode}
+      roleCode={session.user.primaryRole}
       statuses={return_request_statuses}
       columns={return_request_columns}
     />
