@@ -25,8 +25,10 @@ describe("transactional status transition guards", () => {
   });
 
   it("blocks order transitions outside accepted matrix", () => {
-    expect(() => assert_order_status_transition("completed", "partial_return")).not.toThrow();
-    expect(() => assert_order_status_transition("draft", "partial_return")).toThrowError();
+    expect(() =>
+      assert_order_status_transition("ready_for_shipment", "shipped")
+    ).not.toThrow();
+    expect(() => assert_order_status_transition("assembling", "shipped")).toThrowError();
   });
 
   it("rejects delivered -> planned for delivery task", () => {

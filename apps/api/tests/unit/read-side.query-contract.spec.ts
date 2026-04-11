@@ -41,7 +41,7 @@ describe("read-side query contracts", () => {
       pageSize: 10,
       sortBy: "createdAt",
       sortDirection: "asc",
-      status: ["confirmed", "reserved"]
+      status: ["ready_for_partial_shipment", "ready_for_shipment"]
     };
 
     const query = build_read_collection_query(dto, {
@@ -56,7 +56,7 @@ describe("read-side query contracts", () => {
     expect(query.contract.filters?.[0]).toEqual({
       field: "status",
       operator: "in",
-      value: ["confirmed", "reserved"]
+      value: ["ready_for_partial_shipment", "ready_for_shipment"]
     });
   });
 

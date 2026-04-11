@@ -34,7 +34,8 @@ describe("transactional repository skeletons", () => {
       orderRepository.create({
         orderNumber: "ORD-SKELETON",
         dealId: "deal_1",
-        status: "draft",
+        clientId: "client_1",
+        status: "assembling",
         fulfillmentType: "manual"
       })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
@@ -43,9 +44,10 @@ describe("transactional repository skeletons", () => {
       orderItemRepository.create({
         orderId: "order_1",
         lineNo: 1,
-        productRef: "product_1",
+        productId: "product_1",
         productNameSnapshot: "Product",
         qty: "1",
+        unit: "шт",
         retailPrice: "100.00",
         lineTotal: "100.00"
       })

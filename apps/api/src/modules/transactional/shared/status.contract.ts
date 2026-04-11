@@ -7,15 +7,17 @@ export const deal_statuses = [
 export const lead_statuses = ["new", "in_processing", "cancelled"] as const;
 
 export const order_statuses = [
-  "draft",
-  "confirmed",
-  "reserved",
-  "in_progress",
-  "completed",
-  "closed",
-  "cancelled",
-  "partial_return",
-  "full_return"
+  "assembling",
+  "ready_for_partial_shipment",
+  "ready_for_shipment",
+  "partially_shipped",
+  "shipped"
+] as const;
+
+export const order_control_overlay_statuses = [
+  "none",
+  "on_control",
+  "problem"
 ] as const;
 
 export const order_delivery_statuses = [
@@ -27,6 +29,13 @@ export const order_delivery_statuses = [
 ] as const;
 
 export const order_fulfillment_types = ["delivery", "pickup", "manual"] as const;
+
+export const fulfillment_statuses = [
+  "pending",
+  "completed",
+  "failed",
+  "cancelled"
+] as const;
 
 export const delivery_task_statuses = [
   "planned",
@@ -103,8 +112,10 @@ export const active_delivery_task_statuses = [
 export type DealStatus = (typeof deal_statuses)[number];
 export type LeadStatus = (typeof lead_statuses)[number];
 export type OrderStatus = (typeof order_statuses)[number];
+export type OrderControlOverlayStatus = (typeof order_control_overlay_statuses)[number];
 export type OrderDeliveryStatus = (typeof order_delivery_statuses)[number];
 export type OrderFulfillmentType = (typeof order_fulfillment_types)[number];
+export type FulfillmentStatus = (typeof fulfillment_statuses)[number];
 export type DeliveryTaskStatus = (typeof delivery_task_statuses)[number];
 export type ReturnRequestStatus = (typeof return_request_statuses)[number];
 export type SupplierRequestStatus = (typeof supplier_request_statuses)[number];

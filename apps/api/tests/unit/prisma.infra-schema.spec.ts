@@ -7,7 +7,7 @@ function load_schema(): string {
   return readFileSync(schema_path, "utf8");
 }
 
-describe("prisma schema foundation (infra + users + CRM core + supply inventory contract baseline)", () => {
+describe("prisma schema foundation (infra + users + CRM core + orders + supply inventory baseline)", () => {
   it("contains approved infra/system models, users models, and supply/inventory foundation models", () => {
     const schema = load_schema();
 
@@ -28,6 +28,8 @@ describe("prisma schema foundation (infra + users + CRM core + supply inventory 
     expect(schema).toContain("model CrmClientParticipant");
     expect(schema).toContain("model OrdersOrder");
     expect(schema).toContain("model OrdersOrderItem");
+    expect(schema).toContain("model OrdersFulfillment");
+    expect(schema).toContain("model OrdersFulfillmentItem");
     expect(schema).toContain("model LogisticsDeliveryTask");
     expect(schema).toContain("model OrdersReturnRequest");
     expect(schema).toContain("model PaymentsPayment");
@@ -53,6 +55,10 @@ describe("prisma schema foundation (infra + users + CRM core + supply inventory 
     expect(schema).toContain('roleType  String      @map("role_type") @db.VarChar(32)');
     expect(schema).toContain("enum OrderStatus");
     expect(schema).toContain('ASSEMBLING                 @map("assembling")');
+    expect(schema).toContain("enum OrderPaymentControlStatus");
+    expect(schema).toContain('ON_CONTROL @map("on_control")');
+    expect(schema).toContain("enum FulfillmentStatus");
+    expect(schema).toContain('PENDING   @map("pending")');
     expect(schema).toContain("enum ReturnRequestStatus");
     expect(schema).toContain('CREATED   @map("created")');
     expect(schema).toContain("enum SupplierRequestStatus");
@@ -68,7 +74,16 @@ describe("prisma schema foundation (infra + users + CRM core + supply inventory 
     expect(schema).toContain("enum InventoryBucket");
     expect(schema).toContain('QUARANTINE @map("quarantine")');
     expect(schema).toContain("enum OrderFulfillmentType");
-    expect(schema).toContain('fulfillmentType OrderFulfillmentType');
+    expect(schema).toContain('paymentControlStatus      OrderPaymentControlStatus');
+    expect(schema).toContain('fulfillmentType           OrderFulfillmentType');
+    expect(schema).toContain('@map("payment_control_due_at")');
+    expect(schema).toContain('@map("ready_for_partial_shipment_at")');
+    expect(schema).toContain('@map("ready_for_shipment_at")');
+    expect(schema).toContain('@map("partially_shipped_at")');
+    expect(schema).toContain('@map("shipped_at")');
+    expect(schema).toContain('productId            String                  @map("product_id") @db.Uuid');
+    expect(schema).toContain('unit                 ProductUnit');
+    expect(schema).toContain('fulfillmentId String             @map("fulfillment_id") @db.Uuid');
     expect(schema).toContain('businessSourceType');
     expect(schema).toContain('@map("business_source_type")');
     expect(schema).toContain('businessSourceId');

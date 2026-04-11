@@ -5,15 +5,11 @@ import {
 } from "../shared/transition.guard";
 
 export const order_status_transition_matrix = {
-  draft: ["confirmed", "cancelled"],
-  confirmed: ["reserved", "in_progress", "cancelled"],
-  reserved: ["in_progress", "cancelled"],
-  in_progress: ["completed", "cancelled"],
-  completed: ["partial_return", "full_return", "closed"],
-  partial_return: ["full_return", "closed"],
-  full_return: ["closed"],
-  closed: [],
-  cancelled: []
+  assembling: ["ready_for_partial_shipment", "ready_for_shipment"],
+  ready_for_partial_shipment: ["ready_for_shipment", "partially_shipped"],
+  ready_for_shipment: ["partially_shipped", "shipped"],
+  partially_shipped: ["ready_for_shipment", "shipped"],
+  shipped: []
 } as const satisfies Record<OrderStatus, readonly OrderStatus[]>;
 
 export const order_status_transition_guard: StatusTransitionGuard<OrderStatus> =
@@ -24,11 +20,11 @@ export function assert_order_status_transition(from: OrderStatus, to: OrderStatu
 }
 
 export function is_entering_delivery_flow_status(status: OrderStatus): boolean {
-  return status === "in_progress" || status === "completed";
+  return status === "partially_shipped" || status === "shipped";
 }
 
 export const order_transition_contract_todo = {
   adminOverrideFlow: "TODO",
-  postCloseCorrectionPolicy: "TODO",
-  partialReturnOperationalPolicy: "TODO"
+  postShipmentCorrectionPolicy: "TODO",
+  partialShipmentCorrectionPolicy: "TODO"
 } as const;

@@ -10,6 +10,7 @@ import type {
 import type { PrismaService } from "../../../prisma/prisma.service";
 import { throw_deferred_skeleton } from "../shared/deferred-skeleton.error";
 import type {
+  OrderControlOverlayStatus,
   OrderDeliveryStatus,
   OrderFulfillmentType,
   OrderStatus
@@ -18,36 +19,57 @@ import type {
 export interface OrdersOrderRecord extends PersistenceRecordBase {
   orderNumber: string;
   dealId: string;
+  clientId: string;
   status: OrderStatus;
+  paymentControlStatus: OrderControlOverlayStatus;
+  paymentControlDueAt?: string | null;
   fulfillmentType: OrderFulfillmentType;
   deliveryStatus: OrderDeliveryStatus;
   currency: string;
+  subtotalAmount: string;
+  discountAmount: string;
   totalAmount: string;
-  confirmedAt?: string | null;
-  completedAt?: string | null;
-  closedAt?: string | null;
-  cancelledAt?: string | null;
+  notes?: string | null;
+  readyForPartialShipmentAt?: string | null;
+  readyForShipmentAt?: string | null;
+  partiallyShippedAt?: string | null;
+  shippedAt?: string | null;
 }
 
 export interface OrdersOrderCreateInput {
   orderNumber: string;
   dealId: string;
+  clientId: string;
   status: OrderStatus;
+  paymentControlStatus?: OrderControlOverlayStatus;
+  paymentControlDueAt?: string | null;
   fulfillmentType: OrderFulfillmentType;
   deliveryStatus?: OrderDeliveryStatus;
   currency?: string;
+  subtotalAmount?: string;
+  discountAmount?: string;
   totalAmount?: string;
+  notes?: string | null;
+  readyForPartialShipmentAt?: string | null;
+  readyForShipmentAt?: string | null;
+  partiallyShippedAt?: string | null;
+  shippedAt?: string | null;
 }
 
 export interface OrdersOrderUpdateInput {
   status?: OrderStatus;
+  paymentControlStatus?: OrderControlOverlayStatus;
+  paymentControlDueAt?: string | null;
   fulfillmentType?: OrderFulfillmentType;
   deliveryStatus?: OrderDeliveryStatus;
+  subtotalAmount?: string;
+  discountAmount?: string;
   totalAmount?: string;
-  confirmedAt?: string | null;
-  completedAt?: string | null;
-  closedAt?: string | null;
-  cancelledAt?: string | null;
+  notes?: string | null;
+  readyForPartialShipmentAt?: string | null;
+  readyForShipmentAt?: string | null;
+  partiallyShippedAt?: string | null;
+  shippedAt?: string | null;
 }
 
 export interface OrdersOrderRepositoryContract
