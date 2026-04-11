@@ -32,9 +32,8 @@ export const supply_inventory_status_contract = {
 } as const;
 
 export const supply_inventory_read_side_contract = {
-  implementedCollections: ["suppliers", "supplier-requests"] as const,
+  implementedCollections: ["suppliers", "supplier-requests", "purchase-receipts"] as const,
   deferredCollections: [
-    "purchase-receipts",
     "products",
     "warehouses",
     "stock-balances",
@@ -42,7 +41,7 @@ export const supply_inventory_read_side_contract = {
     "reservations",
     "inventory-movements"
   ] as const,
-  freezePhase: "supply-step-4-supplier-request-status-role-matrix"
+  freezePhase: "supply-step-5-purchase-receipt-discrepancy-baseline"
 } as const;
 
 export const supplier_request_role_matrix_contract = {
@@ -51,6 +50,11 @@ export const supplier_request_role_matrix_contract = {
   markPaid: ["finance", "ceo"] as const,
   markStocked: ["warehouse"] as const,
   listAndStatusVisibility: "all_roles" as const
+} as const;
+
+export const purchase_receipt_role_matrix_contract = {
+  create: ["warehouse"] as const,
+  listAndDetailVisibility: "all_roles" as const
 } as const;
 
 export const supplier_request_file_access_contract = {

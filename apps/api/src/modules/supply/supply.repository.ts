@@ -1,8 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type {
+  InventoryPurchaseReceipt,
+  InventoryPurchaseReceiptItem,
   InventorySupplier,
   InventorySupplierRequest,
   InventorySupplierRequestItem,
+  InventoryWarehouse,
   Prisma,
   ProductUnit as PrismaProductUnit,
   SupplierRequestStatus as PrismaSupplierRequestStatus
@@ -46,6 +49,11 @@ export interface SupplierReadModel {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface WarehouseReadModel {
+  id: string;
+  name: string;
 }
 
 export interface SupplierRequestSupplierReadModel {
@@ -98,6 +106,67 @@ export interface SupplierRequestListReadModel {
   itemsCount: number;
 }
 
+export interface PurchaseReceiptSupplierRequestReadModel {
+  id: string;
+  status: SupplierRequestStatus;
+}
+
+export interface PurchaseReceiptItemReadModel {
+  id: string;
+  productId: string;
+  quantity: string;
+  unit: ProductUnit;
+  unitCost: string;
+  lineTotal: string;
+  supplierRequestItemId: string | null;
+  requestedQuantity: string | null;
+}
+
+export interface PurchaseReceiptDiscrepancyLineReadModel {
+  supplierRequestItemId: string | null;
+  productId: string;
+  unit: ProductUnit;
+  requestedQuantity: string;
+  receivedQuantity: string;
+  discrepancyQuantity: string;
+}
+
+export interface PurchaseReceiptDiscrepancyReadModel {
+  hasDiscrepancy: boolean;
+  lines: PurchaseReceiptDiscrepancyLineReadModel[];
+}
+
+export interface PurchaseReceiptReadModel {
+  id: string;
+  receiptNumber: string;
+  warehouseId: string;
+  supplierId: string;
+  supplierRequestId: string | null;
+  receivedAt: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  supplier: SupplierRequestSupplierReadModel;
+  warehouse: WarehouseReadModel;
+  supplierRequest: PurchaseReceiptSupplierRequestReadModel | null;
+  items: PurchaseReceiptItemReadModel[];
+  discrepancy: PurchaseReceiptDiscrepancyReadModel;
+}
+
+export interface PurchaseReceiptListReadModel {
+  id: string;
+  receiptNumber: string;
+  warehouseId: string;
+  supplierId: string;
+  supplierRequestId: string | null;
+  receivedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  supplier: SupplierRequestSupplierReadModel;
+  warehouse: WarehouseReadModel;
+  hasDiscrepancy: boolean;
+}
+
 export interface CreateSupplierInput {
   name: string;
   phone?: string | null;
@@ -123,6 +192,24 @@ export interface CreateSupplierRequestInput {
   items: CreateSupplierRequestItemInput[];
 }
 
+export interface CreatePurchaseReceiptItemInput {
+  productId: string;
+  quantity: number;
+  unit: ProductUnit;
+  unitCost: string;
+  supplierRequestItemId: string;
+}
+
+export interface CreatePurchaseReceiptInput {
+  receiptNumber: string;
+  warehouseId: string;
+  supplierId: string;
+  supplierRequestId: string;
+  receivedAt: string;
+  createdBy: string;
+  items: CreatePurchaseReceiptItemInput[];
+}
+
 export interface UpdateSupplierRequestInput {
   status?: SupplierRequestStatus;
   expectedSupplyDate?: string;
@@ -145,8 +232,36 @@ type SupplierRequestWithCountRecord = InventorySupplierRequest & {
   };
 };
 
+type PurchaseReceiptSupplierRequestRecord = InventorySupplierRequest & {
+  items: InventorySupplierRequestItem[];
+};
+
+type PurchaseReceiptWithItemsRecord = InventoryPurchaseReceipt & {
+  supplier: InventorySupplier;
+  warehouse: InventoryWarehouse;
+  supplierRequest: PurchaseReceiptSupplierRequestRecord | null;
+  items: InventoryPurchaseReceiptItem[];
+};
+
 function to_iso_date(value: Date): string {
   return value.toISOString().slice(0, 10);
+}
+
+function to_decimal_number(value: { toString: () => string } | null | undefined): number {
+  const normalized = to_decimal_string(value);
+  return normalized ? Number(normalized) : 0;
+}
+
+function is_same_quantity(left: number, right: number): boolean {
+  return Math.abs(left - right) < 0.0005;
+}
+
+function format_quantity(value: number): string {
+  return Number(value.toFixed(3)).toString();
+}
+
+function build_product_unit_key(productId: string, unit: PrismaProductUnit): string {
+  return `${productId}:${unit}`;
 }
 
 function map_supplier_record(record: InventorySupplier): SupplierReadModel {
@@ -158,6 +273,13 @@ function map_supplier_record(record: InventorySupplier): SupplierReadModel {
     notes: record.notes,
     createdAt: to_iso_datetime(record.createdAt) ?? "",
     updatedAt: to_iso_datetime(record.updatedAt) ?? ""
+  };
+}
+
+function map_warehouse_record(record: InventoryWarehouse): WarehouseReadModel {
+  return {
+    id: record.id,
+    name: record.name
   };
 }
 
@@ -224,6 +346,204 @@ function map_supplier_request_detail_record(
   };
 }
 
+function build_purchase_receipt_requested_quantity_map(
+  supplierRequestItems: InventorySupplierRequestItem[] | null
+): Map<string, string> {
+  if (!supplierRequestItems) {
+    return new Map<string, string>();
+  }
+
+  return new Map(
+    supplierRequestItems.map((supplierRequestItem) => [
+      supplierRequestItem.id,
+      to_decimal_string(supplierRequestItem.qty) ?? "0"
+    ])
+  );
+}
+
+function map_purchase_receipt_item_record(
+  record: InventoryPurchaseReceiptItem,
+  requestedQuantityByRequestItemId: Map<string, string>
+): PurchaseReceiptItemReadModel {
+  const requestedQuantity = record.supplierRequestItemId
+    ? (requestedQuantityByRequestItemId.get(record.supplierRequestItemId) ?? null)
+    : null;
+
+  return {
+    id: record.id,
+    productId: record.productId,
+    quantity: to_decimal_string(record.qty) ?? "0",
+    unit: api_product_unit_by_prisma[record.unit],
+    unitCost: to_decimal_string(record.unitCost) ?? "0",
+    lineTotal: to_decimal_string(record.lineTotal) ?? "0",
+    supplierRequestItemId: record.supplierRequestItemId,
+    requestedQuantity
+  };
+}
+
+function build_purchase_receipt_discrepancy(
+  supplierRequestItems: InventorySupplierRequestItem[] | null,
+  receiptItems: InventoryPurchaseReceiptItem[]
+): PurchaseReceiptDiscrepancyReadModel {
+  if (!supplierRequestItems || supplierRequestItems.length === 0) {
+    return {
+      hasDiscrepancy: false,
+      lines: []
+    };
+  }
+
+  const supplierRequestItemsById = new Map(
+    supplierRequestItems.map((supplierRequestItem) => [supplierRequestItem.id, supplierRequestItem])
+  );
+
+  const receivedBySupplierRequestItemId = new Map<string, number>();
+  const unmatchedLinesByKey = new Map<
+    string,
+    {
+      supplierRequestItemId: string | null;
+      productId: string;
+      unit: PrismaProductUnit;
+      receivedQuantity: number;
+    }
+  >();
+
+  for (const receiptItem of receiptItems) {
+    const receivedQuantity = to_decimal_number(receiptItem.qty);
+
+    if (receiptItem.supplierRequestItemId && supplierRequestItemsById.has(receiptItem.supplierRequestItemId)) {
+      const existing = receivedBySupplierRequestItemId.get(receiptItem.supplierRequestItemId) ?? 0;
+      receivedBySupplierRequestItemId.set(
+        receiptItem.supplierRequestItemId,
+        existing + receivedQuantity
+      );
+      continue;
+    }
+
+    const key = receiptItem.supplierRequestItemId
+      ? `linked:${receiptItem.supplierRequestItemId}`
+      : `unlinked:${build_product_unit_key(receiptItem.productId, receiptItem.unit)}`;
+    const existingUnmatched = unmatchedLinesByKey.get(key);
+
+    if (existingUnmatched) {
+      existingUnmatched.receivedQuantity += receivedQuantity;
+      continue;
+    }
+
+    unmatchedLinesByKey.set(key, {
+      supplierRequestItemId: receiptItem.supplierRequestItemId,
+      productId: receiptItem.productId,
+      unit: receiptItem.unit,
+      receivedQuantity
+    });
+  }
+
+  const lines: PurchaseReceiptDiscrepancyLineReadModel[] = [];
+
+  for (const supplierRequestItem of supplierRequestItems) {
+    const requestedQuantity = to_decimal_number(supplierRequestItem.qty);
+    const receivedQuantity =
+      receivedBySupplierRequestItemId.get(supplierRequestItem.id) ?? 0;
+
+    if (is_same_quantity(requestedQuantity, receivedQuantity)) {
+      continue;
+    }
+
+    lines.push({
+      supplierRequestItemId: supplierRequestItem.id,
+      productId: supplierRequestItem.productId,
+      unit: api_product_unit_by_prisma[supplierRequestItem.unit],
+      requestedQuantity: format_quantity(requestedQuantity),
+      receivedQuantity: format_quantity(receivedQuantity),
+      discrepancyQuantity: format_quantity(receivedQuantity - requestedQuantity)
+    });
+  }
+
+  for (const unmatchedLine of unmatchedLinesByKey.values()) {
+    if (is_same_quantity(unmatchedLine.receivedQuantity, 0)) {
+      continue;
+    }
+
+    lines.push({
+      supplierRequestItemId: unmatchedLine.supplierRequestItemId,
+      productId: unmatchedLine.productId,
+      unit: api_product_unit_by_prisma[unmatchedLine.unit],
+      requestedQuantity: "0",
+      receivedQuantity: format_quantity(unmatchedLine.receivedQuantity),
+      discrepancyQuantity: format_quantity(unmatchedLine.receivedQuantity)
+    });
+  }
+
+  return {
+    hasDiscrepancy: lines.length > 0,
+    lines
+  };
+}
+
+function map_purchase_receipt_detail_record(
+  record: PurchaseReceiptWithItemsRecord
+): PurchaseReceiptReadModel {
+  const requestedQuantityByRequestItemId = build_purchase_receipt_requested_quantity_map(
+    record.supplierRequest?.items ?? null
+  );
+  const discrepancy = build_purchase_receipt_discrepancy(
+    record.supplierRequest?.items ?? null,
+    record.items
+  );
+
+  return {
+    id: record.id,
+    receiptNumber: record.receiptNumber,
+    warehouseId: record.warehouseId,
+    supplierId: record.supplierId,
+    supplierRequestId: record.supplierRequestId,
+    receivedAt: to_iso_datetime(record.receivedAt) ?? "",
+    createdBy: record.createdBy,
+    createdAt: to_iso_datetime(record.createdAt) ?? "",
+    updatedAt: to_iso_datetime(record.updatedAt) ?? "",
+    supplier: {
+      id: record.supplier.id,
+      name: record.supplier.name
+    },
+    warehouse: map_warehouse_record(record.warehouse),
+    supplierRequest: record.supplierRequest
+      ? {
+          id: record.supplierRequest.id,
+          status: from_prisma_enum(record.supplierRequest.status) as SupplierRequestStatus
+        }
+      : null,
+    items: record.items.map((item) =>
+      map_purchase_receipt_item_record(item, requestedQuantityByRequestItemId)
+    ),
+    discrepancy
+  };
+}
+
+function map_purchase_receipt_list_record(
+  record: PurchaseReceiptWithItemsRecord
+): PurchaseReceiptListReadModel {
+  const discrepancy = build_purchase_receipt_discrepancy(
+    record.supplierRequest?.items ?? null,
+    record.items
+  );
+
+  return {
+    id: record.id,
+    receiptNumber: record.receiptNumber,
+    warehouseId: record.warehouseId,
+    supplierId: record.supplierId,
+    supplierRequestId: record.supplierRequestId,
+    receivedAt: to_iso_datetime(record.receivedAt) ?? "",
+    createdAt: to_iso_datetime(record.createdAt) ?? "",
+    updatedAt: to_iso_datetime(record.updatedAt) ?? "",
+    supplier: {
+      id: record.supplier.id,
+      name: record.supplier.name
+    },
+    warehouse: map_warehouse_record(record.warehouse),
+    hasDiscrepancy: discrepancy.hasDiscrepancy
+  };
+}
+
 @Injectable()
 export class PrismaSupplyRepository {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
@@ -273,6 +593,25 @@ export class PrismaSupplyRepository {
     }
 
     return map_supplier_record(supplier);
+  }
+
+  async getWarehouseById(warehouseId: string): Promise<WarehouseReadModel | null> {
+    const warehouse = await this.prismaService.inventoryWarehouse.findUnique({
+      where: { id: warehouseId },
+      select: {
+        id: true,
+        name: true
+      }
+    });
+
+    if (!warehouse) {
+      return null;
+    }
+
+    return {
+      id: warehouse.id,
+      name: warehouse.name
+    };
   }
 
   async createSupplier(input: CreateSupplierInput): Promise<SupplierReadModel> {
@@ -450,5 +789,165 @@ export class PrismaSupplyRepository {
     });
 
     return map_supplier_request_detail_record(created as SupplierRequestWithItemsRecord);
+  }
+
+  async listPurchaseReceipts(
+    query: ReadCollectionQueryInput
+  ): Promise<ReadCollectionResult<PurchaseReceiptListReadModel>> {
+    const where: Prisma.InventoryPurchaseReceiptWhereInput = {};
+
+    if (query.search) {
+      where.OR = [
+        { receiptNumber: { contains: query.search, mode: "insensitive" } },
+        { supplier: { name: { contains: query.search, mode: "insensitive" } } },
+        { warehouse: { name: { contains: query.search, mode: "insensitive" } } }
+      ];
+    }
+
+    const orderBy = {
+      [query.sortField]: query.sortDirection
+    } as Prisma.InventoryPurchaseReceiptOrderByWithRelationInput;
+
+    const [items, totalItems] = await this.prismaService.$transaction([
+      this.prismaService.inventoryPurchaseReceipt.findMany({
+        where,
+        orderBy,
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: {
+          supplier: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          warehouse: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          supplierRequest: {
+            include: {
+              items: {
+                orderBy: {
+                  createdAt: "asc"
+                }
+              }
+            }
+          },
+          items: {
+            orderBy: {
+              createdAt: "asc"
+            }
+          }
+        }
+      }),
+      this.prismaService.inventoryPurchaseReceipt.count({ where })
+    ]);
+
+    return {
+      items: items.map((item) =>
+        map_purchase_receipt_list_record(item as PurchaseReceiptWithItemsRecord)
+      ),
+      pagination: build_page_pagination_meta(totalItems, query.page, query.pageSize),
+      ...(query.contract.filters ? { appliedFilters: query.contract.filters } : {}),
+      ...(query.contract.sort ? { appliedSort: query.contract.sort } : {})
+    };
+  }
+
+  async getPurchaseReceiptById(
+    purchaseReceiptId: string
+  ): Promise<PurchaseReceiptReadModel | null> {
+    const purchaseReceipt = await this.prismaService.inventoryPurchaseReceipt.findUnique({
+      where: { id: purchaseReceiptId },
+      include: {
+        supplier: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        warehouse: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        supplierRequest: {
+          include: {
+            items: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          }
+        },
+        items: {
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    if (!purchaseReceipt) {
+      return null;
+    }
+
+    return map_purchase_receipt_detail_record(purchaseReceipt as PurchaseReceiptWithItemsRecord);
+  }
+
+  async createPurchaseReceipt(input: CreatePurchaseReceiptInput): Promise<PurchaseReceiptReadModel> {
+    const created = await this.prismaService.inventoryPurchaseReceipt.create({
+      data: {
+        receiptNumber: input.receiptNumber,
+        warehouseId: input.warehouseId,
+        supplierId: input.supplierId,
+        supplierRequestId: input.supplierRequestId,
+        receivedAt: new Date(input.receivedAt),
+        createdBy: input.createdBy,
+        items: {
+          create: input.items.map((item) => ({
+            productId: item.productId,
+            qty: item.quantity.toFixed(3),
+            unit: prisma_product_unit_by_api[item.unit],
+            unitCost: item.unitCost,
+            lineTotal: (item.quantity * Number(item.unitCost)).toFixed(2),
+            supplierRequestItemId: item.supplierRequestItemId
+          }))
+        }
+      },
+      include: {
+        supplier: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        warehouse: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        supplierRequest: {
+          include: {
+            items: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          }
+        },
+        items: {
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    return map_purchase_receipt_detail_record(created as PurchaseReceiptWithItemsRecord);
   }
 }

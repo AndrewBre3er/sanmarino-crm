@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  purchase_receipt_role_matrix_contract,
   supplier_request_file_access_contract,
   supplier_request_role_matrix_contract,
   supply_inventory_entities,
@@ -41,16 +42,16 @@ describe("supply + inventory contract freeze", () => {
     expect(supply_inventory_status_contract.inventoryBucket).toEqual(inventory_bucket_statuses);
   });
 
-  it("marks read-side resources split between implemented and deferred for Supply Step 4", () => {
+  it("marks read-side resources split between implemented and deferred for Supply Step 5", () => {
     expect(supply_inventory_read_side_contract.freezePhase).toBe(
-      "supply-step-4-supplier-request-status-role-matrix"
+      "supply-step-5-purchase-receipt-discrepancy-baseline"
     );
     expect(supply_inventory_read_side_contract.implementedCollections).toEqual([
       "suppliers",
-      "supplier-requests"
+      "supplier-requests",
+      "purchase-receipts"
     ]);
     expect(supply_inventory_read_side_contract.deferredCollections).toEqual([
-      "purchase-receipts",
       "products",
       "warehouses",
       "stock-balances",
@@ -66,6 +67,11 @@ describe("supply + inventory contract freeze", () => {
     expect(supplier_request_role_matrix_contract.markPaid).toEqual(["finance", "ceo"]);
     expect(supplier_request_role_matrix_contract.markStocked).toEqual(["warehouse"]);
     expect(supplier_request_role_matrix_contract.listAndStatusVisibility).toBe("all_roles");
+  });
+
+  it("keeps purchase receipt role matrix baseline fixed", () => {
+    expect(purchase_receipt_role_matrix_contract.create).toEqual(["warehouse"]);
+    expect(purchase_receipt_role_matrix_contract.listAndDetailVisibility).toBe("all_roles");
   });
 
   it("keeps attachment matrix at contract/access baseline with explicit deferred storage", () => {

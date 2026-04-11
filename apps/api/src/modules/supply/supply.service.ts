@@ -6,6 +6,7 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
+import { randomUUID } from "crypto";
 import type { AuthPrincipal } from "../auth/auth.contract";
 import type { ReadCollectionQueryInput } from "../read-side/shared/read-model.contract";
 import type {
@@ -16,8 +17,11 @@ import { StatusTransitionError } from "../transactional/shared/transition.guard"
 import { assert_supplier_request_status_transition } from "./supplier-request.transition.guard";
 import {
   PrismaSupplyRepository,
+  type CreatePurchaseReceiptInput,
   type CreateSupplierInput,
   type CreateSupplierRequestInput,
+  type PurchaseReceiptReadModel,
+  type SupplierRequestItemReadModel,
   type SupplierRequestReadModel
 } from "./supply.repository";
 
@@ -26,6 +30,7 @@ const supplier_request_create_role_codes = new Set(["seller"] as const);
 const supplier_request_confirm_role_codes = new Set(["seller"] as const);
 const supplier_request_paid_role_codes = new Set(["finance", "ceo"] as const);
 const supplier_request_stocked_role_codes = new Set(["warehouse"] as const);
+const purchase_receipt_create_role_codes = new Set(["warehouse"] as const);
 const supplier_request_business_source_types = ["deal", "order"] as const;
 const supplier_request_file_role_codes = new Set(["warehouse", "finance", "ceo"] as const);
 
@@ -50,6 +55,22 @@ export interface CreateSupplierRequestPayload {
   businessSourceId: string;
   expectedSupplyDate: string;
   items: CreateSupplierRequestItemPayload[];
+}
+
+export interface CreatePurchaseReceiptItemPayload {
+  productId: string;
+  quantity: number;
+  unit: ProductUnit;
+  unitCost: string;
+  supplierRequestItemId?: string;
+}
+
+export interface CreatePurchaseReceiptPayload {
+  warehouseId: string;
+  supplierId: string;
+  supplierRequestId: string;
+  receivedAt: string;
+  items: CreatePurchaseReceiptItemPayload[];
 }
 
 export interface ConfirmSupplierRequestBySupplierPayload {
@@ -130,6 +151,83 @@ export class SupplyService {
     return this.apply_file_visibility_baseline(created, actor);
   }
 
+  async listPurchaseReceipts(query: ReadCollectionQueryInput) {
+    return this.supplyRepository.listPurchaseReceipts(query);
+  }
+
+  async getPurchaseReceipt(purchaseReceiptId: string): Promise<PurchaseReceiptReadModel> {
+    const purchaseReceipt = await this.supplyRepository.getPurchaseReceiptById(purchaseReceiptId);
+    if (!purchaseReceipt) {
+      throw new NotFoundException(`PurchaseReceipt '${purchaseReceiptId}' was not found`);
+    }
+
+    return purchaseReceipt;
+  }
+
+  async createPurchaseReceipt(input: CreatePurchaseReceiptPayload, actor: AuthPrincipal) {
+    this.assert_purchase_receipt_create_access(actor);
+
+    const warehouse = await this.supplyRepository.getWarehouseById(input.warehouseId);
+    if (!warehouse) {
+      throw new NotFoundException(`Warehouse '${input.warehouseId}' was not found`);
+    }
+
+    const supplier = await this.supplyRepository.getSupplierById(input.supplierId);
+    if (!supplier) {
+      throw new NotFoundException(`Supplier '${input.supplierId}' was not found`);
+    }
+
+    const supplierRequest = await this.get_supplier_request_or_throw(input.supplierRequestId);
+
+    if (supplierRequest.supplierId !== input.supplierId) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "PurchaseReceipt.supplierId must match SupplierRequest.supplierId"
+      });
+    }
+
+    const supplierRequestItemsById = new Map(
+      supplierRequest.items.map((item) => [item.id, item] as const)
+    );
+    const supplierRequestItemsByProductAndUnit = new Map<string, SupplierRequestItemReadModel[]>();
+
+    for (const supplierRequestItem of supplierRequest.items) {
+      const key = build_supplier_request_item_key(
+        supplierRequestItem.productId,
+        supplierRequestItem.unit
+      );
+
+      const existing = supplierRequestItemsByProductAndUnit.get(key) ?? [];
+      existing.push(supplierRequestItem);
+      supplierRequestItemsByProductAndUnit.set(key, existing);
+    }
+
+    const normalizedItems = input.items.map((item, index) => ({
+      productId: item.productId,
+      quantity: item.quantity,
+      unit: item.unit,
+      unitCost: item.unitCost.trim(),
+      supplierRequestItemId: this.resolve_supplier_request_item_linkage(
+        item,
+        index,
+        supplierRequestItemsById,
+        supplierRequestItemsByProductAndUnit
+      )
+    }));
+
+    const createInput: CreatePurchaseReceiptInput = {
+      receiptNumber: generate_purchase_receipt_number(),
+      warehouseId: input.warehouseId,
+      supplierId: input.supplierId,
+      supplierRequestId: input.supplierRequestId,
+      receivedAt: input.receivedAt,
+      createdBy: actor.userId,
+      items: normalizedItems
+    };
+
+    return this.supplyRepository.createPurchaseReceipt(createInput);
+  }
+
   async confirmSupplierRequestBySupplier(
     supplierRequestId: string,
     input: ConfirmSupplierRequestBySupplierPayload,
@@ -183,6 +281,62 @@ export class SupplyService {
       ...(input.email !== undefined ? { email: normalize_optional_text(input.email) } : {}),
       ...(input.notes !== undefined ? { notes: normalize_optional_text(input.notes) } : {})
     };
+  }
+
+  private resolve_supplier_request_item_linkage(
+    item: CreatePurchaseReceiptItemPayload,
+    lineIndex: number,
+    supplierRequestItemsById: Map<string, SupplierRequestItemReadModel>,
+    supplierRequestItemsByProductAndUnit: Map<string, SupplierRequestItemReadModel[]>
+  ): string {
+    if (item.supplierRequestItemId) {
+      const linkedItem = supplierRequestItemsById.get(item.supplierRequestItemId);
+      if (!linkedItem) {
+        throw new BadRequestException({
+          code: "VALIDATION_ERROR",
+          message: `PurchaseReceipt item #${lineIndex + 1} has unknown supplierRequestItemId`
+        });
+      }
+
+      if (linkedItem.productId !== item.productId || linkedItem.unit !== item.unit) {
+        throw new BadRequestException({
+          code: "VALIDATION_ERROR",
+          message:
+            "PurchaseReceipt item linkage mismatch: productId/unit must match referenced SupplierRequestItem"
+        });
+      }
+
+      return linkedItem.id;
+    }
+
+    const key = build_supplier_request_item_key(item.productId, item.unit);
+    const candidates = supplierRequestItemsByProductAndUnit.get(key) ?? [];
+
+    if (candidates.length === 1) {
+      const [candidate] = candidates;
+      if (!candidate) {
+        throw new BadRequestException({
+          code: "VALIDATION_ERROR",
+          message: `PurchaseReceipt item #${lineIndex + 1} failed to resolve SupplierRequestItem`
+        });
+      }
+
+      return candidate.id;
+    }
+
+    if (candidates.length === 0) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message:
+          "PurchaseReceipt item linkage mismatch: each receipt item must map to SupplierRequest items"
+      });
+    }
+
+    throw new BadRequestException({
+      code: "VALIDATION_ERROR",
+      message:
+        "PurchaseReceipt item linkage is ambiguous for productId/unit; provide supplierRequestItemId"
+    });
   }
 
   private assert_supplier_write_access(actor: AuthPrincipal): void {
@@ -250,6 +404,19 @@ export class SupplyService {
     }
   }
 
+  private assert_purchase_receipt_create_access(actor: AuthPrincipal): void {
+    const isAllowed = actor.roleCodes.some((roleCode) =>
+      purchase_receipt_create_role_codes.has(roleCode as "warehouse")
+    );
+
+    if (!isAllowed) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "PurchaseReceipt create action is allowed only for warehouse role"
+      });
+    }
+  }
+
   private assert_supplier_request_transition(
     from: SupplierRequestStatus,
     to: SupplierRequestStatus
@@ -296,6 +463,14 @@ export class SupplyService {
       supplierDocumentUrl: null
     };
   }
+}
+
+function build_supplier_request_item_key(productId: string, unit: ProductUnit): string {
+  return `${productId}:${unit}`;
+}
+
+function generate_purchase_receipt_number(): string {
+  return `PR-${randomUUID()}`;
 }
 
 function normalize_optional_text(value: string | null | undefined): string | null {

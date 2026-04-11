@@ -2,12 +2,13 @@ import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 import { auth_access_metadata_key } from "../../src/modules/auth/auth.access.contract";
 import { bootstrap_role_codes } from "../../src/modules/auth/auth.contract";
+import { PurchaseReceiptsController } from "../../src/modules/supply/purchase-receipts.controller";
 import { SupplierRequestsController } from "../../src/modules/supply/supplier-requests.controller";
 import { SuppliersController } from "../../src/modules/supply/suppliers.controller";
 
 describe("supply access baseline", () => {
-  it("keeps suppliers and supplier-requests list/detail visible for all roles", () => {
-    const controllers = [SuppliersController, SupplierRequestsController];
+  it("keeps suppliers/supplier-requests/purchase-receipts list/detail visible for all roles", () => {
+    const controllers = [SuppliersController, SupplierRequestsController, PurchaseReceiptsController];
 
     for (const controller of controllers) {
       const requirements = Reflect.getMetadata(auth_access_metadata_key, controller) as {
@@ -37,10 +38,20 @@ describe("supply access baseline", () => {
       requiredRoleCodes?: string[];
     };
 
+    const purchaseReceiptCreateRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      PurchaseReceiptsController.prototype.create
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+
     expect(supplierCreateRequirements?.authenticated).toBe(true);
     expect(supplierCreateRequirements?.requiredRoleCodes).toEqual(["seller", "admin", "ceo"]);
     expect(supplierRequestCreateRequirements?.authenticated).toBe(true);
     expect(supplierRequestCreateRequirements?.requiredRoleCodes).toEqual(["seller"]);
+    expect(purchaseReceiptCreateRequirements?.authenticated).toBe(true);
+    expect(purchaseReceiptCreateRequirements?.requiredRoleCodes).toEqual(["warehouse"]);
   });
 
   it("keeps role matrix for supplier request status commands", () => {
