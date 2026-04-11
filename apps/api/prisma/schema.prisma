@@ -8,10 +8,12 @@ datasource db {
   schemas  = ["users", "crm", "orders", "inventory", "payments", "logistics", "finance", "analytics", "audit", "reconciliation", "system"]
 }
 
-/// Phase 12 scope:
-/// - infra/system models + users + CRM core + supply/inventory contract foundation
+/// Phase 14 scope:
+/// - infra/system models + users + CRM core + supply/inventory + payments/finance contract foundation
 /// - transactional domain workflows remain deferred until dedicated implementation slices
 /// TODO(implementation): add remaining business models only in their dedicated domain phases.
+/// TODO(phase14+): wire payment completion/refund flows to finance entries via transactional use-cases and outbox events.
+/// TODO(phase14+): keep finance income writes internal-only and triggered from payment completion flow.
 
 enum LeadStatus {
   NEW           @map("new")
@@ -172,6 +174,32 @@ enum PaymentMethod {
   @@schema("payments")
 }
 
+enum CashOperationType {
+  CASH_IN  @map("cash_in")
+  CASH_OUT @map("cash_out")
+  REFUND   @map("refund")
+
+  @@schema("payments")
+}
+
+enum FinanceEntryType {
+  INCOME     @map("income")
+  EXPENSE    @map("expense")
+  ADJUSTMENT @map("adjustment")
+
+  @@schema("finance")
+}
+
+enum ExpenseType {
+  OPERATIONAL @map("operational")
+  MARKETING   @map("marketing")
+  PROCUREMENT @map("procurement")
+  LOGISTICS   @map("logistics")
+  OTHER       @map("other")
+
+  @@schema("finance")
+}
+
 enum RecordStatus {
   ACTIVE   @map("active")
   INACTIVE @map("inactive")
@@ -257,7 +285,12 @@ model UsersUser {
   returnRequestsRequested       OrdersReturnRequest[]     @relation("OrdersReturnRequestRequestedByUser")
   returnRequestsCeoApproved     OrdersReturnRequest[]     @relation("OrdersReturnRequestCeoApprovedByUser")
   returnRequestsDeleted         OrdersReturnRequest[]     @relation("OrdersReturnRequestDeletedByUser")
+  paymentsCreated               PaymentsPayment[]         @relation("PaymentsPaymentCreatedByUser")
   paymentsDeleted               PaymentsPayment[]         @relation("PaymentsPaymentDeletedByUser")
+  cashOperationsCreated         PaymentsCashOperation[]   @relation("PaymentsCashOperationCreatedByUser")
+  financeEntriesCreated         FinanceFinanceEntry[]     @relation("FinanceFinanceEntryCreatedByUser")
+  expensesCreated               FinanceExpense[]          @relation("FinanceExpenseCreatedByUser")
+  marketingExpensesCreated      FinanceMarketingExpense[] @relation("FinanceMarketingExpenseCreatedByUser")
   inventorySupplierRequestsRequested InventorySupplierRequest[] @relation("InventorySupplierRequestRequestedByUser")
   inventorySupplierRequestsConfirmed InventorySupplierRequest[] @relation("InventorySupplierRequestConfirmedByUser")
   inventorySupplierRequestsPaid      InventorySupplierRequest[] @relation("InventorySupplierRequestPaidByUser")
@@ -450,6 +483,8 @@ model OrdersOrder {
   deliveryTasks             LogisticsDeliveryTask[]
   returnRequests            OrdersReturnRequest[]
   payments                  PaymentsPayment[]
+  financeEntries            FinanceFinanceEntry[]
+  expenses                  FinanceExpense[]          @relation("FinanceExpenseRelatedOrder")
   stockLocks                InventoryStockLock[]
   reservations              InventoryReservation[]
   inventoryMovements        InventoryInventoryMovement[]
@@ -584,6 +619,8 @@ model OrdersReturnRequest {
   deleteReason         String?     @map("delete_reason") @db.Text
   isDeleted            Boolean     @default(false) @map("is_deleted")
   inventoryMovements   InventoryInventoryMovement[]
+  cashOperations       PaymentsCashOperation[]
+  financeEntries       FinanceFinanceEntry[]
 
   @@index([orderId])
   @@index([status])
@@ -862,6 +899,8 @@ model PaymentsPayment {
   refundedAmount    Decimal       @default(0) @map("refunded_amount") @db.Decimal(14, 2)
   receivedAt        DateTime?     @map("received_at") @db.Timestamptz(6)
   externalReference String?       @map("external_reference") @db.VarChar(255)
+  createdBy         String        @map("created_by") @db.Uuid
+  createdByUser     UsersUser     @relation("PaymentsPaymentCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   version           Int           @default(1)
@@ -870,12 +909,105 @@ model PaymentsPayment {
   deletedByUser     UsersUser?    @relation("PaymentsPaymentDeletedByUser", fields: [deletedBy], references: [id], onDelete: SetNull)
   deleteReason      String?       @map("delete_reason") @db.Text
   isDeleted         Boolean       @default(false) @map("is_deleted")
+  cashOperations    PaymentsCashOperation[]
+  financeEntries    FinanceFinanceEntry[]
 
   @@index([orderId])
   @@index([status])
+  @@index([createdBy])
   @@index([isDeleted])
   @@map("payments")
   @@schema("payments")
+}
+
+model PaymentsCashOperation {
+  id                String             @id @default(uuid()) @db.Uuid
+  paymentId         String?            @map("payment_id") @db.Uuid
+  payment           PaymentsPayment?   @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  returnRequestId   String?            @map("return_request_id") @db.Uuid
+  returnRequest     OrdersReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  operationType     CashOperationType  @map("operation_type")
+  amount            Decimal            @db.Decimal(14, 2)
+  currency          String             @default("RUB") @db.VarChar(3)
+  performedAt       DateTime           @map("performed_at") @db.Timestamptz(6)
+  externalReference String?            @map("external_reference") @db.VarChar(255)
+  createdBy         String             @map("created_by") @db.Uuid
+  createdByUser     UsersUser          @relation("PaymentsCashOperationCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financeEntries    FinanceFinanceEntry[]
+
+  @@index([paymentId])
+  @@index([returnRequestId])
+  @@index([performedAt])
+  @@map("cash_operations")
+  @@schema("payments")
+}
+
+model FinanceFinanceEntry {
+  id              String               @id @default(uuid()) @db.Uuid
+  entryType       FinanceEntryType     @map("entry_type")
+  orderId         String?              @map("order_id") @db.Uuid
+  order           OrdersOrder?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  paymentId       String?              @map("payment_id") @db.Uuid
+  payment         PaymentsPayment?     @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  cashOperationId String?              @map("cash_operation_id") @db.Uuid
+  cashOperation   PaymentsCashOperation? @relation(fields: [cashOperationId], references: [id], onDelete: SetNull)
+  returnRequestId String?              @map("return_request_id") @db.Uuid
+  returnRequest   OrdersReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  amount          Decimal              @db.Decimal(14, 2)
+  currency        String               @default("RUB") @db.VarChar(3)
+  recognizedAt    DateTime             @map("recognized_at") @db.Timestamptz(6)
+  description     String?              @db.Text
+  createdBy       String               @map("created_by") @db.Uuid
+  createdByUser   UsersUser            @relation("FinanceFinanceEntryCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([entryType])
+  @@index([paymentId])
+  @@index([recognizedAt])
+  @@map("finance_entries")
+  @@schema("finance")
+}
+
+model FinanceExpense {
+  id             String        @id @default(uuid()) @db.Uuid
+  expenseType    ExpenseType   @map("expense_type")
+  amount         Decimal       @db.Decimal(14, 2)
+  currency       String        @default("RUB") @db.VarChar(3)
+  occurredAt     DateTime      @map("occurred_at") @db.Timestamptz(6)
+  description    String?       @db.Text
+  relatedOrderId String?       @map("related_order_id") @db.Uuid
+  relatedOrder   OrdersOrder?  @relation("FinanceExpenseRelatedOrder", fields: [relatedOrderId], references: [id], onDelete: SetNull)
+  createdBy      String        @map("created_by") @db.Uuid
+  createdByUser  UsersUser     @relation("FinanceExpenseCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([expenseType])
+  @@index([occurredAt])
+  @@map("expenses")
+  @@schema("finance")
+}
+
+model FinanceMarketingExpense {
+  id            String    @id @default(uuid()) @db.Uuid
+  source        String    @db.VarChar(128)
+  campaign      String?   @db.VarChar(255)
+  amount        Decimal   @db.Decimal(14, 2)
+  currency      String    @default("RUB") @db.VarChar(3)
+  occurredAt    DateTime  @map("occurred_at") @db.Timestamptz(6)
+  description   String?   @db.Text
+  createdBy     String    @map("created_by") @db.Uuid
+  createdByUser UsersUser @relation("FinanceMarketingExpenseCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([source])
+  @@index([occurredAt])
+  @@map("marketing_expenses")
+  @@schema("finance")
 }
 
 enum IdempotencyStatus {

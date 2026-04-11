@@ -1,5 +1,6 @@
 import { api_error_codes } from "../common/errors/api-error.contract";
 import { request_context_headers } from "../common/request-context/request-context.contract";
+import { payments_finance_command_contract } from "./payments-finance.contract";
 
 export const api_openapi_contract = {
   title: "Sanmarino CRM API",
@@ -14,9 +15,14 @@ export const api_openapi_contract = {
     "- supply/inventory domain contract freeze for statuses, entities, and schema foundation",
     "- pagination/filter/sort query contracts aligned with shared platform types",
     "",
-    "TODO: supply/inventory read endpoints and transactional mutation workflows remain deferred."
+    "Phase 14 payments+finance contract freeze baseline:",
+    "- command-style payment surface: POST /payments, POST /payments/:paymentId/complete, POST /payments/:paymentId/refunds",
+    "- refund requires ReturnRequest linkage",
+    "- income recognition source is payment.completed only",
+    "",
+    "TODO: payment/finance command handlers and use-case implementation remain deferred."
   ].join("\n"),
-  version: "0.12.0",
+  version: "0.13.0",
   docsPath: "api/docs",
   globalPrefix: "api"
 } as const;
@@ -55,7 +61,7 @@ export const api_openapi_tags = {
   },
   paymentsRead: {
     name: "payments-read",
-    description: "Read-only Payments endpoints"
+    description: "Payments read + command contract surface (implementation deferred)"
   },
   logisticsRead: {
     name: "logistics-read",
@@ -78,7 +84,7 @@ export const api_openapi_tags = {
 
 export const api_openapi_extensions = {
   platformContractsPackage: "@sanmarino/types",
-  bootstrapPhase: "phase-12-supply-inventory-contract-freeze",
+  bootstrapPhase: "phase-14-payments-finance-contract-freeze",
   declaredErrorCodes: api_error_codes,
   requestContextHeaders: request_context_headers,
   idempotencyHeaderContract: {
@@ -88,6 +94,7 @@ export const api_openapi_extensions = {
   },
   auditBoundaryNote:
     "Audit context is extracted at API boundary only. Business audit implementation is deferred.",
+  paymentsCommandSurface: payments_finance_command_contract,
   readBoundaryNote:
-    "Read-side endpoints are enabled for core transactional entities. CRM Step 1 and Supply Step 1 freeze contracts without forcing endpoint implementation. Mutation/business workflows remain TODO."
+    "Read-side endpoints are enabled for core transactional entities. CRM/Orders/Supply contract freezes and Payments Step 1 command contracts are fixed; business workflows remain TODO."
 } as const;

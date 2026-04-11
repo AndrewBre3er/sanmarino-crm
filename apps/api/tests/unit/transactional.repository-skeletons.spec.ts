@@ -74,7 +74,8 @@ describe("transactional repository skeletons", () => {
         orderId: "order_1",
         status: "pending",
         paymentMethod: "cash",
-        amount: "100.00"
+        amount: "100.00",
+        createdBy: "user_1"
       })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
   });

@@ -20,6 +20,7 @@ export interface PaymentsPaymentRecord extends PersistenceRecordBase {
   refundedAmount: string;
   receivedAt?: string | null;
   externalReference?: string | null;
+  createdBy: string;
 }
 
 export interface PaymentsPaymentCreateInput {
@@ -28,6 +29,7 @@ export interface PaymentsPaymentCreateInput {
   status: PaymentStatus;
   paymentMethod: PaymentMethod;
   amount: string;
+  createdBy: string;
   refundedAmount?: string;
   receivedAt?: string | null;
   externalReference?: string | null;

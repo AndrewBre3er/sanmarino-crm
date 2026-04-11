@@ -102,6 +102,18 @@ export const payment_statuses = ["pending", "completed", "refunded"] as const;
 
 export const payment_methods = ["cash", "bank_transfer", "card", "sbp", "other"] as const;
 
+export const cash_operation_types = ["cash_in", "cash_out", "refund"] as const;
+
+export const finance_entry_types = ["income", "expense", "adjustment"] as const;
+
+export const expense_types = [
+  "operational",
+  "marketing",
+  "procurement",
+  "logistics",
+  "other"
+] as const;
+
 export const active_delivery_task_statuses = [
   "planned",
   "assigned",
@@ -126,6 +138,9 @@ export type InventoryMovementType = (typeof inventory_movement_types)[number];
 export type InventoryBucketStatus = (typeof inventory_bucket_statuses)[number];
 export type PaymentStatus = (typeof payment_statuses)[number];
 export type PaymentMethod = (typeof payment_methods)[number];
+export type CashOperationType = (typeof cash_operation_types)[number];
+export type FinanceEntryType = (typeof finance_entry_types)[number];
+export type ExpenseType = (typeof expense_types)[number];
 
 export function is_active_delivery_task_status(status: DeliveryTaskStatus): boolean {
   return (active_delivery_task_statuses as readonly string[]).includes(status);
