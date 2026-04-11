@@ -8,9 +8,20 @@ import {
   MaxLength,
   ValidateNested
 } from "class-validator";
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { api_openapi_tags } from "../../contracts/openapi.contract";
+import { request_context_headers } from "../../common/request-context/request-context.contract";
 import { require_roles } from "../auth/auth.access.decorator";
 import { AuthAccessGuard } from "../auth/auth.access.guard";
 import {
@@ -107,10 +118,35 @@ export class FulfillmentsController {
   @require_roles("warehouse", "logistics", "admin", "ceo")
   async confirmExecution(
     @Param("fulfillmentId") fulfillmentId: string,
-    @Req() request: AuthenticatedRequestLike
+    @Req()
+    request: AuthenticatedRequestLike & {
+      shellContext?: {
+        idempotencyKey?: string;
+        requestId?: string;
+        correlationId?: string;
+      };
+    }
   ) {
     const access = get_authenticated_access(request);
-    const fulfillment = await this.fulfillmentsService.confirmExecution(fulfillmentId, access.user);
+    const shellContext = request.shellContext;
+    const idempotencyKey = shellContext?.idempotencyKey;
+
+    if (!idempotencyKey) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: `${request_context_headers.idempotencyKey} header is required`
+      });
+    }
+
+    const fulfillment = await this.fulfillmentsService.confirmExecution(
+      fulfillmentId,
+      access.user,
+      {
+        idempotencyKey,
+        ...(shellContext?.requestId ? { requestId: shellContext.requestId } : {}),
+        ...(shellContext?.correlationId ? { correlationId: shellContext.correlationId } : {})
+      }
+    );
     return { data: fulfillment };
   }
 }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -5,11 +6,15 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import type {
   FulfillmentStatus as PrismaFulfillmentStatus,
+  IdempotencyStatus as PrismaIdempotencyStatus,
+  InventoryBucket as PrismaInventoryBucket,
+  InventoryMovementType as PrismaInventoryMovementType,
+  ReservationStatus as PrismaReservationStatus,
   OrderFulfillmentType as PrismaOrderFulfillmentType,
-  OrderStatus as PrismaOrderStatus,
-  Prisma
+  OrderStatus as PrismaOrderStatus
 } from "@prisma/client";
 import type { AuthPrincipal } from "../auth/auth.contract";
 import { build_page_pagination_meta } from "../read-side/shared/read-query.dto";
@@ -76,6 +81,14 @@ export interface CreateFulfillmentInput {
   fulfillmentType?: OrderFulfillmentType;
   items?: CreateFulfillmentItemInput[];
 }
+
+export interface ConfirmExecutionContext {
+  idempotencyKey: string;
+  requestId?: string;
+  correlationId?: string;
+}
+
+const confirm_execution_idempotency_scope = "orders.fulfillment.confirm_execution.v1";
 
 function map_fulfillment_item(record: {
   id: string;
@@ -352,94 +365,388 @@ export class FulfillmentsService {
 
   async confirmExecution(
     fulfillmentId: string,
-    actor: Pick<AuthPrincipal, "userId" | "roleCodes">
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: ConfirmExecutionContext
   ): Promise<FulfillmentDetailReadModel> {
     const scope = resolve_order_read_scope(actor, undefined);
+    const requestHash = build_confirm_execution_request_hash(fulfillmentId);
+    const idempotencyRecord = await this.acquire_confirm_execution_idempotency(
+      context.idempotencyKey,
+      requestHash
+    );
 
-    await this.prismaService.$transaction(async (transactionClient) => {
-      const and_clauses: Prisma.OrdersFulfillmentWhereInput[] = [{ id: fulfillmentId }];
-      if (scope?.responsibleUserId) {
-        and_clauses.push({
-          order: {
-            deal: {
-              responsibleUserId: scope.responsibleUserId
-            }
-          }
-        });
-      }
+    if (idempotencyRecord.replayed) {
+      return this.getFulfillment(fulfillmentId, actor);
+    }
 
-      const fulfillment = await transactionClient.ordersFulfillment.findFirst({
-        where: {
-          AND: and_clauses
-        },
-        select: {
-          id: true,
-          orderId: true,
-          status: true,
-          order: {
-            select: {
-              id: true,
-              status: true,
-              partiallyShippedAt: true,
-              shippedAt: true
+    try {
+      await this.prismaService.$transaction(async (transactionClient) => {
+        const and_clauses: Prisma.OrdersFulfillmentWhereInput[] = [{ id: fulfillmentId }];
+        if (scope?.responsibleUserId) {
+          and_clauses.push({
+            order: {
+              deal: {
+                responsibleUserId: scope.responsibleUserId
+              }
             }
-          }
+          });
         }
-      });
 
-      if (!fulfillment) {
-        throw new NotFoundException(`Fulfillment '${fulfillmentId}' was not found`);
-      }
-
-      if (fulfillment.status === "FAILED" || fulfillment.status === "CANCELLED") {
-        throw new ConflictException({
-          code: "TRANSITION_NOT_ALLOWED",
-          message: "Only pending/completed fulfillment can be confirmed"
+        const fulfillment = await transactionClient.ordersFulfillment.findFirst({
+          where: {
+            AND: and_clauses
+          },
+          select: {
+            id: true,
+            orderId: true,
+            status: true,
+            fulfilledAt: true,
+            order: {
+              select: {
+                id: true,
+                status: true,
+                partiallyShippedAt: true,
+                shippedAt: true
+              }
+            }
+          }
         });
-      }
 
-      const now = new Date();
-      if (fulfillment.status === "PENDING") {
-        await transactionClient.ordersFulfillment.update({
-          where: { id: fulfillment.id },
+        if (!fulfillment) {
+          throw new NotFoundException(`Fulfillment '${fulfillmentId}' was not found`);
+        }
+
+        if (fulfillment.status === "FAILED" || fulfillment.status === "CANCELLED") {
+          throw new ConflictException({
+            code: "TRANSITION_NOT_ALLOWED",
+            message: "Only pending/completed fulfillment can be confirmed"
+          });
+        }
+
+        const executedAt = fulfillment.fulfilledAt ?? new Date();
+        if (fulfillment.status === "PENDING") {
+          await transactionClient.ordersFulfillment.update({
+            where: { id: fulfillment.id },
+            data: {
+              status: "COMPLETED",
+              fulfilledAt: executedAt
+            }
+          });
+        }
+
+        const createdIssueMovementsCount = await this.create_inventory_issue_side_effects(
+          transactionClient,
+          fulfillment.id,
+          fulfillment.orderId,
+          actor.userId
+        );
+
+        const shipment_progress = await this.read_order_shipment_progress(
+          transactionClient,
+          fulfillment.orderId
+        );
+        const target_status = shipment_progress.recommendedStatus;
+        let appliedOrderStatus: Extract<OrderStatus, "partially_shipped" | "shipped"> | null = null;
+        if (target_status) {
+          const current_order_status = from_prisma_enum(fulfillment.order.status) as OrderStatus;
+          if (current_order_status !== target_status) {
+            this.assert_order_status_transition(current_order_status, target_status);
+
+            await transactionClient.ordersOrder.update({
+              where: { id: fulfillment.orderId },
+              data: {
+                status: to_prisma_enum<PrismaOrderStatus>(target_status),
+                ...(target_status === "partially_shipped" && !fulfillment.order.partiallyShippedAt
+                  ? { partiallyShippedAt: executedAt }
+                  : {}),
+                ...(target_status === "shipped" && !fulfillment.order.shippedAt
+                  ? { shippedAt: executedAt }
+                  : {})
+              }
+            });
+          }
+          appliedOrderStatus = target_status;
+        }
+
+        await transactionClient.auditLogRecord.create({
           data: {
-            status: "COMPLETED",
-            fulfilledAt: now
+            eventId: build_fulfillment_execution_audit_event_id(fulfillment.id, context.idempotencyKey),
+            occurredAt: executedAt,
+            action: "orders.fulfillment.confirm_execution",
+            entityType: "orders.fulfillment",
+            entityId: fulfillment.id,
+            actorUserId: actor.userId,
+            ...(context.requestId ? { requestId: context.requestId } : {}),
+            ...(context.correlationId ? { correlationId: context.correlationId } : {}),
+            payload: {
+              orderId: fulfillment.orderId,
+              fulfillmentStatus: "completed",
+              executedAt: executedAt.toISOString(),
+              shipmentStatus: appliedOrderStatus,
+              createdIssueMovementsCount
+            }
           }
         });
-      }
+      });
 
-      const shipment_progress = await this.read_order_shipment_progress(
-        transactionClient,
-        fulfillment.orderId
-      );
-      const target_status = shipment_progress.recommendedStatus;
-      if (!target_status) {
-        return;
-      }
-
-      const current_order_status = from_prisma_enum(fulfillment.order.status) as OrderStatus;
-      if (current_order_status === target_status) {
-        return;
-      }
-
-      this.assert_order_status_transition(current_order_status, target_status);
-
-      await transactionClient.ordersOrder.update({
-        where: { id: fulfillment.orderId },
+      await this.prismaService.systemIdempotencyRecord.update({
+        where: { id: idempotencyRecord.recordId },
         data: {
-          status: to_prisma_enum<PrismaOrderStatus>(target_status),
-          ...(target_status === "partially_shipped" && !fulfillment.order.partiallyShippedAt
-            ? { partiallyShippedAt: now }
-            : {}),
-          ...(target_status === "shipped" && !fulfillment.order.shippedAt
-            ? { shippedAt: now }
-            : {})
+          status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
+          responseStatusCode: 200,
+          responseBody: { fulfillmentId },
+          lockedUntil: null
         }
       });
-    });
+    } catch (error) {
+      await this.prismaService.systemIdempotencyRecord.update({
+        where: { id: idempotencyRecord.recordId },
+        data: {
+          status: to_prisma_enum<PrismaIdempotencyStatus>("failed"),
+          responseStatusCode: resolve_error_status_code(error),
+          responseBody: {
+            message: error instanceof Error ? error.message : "Fulfillment execution failed"
+          },
+          lockedUntil: null
+        }
+      });
+
+      throw error;
+    }
 
     return this.getFulfillment(fulfillmentId, actor);
+  }
+
+  private async acquire_confirm_execution_idempotency(
+    idempotencyKey: string,
+    requestHash: string,
+    canRetryOnConflict = true
+  ): Promise<{ recordId: string; replayed: boolean }> {
+    const existingRecord = await this.prismaService.systemIdempotencyRecord.findUnique({
+      where: {
+        scope_idempotencyKey: {
+          scope: confirm_execution_idempotency_scope,
+          idempotencyKey
+        }
+      },
+      select: {
+        id: true,
+        requestHash: true,
+        status: true,
+        lockedUntil: true
+      }
+    });
+
+    const now = new Date();
+    const lockUntil = new Date(now.getTime() + 5 * 60 * 1000);
+    if (existingRecord) {
+      if (existingRecord.requestHash !== requestHash) {
+        throw new ConflictException({
+          code: "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD",
+          message: "Idempotency key is already used with a different command payload"
+        });
+      }
+
+      if (existingRecord.status === "COMPLETED") {
+        return { recordId: existingRecord.id, replayed: true };
+      }
+
+      if (
+        existingRecord.status === "STARTED" &&
+        existingRecord.lockedUntil &&
+        existingRecord.lockedUntil > now
+      ) {
+        throw new ConflictException({
+          code: "CONFLICT",
+          message: "Command with this Idempotency-Key is already in progress"
+        });
+      }
+
+      const restarted = await this.prismaService.systemIdempotencyRecord.update({
+        where: { id: existingRecord.id },
+        data: {
+          status: to_prisma_enum<PrismaIdempotencyStatus>("started"),
+          lockedUntil: lockUntil,
+          responseStatusCode: null,
+          responseBody: Prisma.DbNull
+        },
+        select: { id: true }
+      });
+
+      return { recordId: restarted.id, replayed: false };
+    }
+
+    try {
+      const created = await this.prismaService.systemIdempotencyRecord.create({
+        data: {
+          scope: confirm_execution_idempotency_scope,
+          idempotencyKey,
+          requestHash,
+          status: to_prisma_enum<PrismaIdempotencyStatus>("started"),
+          lockedUntil: lockUntil
+        },
+        select: { id: true }
+      });
+
+      return { recordId: created.id, replayed: false };
+    } catch (error) {
+      if (canRetryOnConflict && is_unique_constraint_error(error)) {
+        return this.acquire_confirm_execution_idempotency(idempotencyKey, requestHash, false);
+      }
+      throw error;
+    }
+  }
+
+  private async create_inventory_issue_side_effects(
+    transactionClient: Prisma.TransactionClient,
+    fulfillmentId: string,
+    orderId: string,
+    actorUserId: string
+  ): Promise<number> {
+    const existingIssueCount = await transactionClient.inventoryInventoryMovement.count({
+      where: {
+        fulfillmentId,
+        movementType: to_prisma_enum<PrismaInventoryMovementType>("issue")
+      }
+    });
+    if (existingIssueCount > 0) {
+      return 0;
+    }
+
+    const fulfillmentItems = await transactionClient.ordersFulfillmentItem.findMany({
+      where: { fulfillmentId },
+      select: {
+        id: true,
+        orderItemId: true,
+        qty: true,
+        orderItem: {
+          select: {
+            productId: true
+          }
+        }
+      }
+    });
+
+    if (fulfillmentItems.length === 0) {
+      throw new ConflictException({
+        code: "VALIDATION_ERROR",
+        message: "Fulfillment must contain items before execution confirmation"
+      });
+    }
+
+    const productIds = [...new Set(fulfillmentItems.map((item) => item.orderItem.productId))];
+    const reservations = await transactionClient.inventoryReservation.findMany({
+      where: {
+        orderId,
+        productId: { in: productIds },
+        status: {
+          in: [
+            to_prisma_enum<PrismaReservationStatus>("active"),
+            to_prisma_enum<PrismaReservationStatus>("consumed")
+          ]
+        }
+      },
+      orderBy: [{ createdAt: "asc" }],
+      select: {
+        id: true,
+        productId: true,
+        warehouseId: true,
+        qty: true
+      }
+    });
+
+    const reservationIds = reservations.map((reservation) => reservation.id);
+    const existingIssueByReservation =
+      reservationIds.length > 0
+        ? await transactionClient.inventoryInventoryMovement.findMany({
+            where: {
+              reservationId: { in: reservationIds },
+              movementType: to_prisma_enum<PrismaInventoryMovementType>("issue")
+            },
+            select: {
+              reservationId: true,
+              qty: true
+            }
+          })
+        : [];
+
+    const issuedQtyByReservation = new Map<string, number>();
+    for (const issue of existingIssueByReservation) {
+      if (!issue.reservationId) {
+        continue;
+      }
+      const issued = (issuedQtyByReservation.get(issue.reservationId) ?? 0) + to_quantity_number(issue.qty);
+      issuedQtyByReservation.set(issue.reservationId, issued);
+    }
+
+    const reservationsByProduct = new Map<
+      string,
+      Array<{ id: string; warehouseId: string; remainingQty: number }>
+    >();
+    for (const reservation of reservations) {
+      const remainingQty = Math.max(
+        0,
+        to_quantity_number(reservation.qty) - (issuedQtyByReservation.get(reservation.id) ?? 0)
+      );
+      const bucket = reservationsByProduct.get(reservation.productId) ?? [];
+      bucket.push({
+        id: reservation.id,
+        warehouseId: reservation.warehouseId,
+        remainingQty
+      });
+      reservationsByProduct.set(reservation.productId, bucket);
+    }
+
+    const issueMovements: Prisma.InventoryInventoryMovementCreateManyInput[] = [];
+    for (const item of fulfillmentItems) {
+      let qtyToIssue = to_quantity_number(item.qty);
+      if (qtyToIssue <= 0) {
+        continue;
+      }
+
+      const reservationBucket = reservationsByProduct.get(item.orderItem.productId) ?? [];
+      for (const reservation of reservationBucket) {
+        if (qtyToIssue <= 0) {
+          break;
+        }
+        if (reservation.remainingQty <= 0) {
+          continue;
+        }
+
+        const allocatedQty = Math.min(qtyToIssue, reservation.remainingQty);
+        qtyToIssue -= allocatedQty;
+        reservation.remainingQty -= allocatedQty;
+
+        issueMovements.push({
+          movementType: to_prisma_enum<PrismaInventoryMovementType>("issue"),
+          productId: item.orderItem.productId,
+          warehouseId: reservation.warehouseId,
+          qty: allocatedQty.toString(),
+          bucketFrom: to_prisma_enum<PrismaInventoryBucket>("reserved"),
+          bucketTo: null,
+          orderId,
+          fulfillmentId,
+          reservationId: reservation.id,
+          reason: "fulfillment_confirm_execution",
+          performedBy: actorUserId
+        });
+      }
+
+      if (qtyToIssue > 0.000001) {
+        throw new ConflictException({
+          code: "INSUFFICIENT_STOCK",
+          message: `Insufficient reserved stock for product '${item.orderItem.productId}' to confirm execution`
+        });
+      }
+    }
+
+    if (issueMovements.length > 0) {
+      await transactionClient.inventoryInventoryMovement.createMany({
+        data: issueMovements
+      });
+    }
+
+    return issueMovements.length;
   }
 
   private async read_order_shipment_progress(
@@ -558,4 +865,41 @@ function normalize_create_items(items: CreateFulfillmentItemInput[] | undefined)
 function to_quantity_number(value: number | string | { toString: () => string }): number {
   const quantity = Number(typeof value === "number" ? value : value.toString());
   return Number.isFinite(quantity) ? quantity : 0;
+}
+
+function build_confirm_execution_request_hash(fulfillmentId: string): string {
+  return createHash("sha256").update(JSON.stringify({ fulfillmentId })).digest("hex");
+}
+
+function build_fulfillment_execution_audit_event_id(
+  fulfillmentId: string,
+  idempotencyKey: string
+): string {
+  const hash = createHash("sha256").update(`${fulfillmentId}:${idempotencyKey}`).digest("hex");
+  return `fulfillment_confirm_execution_${hash.slice(0, 40)}`;
+}
+
+function resolve_error_status_code(error: unknown): number {
+  if (error instanceof NotFoundException) {
+    return 404;
+  }
+
+  if (error instanceof ConflictException) {
+    return 409;
+  }
+
+  if (error instanceof BadRequestException) {
+    return 422;
+  }
+
+  return 500;
+}
+
+function is_unique_constraint_error(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const code = (error as { code?: string }).code;
+  return code === "P2002";
 }

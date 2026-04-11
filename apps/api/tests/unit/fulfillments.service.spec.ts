@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { ConflictException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { AuthPrincipal } from "../../src/modules/auth/auth.contract";
@@ -40,6 +41,14 @@ function create_prisma_mock() {
   const ordersOrderFindFirst = vi.fn();
   const ordersOrderItemFindMany = vi.fn();
   const ordersOrderUpdate = vi.fn();
+  const systemIdempotencyRecordFindUnique = vi.fn().mockResolvedValue(null);
+  const systemIdempotencyRecordCreate = vi.fn().mockResolvedValue({ id: "idem_1" });
+  const systemIdempotencyRecordUpdate = vi.fn().mockResolvedValue({ id: "idem_1" });
+  const inventoryInventoryMovementCount = vi.fn().mockResolvedValue(0);
+  const inventoryInventoryMovementFindMany = vi.fn().mockResolvedValue([]);
+  const inventoryInventoryMovementCreateMany = vi.fn();
+  const inventoryReservationFindMany = vi.fn().mockResolvedValue([]);
+  const auditLogRecordCreate = vi.fn();
 
   const transactionClient = {
     ordersFulfillment: {
@@ -58,6 +67,17 @@ function create_prisma_mock() {
     },
     ordersOrderItem: {
       findMany: ordersOrderItemFindMany
+    },
+    inventoryInventoryMovement: {
+      count: inventoryInventoryMovementCount,
+      findMany: inventoryInventoryMovementFindMany,
+      createMany: inventoryInventoryMovementCreateMany
+    },
+    inventoryReservation: {
+      findMany: inventoryReservationFindMany
+    },
+    auditLogRecord: {
+      create: auditLogRecordCreate
     }
   };
 
@@ -78,6 +98,22 @@ function create_prisma_mock() {
     ordersFulfillmentItem: {
       createMany: ordersFulfillmentItemCreateMany,
       findMany: ordersFulfillmentItemFindMany
+    },
+    inventoryInventoryMovement: {
+      count: inventoryInventoryMovementCount,
+      findMany: inventoryInventoryMovementFindMany,
+      createMany: inventoryInventoryMovementCreateMany
+    },
+    inventoryReservation: {
+      findMany: inventoryReservationFindMany
+    },
+    auditLogRecord: {
+      create: auditLogRecordCreate
+    },
+    systemIdempotencyRecord: {
+      findUnique: systemIdempotencyRecordFindUnique,
+      create: systemIdempotencyRecordCreate,
+      update: systemIdempotencyRecordUpdate
     },
     $transaction: vi.fn(async (arg: unknown) => {
       if (typeof arg === "function") {
@@ -103,7 +139,15 @@ function create_prisma_mock() {
     ordersFulfillmentItemFindMany,
     ordersOrderFindFirst,
     ordersOrderItemFindMany,
-    ordersOrderUpdate
+    ordersOrderUpdate,
+    systemIdempotencyRecordFindUnique,
+    systemIdempotencyRecordCreate,
+    systemIdempotencyRecordUpdate,
+    inventoryInventoryMovementCount,
+    inventoryInventoryMovementFindMany,
+    inventoryInventoryMovementCreateMany,
+    inventoryReservationFindMany,
+    auditLogRecordCreate
   };
 }
 
@@ -311,7 +355,12 @@ describe("fulfillments service", () => {
       ordersFulfillmentCount,
       ordersFulfillmentItemFindMany,
       ordersOrderItemFindMany,
-      ordersOrderUpdate
+      ordersOrderUpdate,
+      inventoryReservationFindMany,
+      inventoryInventoryMovementFindMany,
+      inventoryInventoryMovementCreateMany,
+      systemIdempotencyRecordUpdate,
+      auditLogRecordCreate
     } = create_prisma_mock();
     ordersFulfillmentFindFirst
       .mockResolvedValueOnce({
@@ -355,10 +404,32 @@ describe("fulfillments service", () => {
       });
     ordersOrderItemFindMany.mockResolvedValue([{ id: "item_1", qty: "5.00" }]);
     ordersFulfillmentCount.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
-    ordersFulfillmentItemFindMany.mockResolvedValue([{ orderItemId: "item_1", qty: "2.00" }]);
+    ordersFulfillmentItemFindMany
+      .mockResolvedValueOnce([
+        {
+          id: "fitem_1",
+          orderItemId: "item_1",
+          qty: "2.00",
+          orderItem: {
+            productId: "prod_1"
+          }
+        }
+      ])
+      .mockResolvedValueOnce([{ orderItemId: "item_1", qty: "2.00" }]);
+    inventoryReservationFindMany.mockResolvedValue([
+      {
+        id: "res_1",
+        productId: "prod_1",
+        warehouseId: "wh_1",
+        qty: "10.00"
+      }
+    ]);
+    inventoryInventoryMovementFindMany.mockResolvedValue([]);
 
     const service = new FulfillmentsService(prismaService);
-    const result = await service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]));
+    const result = await service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]), {
+      idempotencyKey: "idem_confirm_1"
+    });
 
     expect(ordersFulfillmentUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -381,6 +452,27 @@ describe("fulfillments service", () => {
     const orderUpdatePayload = ordersOrderUpdate.mock.calls[0]?.[0]?.data as Record<string, unknown>;
     expect(orderUpdatePayload.paymentControlStatus).toBeUndefined();
     expect(orderUpdatePayload.deliveryStatus).toBeUndefined();
+    expect(inventoryInventoryMovementCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            movementType: "ISSUE",
+            bucketFrom: "RESERVED",
+            orderId: "order_1",
+            fulfillmentId: "ful_1"
+          })
+        ])
+      })
+    );
+    expect(systemIdempotencyRecordUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "COMPLETED",
+          responseStatusCode: 200
+        })
+      })
+    );
+    expect(auditLogRecordCreate).toHaveBeenCalledOnce();
     expect(result.status).toBe("completed");
   });
 
@@ -392,7 +484,10 @@ describe("fulfillments service", () => {
       ordersFulfillmentCount,
       ordersFulfillmentItemFindMany,
       ordersOrderItemFindMany,
-      ordersOrderUpdate
+      ordersOrderUpdate,
+      inventoryReservationFindMany,
+      inventoryInventoryMovementFindMany,
+      inventoryInventoryMovementCreateMany
     } = create_prisma_mock();
     ordersFulfillmentFindFirst
       .mockResolvedValueOnce({
@@ -436,10 +531,32 @@ describe("fulfillments service", () => {
       });
     ordersOrderItemFindMany.mockResolvedValue([{ id: "item_1", qty: "5.00" }]);
     ordersFulfillmentCount.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
-    ordersFulfillmentItemFindMany.mockResolvedValue([{ orderItemId: "item_1", qty: "5.00" }]);
+    ordersFulfillmentItemFindMany
+      .mockResolvedValueOnce([
+        {
+          id: "fitem_1",
+          orderItemId: "item_1",
+          qty: "5.00",
+          orderItem: {
+            productId: "prod_1"
+          }
+        }
+      ])
+      .mockResolvedValueOnce([{ orderItemId: "item_1", qty: "5.00" }]);
+    inventoryReservationFindMany.mockResolvedValue([
+      {
+        id: "res_1",
+        productId: "prod_1",
+        warehouseId: "wh_1",
+        qty: "10.00"
+      }
+    ]);
+    inventoryInventoryMovementFindMany.mockResolvedValue([]);
 
     const service = new FulfillmentsService(prismaService);
-    const result = await service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]));
+    const result = await service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]), {
+      idempotencyKey: "idem_confirm_2"
+    });
 
     expect(ordersFulfillmentUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -462,6 +579,7 @@ describe("fulfillments service", () => {
     const orderUpdatePayload = ordersOrderUpdate.mock.calls[0]?.[0]?.data as Record<string, unknown>;
     expect(orderUpdatePayload.paymentControlStatus).toBeUndefined();
     expect(orderUpdatePayload.deliveryStatus).toBeUndefined();
+    expect(inventoryInventoryMovementCreateMany).toHaveBeenCalledOnce();
     expect(result.status).toBe("completed");
   });
 
@@ -472,7 +590,9 @@ describe("fulfillments service", () => {
       ordersFulfillmentCount,
       ordersFulfillmentItemFindMany,
       ordersOrderItemFindMany,
-      ordersOrderUpdate
+      ordersOrderUpdate,
+      inventoryReservationFindMany,
+      inventoryInventoryMovementFindMany
     } = create_prisma_mock();
     ordersFulfillmentFindFirst.mockResolvedValueOnce({
       id: "ful_1",
@@ -492,13 +612,76 @@ describe("fulfillments service", () => {
     });
     ordersOrderItemFindMany.mockResolvedValue([{ id: "item_1", qty: "5.00" }]);
     ordersFulfillmentCount.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
-    ordersFulfillmentItemFindMany.mockResolvedValue([{ orderItemId: "item_1", qty: "2.00" }]);
+    ordersFulfillmentItemFindMany
+      .mockResolvedValueOnce([
+        {
+          id: "fitem_1",
+          orderItemId: "item_1",
+          qty: "2.00",
+          orderItem: {
+            productId: "prod_1"
+          }
+        }
+      ])
+      .mockResolvedValueOnce([{ orderItemId: "item_1", qty: "2.00" }]);
+    inventoryReservationFindMany.mockResolvedValue([
+      {
+        id: "res_1",
+        productId: "prod_1",
+        warehouseId: "wh_1",
+        qty: "10.00"
+      }
+    ]);
+    inventoryInventoryMovementFindMany.mockResolvedValue([]);
 
     const service = new FulfillmentsService(prismaService);
 
     await expect(
-      service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]))
+      service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]), {
+        idempotencyKey: "idem_confirm_3"
+      })
     ).rejects.toBeInstanceOf(ConflictException);
     expect(ordersOrderUpdate).not.toHaveBeenCalled();
+  });
+
+  it("replays completed confirm-execution by idempotency key without new side effects", async () => {
+    const {
+      prismaService,
+      ordersFulfillmentFindFirst,
+      systemIdempotencyRecordFindUnique,
+      ordersFulfillmentUpdate,
+      inventoryInventoryMovementCreateMany
+    } = create_prisma_mock();
+    const requestHash = createHash("sha256")
+      .update(JSON.stringify({ fulfillmentId: "ful_1" }))
+      .digest("hex");
+    systemIdempotencyRecordFindUnique.mockResolvedValue({
+      id: "idem_1",
+      requestHash,
+      status: "COMPLETED",
+      lockedUntil: null
+    });
+    ordersFulfillmentFindFirst.mockResolvedValue({
+      id: "ful_1",
+      orderId: "order_1",
+      status: "COMPLETED",
+      fulfillmentType: "DELIVERY",
+      fulfilledAt: new Date(),
+      failureReason: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      version: 1,
+      _count: { items: 0 },
+      items: []
+    });
+
+    const service = new FulfillmentsService(prismaService);
+    const replayed = await service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]), {
+      idempotencyKey: "idem_confirm_4"
+    });
+
+    expect(replayed.id).toBe("ful_1");
+    expect(ordersFulfillmentUpdate).not.toHaveBeenCalled();
+    expect(inventoryInventoryMovementCreateMany).not.toHaveBeenCalled();
   });
 });

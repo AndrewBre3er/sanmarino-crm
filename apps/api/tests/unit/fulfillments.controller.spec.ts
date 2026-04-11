@@ -1,5 +1,9 @@
 import "reflect-metadata";
-import { ForbiddenException, type ExecutionContext } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  type ExecutionContext
+} from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vitest";
 import { auth_access_metadata_key } from "../../src/modules/auth/auth.access.contract";
@@ -12,7 +16,8 @@ import type { FulfillmentsService } from "../../src/modules/orders/fulfillments.
 
 function build_request(
   userId: string,
-  roleCodes: string[]
+  roleCodes: string[],
+  idempotencyKey?: string
 ): AuthenticatedRequestLike & { auth: { user: { userId: string; roleCodes: string[] } } } {
   return {
     auth: {
@@ -25,7 +30,16 @@ function build_request(
         issuedAt: "2026-04-10T00:00:00.000Z",
         refreshExpiresAt: "2026-04-11T00:00:00.000Z"
       }
-    }
+    },
+    ...(idempotencyKey
+      ? {
+          shellContext: {
+            requestId: "req_0000000000000001",
+            correlationId: "corr_0000000000001",
+            idempotencyKey
+          }
+        }
+      : {})
   } as unknown as AuthenticatedRequestLike & {
     auth: { user: { userId: string; roleCodes: string[] } };
   };
@@ -154,12 +168,34 @@ describe("fulfillments controller", () => {
       confirmExecution: vi.fn().mockResolvedValue({ id: "ful_1", status: "completed" })
     } as unknown as FulfillmentsService;
     const controller = new FulfillmentsController(service);
-    const request = build_request("warehouse_1", ["warehouse"]);
+    const request = build_request("warehouse_1", ["warehouse"], "idem_confirm_01");
 
     const result = await controller.confirmExecution("ful_1", request);
 
-    expect(service.confirmExecution).toHaveBeenCalledWith("ful_1", request.auth.user);
+    expect(service.confirmExecution).toHaveBeenCalledWith(
+      "ful_1",
+      request.auth.user,
+      expect.objectContaining({
+        idempotencyKey: "idem_confirm_01"
+      })
+    );
     expect(result).toEqual({ data: { id: "ful_1", status: "completed" } });
+  });
+
+  it("requires idempotency key for confirm execution", async () => {
+    const service = {
+      listFulfillments: vi.fn(),
+      getFulfillment: vi.fn(),
+      createFulfillment: vi.fn(),
+      confirmExecution: vi.fn()
+    } as unknown as FulfillmentsService;
+    const controller = new FulfillmentsController(service);
+    const request = build_request("warehouse_1", ["warehouse"]);
+
+    await expect(controller.confirmExecution("ful_1", request)).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+    expect(service.confirmExecution).not.toHaveBeenCalled();
   });
 
   it("keeps role metadata for read and create surfaces", () => {
