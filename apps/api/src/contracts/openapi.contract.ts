@@ -49,6 +49,10 @@ export const api_openapi_tags = {
     name: "orders-read",
     description: "Orders endpoints: list/detail and baseline command transitions for status/control overlays"
   },
+  fulfillments: {
+    name: "fulfillments",
+    description: "Fulfillment baseline endpoints: list/detail/create without full logistics engine"
+  },
   paymentsRead: {
     name: "payments-read",
     description: "Read-only Payments endpoints"

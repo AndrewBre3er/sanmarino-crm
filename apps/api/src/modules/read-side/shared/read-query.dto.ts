@@ -14,12 +14,14 @@ import {
 import {
   deal_statuses,
   delivery_task_statuses,
+  fulfillment_statuses,
   lead_statuses,
   order_statuses,
   payment_statuses,
   return_request_statuses,
   type DealStatus,
   type DeliveryTaskStatus,
+  type FulfillmentStatus,
   type LeadStatus,
   type OrderStatus,
   type PaymentStatus,
@@ -215,6 +217,19 @@ export class ReturnRequestsReadQueryDto extends BaseReadCollectionQueryDto {
   @IsArray()
   @IsIn(return_request_statuses, { each: true })
   status?: ReturnRequestStatus[];
+}
+
+export class FulfillmentsReadQueryDto extends BaseReadCollectionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => to_string_array(value))
+  @IsArray()
+  @IsIn(fulfillment_statuses, { each: true })
+  status?: FulfillmentStatus[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  orderId?: string;
 }
 
 export interface BuildReadCollectionQueryOptions {
