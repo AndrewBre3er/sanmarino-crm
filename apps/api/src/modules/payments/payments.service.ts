@@ -8,6 +8,8 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
+  CashOperationType as PrismaCashOperationType,
+  FinanceEntryType as PrismaFinanceEntryType,
   IdempotencyStatus as PrismaIdempotencyStatus,
   PaymentMethod as PrismaPaymentMethod
 } from "@prisma/client";
@@ -160,7 +162,10 @@ export class PaymentsService {
           },
           select: {
             id: true,
+            orderId: true,
             status: true,
+            amount: true,
+            externalReference: true,
             receivedAt: true
           }
         });
@@ -188,8 +193,59 @@ export class PaymentsService {
           }
         });
 
-        // Foundation for Step 3: keep payment completion inside one transaction so
-        // cash operation + finance entry posting can be added atomically in this block.
+        const cashOperation = await transactionClient.paymentsCashOperation.create({
+          data: {
+            payment: {
+              connect: {
+                id: payment.id
+              }
+            },
+            operationType: to_prisma_enum<PrismaCashOperationType>("cash_in"),
+            amount: payment.amount,
+            currency: "RUB",
+            performedAt: receivedAt,
+            externalReference: payment.externalReference,
+            createdByUser: {
+              connect: {
+                id: actor.userId
+              }
+            }
+          },
+          select: {
+            id: true
+          }
+        });
+
+        await transactionClient.financeFinanceEntry.create({
+          data: {
+            entryType: to_prisma_enum<PrismaFinanceEntryType>("income"),
+            order: {
+              connect: {
+                id: payment.orderId
+              }
+            },
+            payment: {
+              connect: {
+                id: payment.id
+              }
+            },
+            cashOperation: {
+              connect: {
+                id: cashOperation.id
+              }
+            },
+            amount: payment.amount,
+            currency: "RUB",
+            recognizedAt: receivedAt,
+            description: "Income recognized from payment.completed cash-basis event",
+            createdByUser: {
+              connect: {
+                id: actor.userId
+              }
+            }
+          }
+        });
+
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
           data: {

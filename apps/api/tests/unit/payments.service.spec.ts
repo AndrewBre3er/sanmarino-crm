@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { PaymentsService } from "../../src/modules/payments/payments.service";
 import type { PrismaPaymentsPaymentReadRepository } from "../../src/modules/read-side/payments/payment.read.repository";
@@ -31,6 +31,8 @@ function create_prisma_mock() {
   const paymentsPaymentFindFirst = vi.fn();
   const paymentsPaymentCreate = vi.fn();
   const paymentsPaymentUpdate = vi.fn();
+  const paymentsCashOperationCreate = vi.fn();
+  const financeFinanceEntryCreate = vi.fn();
   const systemIdempotencyRecordFindUnique = vi.fn();
   const systemIdempotencyRecordCreate = vi.fn();
   const systemIdempotencyRecordUpdate = vi.fn();
@@ -43,6 +45,12 @@ function create_prisma_mock() {
       findFirst: paymentsPaymentFindFirst,
       create: paymentsPaymentCreate,
       update: paymentsPaymentUpdate
+    },
+    paymentsCashOperation: {
+      create: paymentsCashOperationCreate
+    },
+    financeFinanceEntry: {
+      create: financeFinanceEntryCreate
     },
     systemIdempotencyRecord: {
       update: systemIdempotencyRecordUpdate
@@ -57,6 +65,12 @@ function create_prisma_mock() {
       findFirst: paymentsPaymentFindFirst,
       create: paymentsPaymentCreate,
       update: paymentsPaymentUpdate
+    },
+    paymentsCashOperation: {
+      create: paymentsCashOperationCreate
+    },
+    financeFinanceEntry: {
+      create: financeFinanceEntryCreate
     },
     systemIdempotencyRecord: {
       findUnique: systemIdempotencyRecordFindUnique,
@@ -82,6 +96,8 @@ function create_prisma_mock() {
     paymentsPaymentFindFirst,
     paymentsPaymentCreate,
     paymentsPaymentUpdate,
+    paymentsCashOperationCreate,
+    financeFinanceEntryCreate,
     systemIdempotencyRecordFindUnique,
     systemIdempotencyRecordCreate,
     systemIdempotencyRecordUpdate
@@ -206,6 +222,8 @@ describe("payments service", () => {
       service,
       paymentReadRepository,
       paymentsPaymentUpdate,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
       systemIdempotencyRecordFindUnique
     } = create_service_with_mocks();
 
@@ -236,6 +254,98 @@ describe("payments service", () => {
 
     expect(result.status).toBe("completed");
     expect(paymentsPaymentUpdate).not.toHaveBeenCalled();
+    expect(paymentsCashOperationCreate).not.toHaveBeenCalled();
+    expect(financeFinanceEntryCreate).not.toHaveBeenCalled();
+  });
+
+  it("completes pending payment and atomically creates cash + income records", async () => {
+    const {
+      service,
+      paymentReadRepository,
+      paymentsPaymentFindFirst,
+      paymentsPaymentUpdate,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate,
+      systemIdempotencyRecordUpdate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_complete_0" });
+    paymentsPaymentFindFirst.mockResolvedValue({
+      id: "pay_1",
+      orderId: "order_1",
+      status: "PENDING",
+      amount: "2000.00",
+      externalReference: "ext_42",
+      receivedAt: null
+    });
+    paymentsCashOperationCreate.mockResolvedValue({ id: "cash_1" });
+    financeFinanceEntryCreate.mockResolvedValue({ id: "fin_1" });
+    (paymentReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      build_payment_read_model("completed")
+    );
+
+    const result = await service.completePayment(
+      "pay_1",
+      {
+        userId: "finance_1",
+        roleCodes: ["finance"]
+      },
+      {
+        idempotencyKey: "idem_complete_0"
+      }
+    );
+
+    expect(result.status).toBe("completed");
+    expect(paymentsPaymentUpdate).toHaveBeenCalledOnce();
+    expect(paymentsCashOperationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          operationType: "CASH_IN",
+          payment: {
+            connect: {
+              id: "pay_1"
+            }
+          },
+          createdByUser: {
+            connect: {
+              id: "finance_1"
+            }
+          }
+        })
+      })
+    );
+    expect(financeFinanceEntryCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          entryType: "INCOME",
+          order: {
+            connect: {
+              id: "order_1"
+            }
+          },
+          payment: {
+            connect: {
+              id: "pay_1"
+            }
+          },
+          cashOperation: {
+            connect: {
+              id: "cash_1"
+            }
+          }
+        })
+      })
+    );
+    expect(systemIdempotencyRecordUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "COMPLETED"
+        })
+      })
+    );
   });
 
   it("blocks invalid complete transition when payment is already completed", async () => {
@@ -243,6 +353,8 @@ describe("payments service", () => {
       service,
       paymentsPaymentFindFirst,
       paymentsPaymentUpdate,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate,
       systemIdempotencyRecordUpdate
@@ -270,6 +382,8 @@ describe("payments service", () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(paymentsPaymentUpdate).not.toHaveBeenCalled();
+    expect(paymentsCashOperationCreate).not.toHaveBeenCalled();
+    expect(financeFinanceEntryCreate).not.toHaveBeenCalled();
     expect(systemIdempotencyRecordUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -314,5 +428,81 @@ describe("payments service", () => {
 
     expect(ordersOrderFindFirst).not.toHaveBeenCalled();
     expect(systemIdempotencyRecordCreate).not.toHaveBeenCalled();
+  });
+
+  it("blocks complete when same idempotency key is reused for another payment", async () => {
+    const {
+      service,
+      paymentsPaymentFindFirst,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue({
+      id: "idem_5",
+      requestHash: "another_hash",
+      status: "COMPLETED",
+      lockedUntil: null,
+      responseBody: { paymentId: "pay_1" }
+    });
+
+    await expect(
+      service.completePayment(
+        "pay_2",
+        {
+          userId: "finance_1",
+          roleCodes: ["finance"]
+        },
+        {
+          idempotencyKey: "idem_complete_3"
+        }
+      )
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(paymentsPaymentFindFirst).not.toHaveBeenCalled();
+    expect(paymentsCashOperationCreate).not.toHaveBeenCalled();
+    expect(financeFinanceEntryCreate).not.toHaveBeenCalled();
+    expect(systemIdempotencyRecordCreate).not.toHaveBeenCalled();
+  });
+
+  it("does not create income side effects when payment does not exist", async () => {
+    const {
+      service,
+      paymentsPaymentFindFirst,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate,
+      systemIdempotencyRecordUpdate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_complete_4" });
+    paymentsPaymentFindFirst.mockResolvedValue(null);
+
+    await expect(
+      service.completePayment(
+        "pay_missing",
+        {
+          userId: "finance_1",
+          roleCodes: ["finance"]
+        },
+        {
+          idempotencyKey: "idem_complete_4"
+        }
+      )
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(paymentsCashOperationCreate).not.toHaveBeenCalled();
+    expect(financeFinanceEntryCreate).not.toHaveBeenCalled();
+    expect(systemIdempotencyRecordUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "FAILED"
+        })
+      })
+    );
   });
 });
