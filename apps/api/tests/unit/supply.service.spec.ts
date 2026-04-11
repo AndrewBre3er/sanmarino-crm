@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuthPrincipal, AuthRoleCode } from "../../src/modules/auth/auth.contract";
 import type { ReadCollectionQueryInput } from "../../src/modules/read-side/shared/read-model.contract";
 import type {
+  InventoryMovementReadModel,
   PrismaSupplyRepository,
   ReservationReadModel,
   StockLockReadModel,
@@ -212,6 +213,43 @@ function make_reservation(
   };
 }
 
+function make_inventory_movement(
+  overrides: Partial<InventoryMovementReadModel> = {}
+): InventoryMovementReadModel {
+  const now = new Date().toISOString();
+
+  return {
+    id: "inventory_movement_1",
+    movementType: "receipt",
+    productId: "00000000-0000-0000-0000-000000000012",
+    warehouseId: "00000000-0000-0000-0000-000000000030",
+    quantity: "2",
+    bucketFrom: null,
+    bucketTo: "on_hand",
+    unitCost: "750.00",
+    totalCost: "1500.00",
+    orderId: null,
+    reservationId: null,
+    purchaseReceiptId: "purchase_receipt_1",
+    returnRequestId: null,
+    reason: "receipt baseline",
+    performedBy: "warehouse_1",
+    createdAt: now,
+    updatedAt: now,
+    product: {
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    },
+    warehouse: {
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    },
+    ...overrides
+  };
+}
+
 function make_service() {
   const repository = {
     listSuppliers: vi.fn(),
@@ -236,6 +274,8 @@ function make_service() {
     getReservationById: vi.fn(),
     createReservations: vi.fn(),
     updateReservationById: vi.fn(),
+    listInventoryMovements: vi.fn(),
+    getInventoryMovementById: vi.fn(),
     createInventoryMovement: vi.fn()
   } as unknown as PrismaSupplyRepository;
 
@@ -1064,7 +1104,11 @@ describe("supply service", () => {
     expect(created).toHaveLength(1);
     expect(created[0]?.status).toBe("active");
     expect(repository.createStockLock).not.toHaveBeenCalled();
-    expect((repository as unknown as { createInventoryMovement: ReturnType<typeof vi.fn> }).createInventoryMovement).not.toHaveBeenCalled();
+    const movementTypes = vi
+      .mocked(repository.createInventoryMovement)
+      .mock.calls.map((call) => call[0]?.movementType);
+    expect(movementTypes).not.toContain("issue");
+    expect(movementTypes).not.toContain("writeoff");
   });
 
   it("keeps reservation layer separated from soft lock layer", async () => {
@@ -1134,5 +1178,253 @@ describe("supply service", () => {
       })
     );
     expect(released.status).toBe("released");
+  });
+
+  it("supports inventory movement list/detail baseline", async () => {
+    const { service, repository } = make_service();
+    const query = build_query();
+    const movement = make_inventory_movement();
+
+    vi.mocked(repository.listInventoryMovements).mockResolvedValue({
+      items: [movement],
+      pagination: { page: 1, pageSize: 20, totalItems: 1, totalPages: 1 }
+    });
+    vi.mocked(repository.getInventoryMovementById).mockResolvedValue(movement);
+
+    const listed = await service.listInventoryMovements(query);
+    const detail = await service.getInventoryMovement("inventory_movement_1");
+
+    expect(listed.items).toHaveLength(1);
+    expect(detail.id).toBe("inventory_movement_1");
+    expect(detail.movementType).toBe("receipt");
+  });
+
+  it("records receipt movement without converting to issue", async () => {
+    const { service, repository } = make_service();
+    const warehouse = make_user(["warehouse"], "warehouse_1");
+
+    vi.mocked(repository.getWarehouseById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    });
+    vi.mocked(repository.getSupplierById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000010",
+      name: "Vendor",
+      phone: null,
+      email: null,
+      notes: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    vi.mocked(repository.getSupplierRequestById).mockResolvedValue(make_supplier_request("paid"));
+    vi.mocked(repository.createPurchaseReceipt).mockResolvedValue(make_purchase_receipt());
+    vi.mocked(repository.createInventoryMovement).mockResolvedValue(make_inventory_movement());
+
+    await service.createPurchaseReceipt(
+      {
+        warehouseId: "00000000-0000-0000-0000-000000000030",
+        supplierId: "00000000-0000-0000-0000-000000000010",
+        supplierRequestId: "supplier_request_1",
+        receivedAt: "2026-04-15T10:00:00.000Z",
+        items: [
+          {
+            productId: "00000000-0000-0000-0000-000000000012",
+            quantity: 2,
+            unit: "шт",
+            unitCost: "750.00",
+            supplierRequestItemId: "item_1"
+          }
+        ]
+      },
+      warehouse
+    );
+
+    const inventoryMovementCalls = vi.mocked(repository.createInventoryMovement).mock.calls;
+    expect(inventoryMovementCalls.length).toBe(1);
+    expect(inventoryMovementCalls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        movementType: "receipt",
+        bucketTo: "on_hand",
+        purchaseReceiptId: "purchase_receipt_1"
+      })
+    );
+    expect(inventoryMovementCalls[0]?.[0]).not.toEqual(
+      expect.objectContaining({
+        movementType: "issue"
+      })
+    );
+  });
+
+  it("records reservation create/release movements without issue semantics", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getOrderById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000101",
+      orderNumber: "ORD-101",
+      isDeleted: false
+    });
+    vi.mocked(repository.getWarehouseById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    });
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.createReservations).mockResolvedValue([make_reservation()]);
+    vi.mocked(repository.createInventoryMovement).mockResolvedValue(make_inventory_movement());
+    vi.mocked(repository.getReservationById).mockResolvedValue(
+      make_reservation({
+        status: "active",
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      })
+    );
+    vi.mocked(repository.updateReservationById).mockResolvedValue(
+      make_reservation({
+        status: "released",
+        releasedAt: new Date().toISOString()
+      })
+    );
+
+    await service.createReservationsForOrder(
+      {
+        orderId: "00000000-0000-0000-0000-000000000101",
+        warehouseId: "00000000-0000-0000-0000-000000000030",
+        items: [
+          {
+            productId: "00000000-0000-0000-0000-000000000012",
+            quantity: 2,
+            expiresAt: "2026-04-15T10:00:00.000Z"
+          }
+        ]
+      },
+      seller
+    );
+    await service.releaseReservationInternal("reservation_1");
+
+    const movementTypes = vi
+      .mocked(repository.createInventoryMovement)
+      .mock.calls.map((call) => call[0]?.movementType);
+
+    expect(movementTypes).toContain("reservation_create");
+    expect(movementTypes).toContain("reservation_release");
+    expect(movementTypes).not.toContain("issue");
+  });
+
+  it("supports transfer-to-quarantine baseline", async () => {
+    const { service, repository } = make_service();
+    const warehouse = make_user(["warehouse"], "warehouse_1");
+
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.getWarehouseById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    });
+    vi.mocked(repository.createInventoryMovement).mockResolvedValue(
+      make_inventory_movement({
+        movementType: "transfer_to_quarantine",
+        bucketFrom: "available",
+        bucketTo: "quarantine",
+        reason: "damaged"
+      })
+    );
+
+    const movement = await service.transferToQuarantine(
+      {
+        productId: "00000000-0000-0000-0000-000000000012",
+        warehouseId: "00000000-0000-0000-0000-000000000030",
+        quantity: 1,
+        reason: "damaged"
+      },
+      warehouse
+    );
+
+    expect(movement.movementType).toBe("transfer_to_quarantine");
+    expect(movement.bucketTo).toBe("quarantine");
+    expect(movement.bucketFrom).toBe("available");
+  });
+
+  it("supports release-from-quarantine baseline", async () => {
+    const { service, repository } = make_service();
+    const warehouse = make_user(["warehouse"], "warehouse_1");
+
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.getWarehouseById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    });
+    vi.mocked(repository.createInventoryMovement).mockResolvedValue(
+      make_inventory_movement({
+        movementType: "release_from_quarantine",
+        bucketFrom: "quarantine",
+        bucketTo: "available",
+        reason: "quality_check_passed"
+      })
+    );
+
+    const movement = await service.releaseFromQuarantine(
+      {
+        productId: "00000000-0000-0000-0000-000000000012",
+        warehouseId: "00000000-0000-0000-0000-000000000030",
+        quantity: 1,
+        reason: "quality_check_passed"
+      },
+      warehouse
+    );
+
+    expect(movement.movementType).toBe("release_from_quarantine");
+    expect(movement.bucketFrom).toBe("quarantine");
+    expect(movement.bucketTo).toBe("available");
+  });
+
+  it("rejects quarantine movement create for non-warehouse role", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    await expect(
+      service.transferToQuarantine(
+        {
+          productId: "00000000-0000-0000-0000-000000000012",
+          warehouseId: "00000000-0000-0000-0000-000000000030",
+          quantity: 1,
+          reason: "damaged"
+        },
+        seller
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(repository.createInventoryMovement).not.toHaveBeenCalled();
+  });
+
+  it("rejects quarantine movement create when quantity is invalid", async () => {
+    const { service, repository } = make_service();
+    const warehouse = make_user(["warehouse"], "warehouse_1");
+
+    await expect(
+      service.releaseFromQuarantine(
+        {
+          productId: "00000000-0000-0000-0000-000000000012",
+          warehouseId: "00000000-0000-0000-0000-000000000030",
+          quantity: 0,
+          reason: "quality_check_passed"
+        },
+        warehouse
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(repository.createInventoryMovement).not.toHaveBeenCalled();
   });
 });

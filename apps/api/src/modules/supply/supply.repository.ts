@@ -1,5 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type {
+  InventoryBucket as PrismaInventoryBucket,
+  InventoryInventoryMovement,
+  InventoryMovementType as PrismaInventoryMovementType,
   InventoryPurchaseReceipt,
   InventoryPurchaseReceiptItem,
   InventoryProduct,
@@ -17,6 +20,8 @@ import type {
 } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import type {
+  InventoryBucketStatus,
+  InventoryMovementType,
   ProductUnit,
   ReservationStatus,
   StockLockStatus,
@@ -246,6 +251,28 @@ export interface ReservationReadModel {
   warehouse: WarehouseReadModel;
 }
 
+export interface InventoryMovementReadModel {
+  id: string;
+  movementType: InventoryMovementType;
+  productId: string;
+  warehouseId: string;
+  quantity: string;
+  bucketFrom: InventoryBucketStatus | null;
+  bucketTo: InventoryBucketStatus | null;
+  unitCost: string | null;
+  totalCost: string | null;
+  orderId: string | null;
+  returnRequestId: string | null;
+  reservationId: string | null;
+  purchaseReceiptId: string | null;
+  reason: string | null;
+  performedBy: string;
+  createdAt: string;
+  updatedAt: string;
+  product: ProductReadModel;
+  warehouse: WarehouseReadModel;
+}
+
 export interface CreateSupplierInput {
   name: string;
   phone?: string | null;
@@ -321,6 +348,23 @@ export interface UpdateReservationInput {
   consumedAt?: string | null;
 }
 
+export interface CreateInventoryMovementInput {
+  movementType: InventoryMovementType;
+  productId: string;
+  warehouseId: string;
+  quantity: number;
+  bucketFrom?: InventoryBucketStatus | null;
+  bucketTo?: InventoryBucketStatus | null;
+  unitCost?: string | null;
+  totalCost?: string | null;
+  orderId?: string | null;
+  returnRequestId?: string | null;
+  reservationId?: string | null;
+  purchaseReceiptId?: string | null;
+  reason?: string | null;
+  performedBy: string;
+}
+
 export interface UpdateSupplierRequestInput {
   status?: SupplierRequestStatus;
   expectedSupplyDate?: string;
@@ -364,6 +408,11 @@ type ReservationWithRelationsRecord = InventoryReservation & {
     id: string;
     orderNumber: string;
   };
+  product: InventoryProduct;
+  warehouse: InventoryWarehouse;
+};
+
+type InventoryMovementWithRelationsRecord = InventoryInventoryMovement & {
   product: InventoryProduct;
   warehouse: InventoryWarehouse;
 };
@@ -736,6 +785,34 @@ function map_reservation_record(record: ReservationWithRelationsRecord): Reserva
       id: record.order.id,
       orderNumber: record.order.orderNumber
     },
+    product: map_product_record(record.product),
+    warehouse: map_warehouse_record(record.warehouse)
+  };
+}
+
+function map_inventory_movement_record(
+  record: InventoryMovementWithRelationsRecord
+): InventoryMovementReadModel {
+  return {
+    id: record.id,
+    movementType: from_prisma_enum(record.movementType) as InventoryMovementType,
+    productId: record.productId,
+    warehouseId: record.warehouseId,
+    quantity: to_decimal_string(record.qty) ?? "0",
+    bucketFrom: record.bucketFrom
+      ? (from_prisma_enum(record.bucketFrom) as InventoryBucketStatus)
+      : null,
+    bucketTo: record.bucketTo ? (from_prisma_enum(record.bucketTo) as InventoryBucketStatus) : null,
+    unitCost: to_decimal_string(record.unitCost),
+    totalCost: to_decimal_string(record.totalCost),
+    orderId: record.orderId,
+    returnRequestId: record.returnRequestId,
+    reservationId: record.reservationId,
+    purchaseReceiptId: record.purchaseReceiptId,
+    reason: record.reason,
+    performedBy: record.performedBy,
+    createdAt: to_iso_datetime(record.createdAt) ?? "",
+    updatedAt: to_iso_datetime(record.updatedAt) ?? "",
     product: map_product_record(record.product),
     warehouse: map_warehouse_record(record.warehouse)
   };
@@ -1489,5 +1566,135 @@ export class PrismaSupplyRepository {
     });
 
     return map_reservation_record(updated as ReservationWithRelationsRecord);
+  }
+
+  async listInventoryMovements(
+    query: ReadCollectionQueryInput
+  ): Promise<ReadCollectionResult<InventoryMovementReadModel>> {
+    const where: Prisma.InventoryInventoryMovementWhereInput = {};
+
+    if (query.search) {
+      where.OR = [
+        { product: { sku: { contains: query.search, mode: "insensitive" } } },
+        { product: { name: { contains: query.search, mode: "insensitive" } } },
+        { warehouse: { name: { contains: query.search, mode: "insensitive" } } },
+        { reason: { contains: query.search, mode: "insensitive" } }
+      ];
+    }
+
+    if (query.status && query.status.length > 0) {
+      const movementTypes = query.status.map((status) =>
+        to_prisma_enum<PrismaInventoryMovementType>(status)
+      );
+      const [firstMovementType] = movementTypes;
+      if (movementTypes.length === 1 && firstMovementType) {
+        where.movementType = firstMovementType;
+      } else {
+        where.movementType = { in: movementTypes };
+      }
+    }
+
+    const orderBy = {
+      [query.sortField]: query.sortDirection
+    } as Prisma.InventoryInventoryMovementOrderByWithRelationInput;
+
+    const [items, totalItems] = await this.prismaService.$transaction([
+      this.prismaService.inventoryInventoryMovement.findMany({
+        where,
+        orderBy,
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: {
+          product: true,
+          warehouse: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      }),
+      this.prismaService.inventoryInventoryMovement.count({ where })
+    ]);
+
+    return {
+      items: items.map((item) =>
+        map_inventory_movement_record(item as InventoryMovementWithRelationsRecord)
+      ),
+      pagination: build_page_pagination_meta(totalItems, query.page, query.pageSize),
+      ...(query.contract.filters ? { appliedFilters: query.contract.filters } : {}),
+      ...(query.contract.sort ? { appliedSort: query.contract.sort } : {})
+    };
+  }
+
+  async getInventoryMovementById(
+    inventoryMovementId: string
+  ): Promise<InventoryMovementReadModel | null> {
+    const movement = await this.prismaService.inventoryInventoryMovement.findUnique({
+      where: { id: inventoryMovementId },
+      include: {
+        product: true,
+        warehouse: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    if (!movement) {
+      return null;
+    }
+
+    return map_inventory_movement_record(movement as InventoryMovementWithRelationsRecord);
+  }
+
+  async createInventoryMovement(
+    input: CreateInventoryMovementInput
+  ): Promise<InventoryMovementReadModel> {
+    const created = await this.prismaService.inventoryInventoryMovement.create({
+      data: {
+        movementType: to_prisma_enum<PrismaInventoryMovementType>(input.movementType),
+        productId: input.productId,
+        warehouseId: input.warehouseId,
+        qty: input.quantity.toFixed(3),
+        ...(input.bucketFrom !== undefined
+          ? {
+              bucketFrom: input.bucketFrom
+                ? to_prisma_enum<PrismaInventoryBucket>(input.bucketFrom)
+                : null
+            }
+          : {}),
+        ...(input.bucketTo !== undefined
+          ? {
+              bucketTo: input.bucketTo
+                ? to_prisma_enum<PrismaInventoryBucket>(input.bucketTo)
+                : null
+            }
+          : {}),
+        ...(input.unitCost !== undefined ? { unitCost: input.unitCost } : {}),
+        ...(input.totalCost !== undefined ? { totalCost: input.totalCost } : {}),
+        ...(input.orderId !== undefined ? { orderId: input.orderId } : {}),
+        ...(input.returnRequestId !== undefined ? { returnRequestId: input.returnRequestId } : {}),
+        ...(input.reservationId !== undefined ? { reservationId: input.reservationId } : {}),
+        ...(input.purchaseReceiptId !== undefined
+          ? { purchaseReceiptId: input.purchaseReceiptId }
+          : {}),
+        ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        performedBy: input.performedBy
+      },
+      include: {
+        product: true,
+        warehouse: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    return map_inventory_movement_record(created as InventoryMovementWithRelationsRecord);
   }
 }

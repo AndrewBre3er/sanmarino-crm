@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 import { auth_access_metadata_key } from "../../src/modules/auth/auth.access.contract";
 import { bootstrap_role_codes } from "../../src/modules/auth/auth.contract";
+import { InventoryMovementsController } from "../../src/modules/supply/inventory-movements.controller";
 import { PurchaseReceiptsController } from "../../src/modules/supply/purchase-receipts.controller";
 import { ReservationsController } from "../../src/modules/supply/reservations.controller";
 import { StockLocksController } from "../../src/modules/supply/stock-locks.controller";
@@ -15,7 +16,8 @@ describe("supply access baseline", () => {
       SupplierRequestsController,
       PurchaseReceiptsController,
       StockLocksController,
-      ReservationsController
+      ReservationsController,
+      InventoryMovementsController
     ];
 
     for (const controller of controllers) {
@@ -147,5 +149,25 @@ describe("supply access baseline", () => {
 
     expect(reservationControllerPrototype.create).toBeUndefined();
     expect(reservationControllerPrototype.release).toBeUndefined();
+  });
+
+  it("keeps quarantine command access baseline for warehouse role", () => {
+    const transferRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      InventoryMovementsController.prototype.transferToQuarantine
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+    const releaseRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      InventoryMovementsController.prototype.releaseFromQuarantine
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+
+    expect(transferRequirements?.requiredRoleCodes).toEqual(["warehouse"]);
+    expect(releaseRequirements?.requiredRoleCodes).toEqual(["warehouse"]);
   });
 });

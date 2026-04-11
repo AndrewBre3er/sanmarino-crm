@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { InventoryMovementsController } from "./inventory-movements.controller";
 import { PurchaseReceiptsController } from "./purchase-receipts.controller";
 import { ReservationsController } from "./reservations.controller";
 import { StockLocksController } from "./stock-locks.controller";
@@ -13,7 +14,8 @@ import { SupplyService } from "./supply.service";
     SupplierRequestsController,
     PurchaseReceiptsController,
     StockLocksController,
-    ReservationsController
+    ReservationsController,
+    InventoryMovementsController
   ],
   providers: [SupplyService, PrismaSupplyRepository]
 })

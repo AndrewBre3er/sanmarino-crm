@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import type { AuthPrincipal } from "../auth/auth.contract";
 import type { ReadCollectionQueryInput } from "../read-side/shared/read-model.contract";
 import type {
+  InventoryBucketStatus,
   ProductUnit,
   StockLockStatus,
   SupplierRequestStatus
@@ -17,12 +18,14 @@ import type {
 import { StatusTransitionError } from "../transactional/shared/transition.guard";
 import { assert_supplier_request_status_transition } from "./supplier-request.transition.guard";
 import {
+  type CreateInventoryMovementInput,
   PrismaSupplyRepository,
   type CreateReservationInput,
   type CreatePurchaseReceiptInput,
   type CreateStockLockInput,
   type CreateSupplierInput,
   type CreateSupplierRequestInput,
+  type InventoryMovementReadModel,
   type PurchaseReceiptReadModel,
   type ReservationReadModel,
   type StockLockListReadModel,
@@ -39,6 +42,7 @@ const supplier_request_stocked_role_codes = new Set(["warehouse"] as const);
 const purchase_receipt_create_role_codes = new Set(["warehouse"] as const);
 const stock_lock_create_role_codes = new Set(["seller"] as const);
 const stock_lock_release_role_codes = new Set(["seller"] as const);
+const inventory_quarantine_role_codes = new Set(["warehouse"] as const);
 const supplier_request_business_source_types = ["deal", "order"] as const;
 const supplier_request_file_role_codes = new Set(["warehouse", "finance", "ceo"] as const);
 const stock_lock_ttl_default_minutes = 10;
@@ -103,6 +107,13 @@ export interface CreateReservationsForOrderPayload {
   orderId: string;
   warehouseId: string;
   items: CreateReservationItemPayload[];
+}
+
+export interface QuarantineMovementPayload {
+  productId: string;
+  warehouseId: string;
+  quantity: number;
+  reason?: string;
 }
 
 export interface ConfirmSupplierRequestBySupplierPayload {
@@ -257,7 +268,9 @@ export class SupplyService {
       items: normalizedItems
     };
 
-    return this.supplyRepository.createPurchaseReceipt(createInput);
+    const created = await this.supplyRepository.createPurchaseReceipt(createInput);
+    await this.record_receipt_movements(created, actor.userId);
+    return created;
   }
 
   async listStockLocks(query: ReadCollectionQueryInput) {
@@ -391,6 +404,7 @@ export class SupplyService {
     }
 
     const created = await this.supplyRepository.createReservations(createInput);
+    await this.record_reservation_create_movements(created, actor.userId);
     return created.map((item) => this.apply_reservation_status_baseline(item));
   }
 
@@ -411,7 +425,47 @@ export class SupplyService {
       releasedAt: new Date().toISOString()
     });
 
+    await this.record_reservation_release_movement(updated);
     return this.apply_reservation_status_baseline(updated);
+  }
+
+  async listInventoryMovements(query: ReadCollectionQueryInput) {
+    return this.supplyRepository.listInventoryMovements(query);
+  }
+
+  async getInventoryMovement(inventoryMovementId: string): Promise<InventoryMovementReadModel> {
+    const movement = await this.supplyRepository.getInventoryMovementById(inventoryMovementId);
+    if (!movement) {
+      throw new NotFoundException(`InventoryMovement '${inventoryMovementId}' was not found`);
+    }
+
+    return movement;
+  }
+
+  async transferToQuarantine(input: QuarantineMovementPayload, actor: AuthPrincipal) {
+    this.assert_inventory_quarantine_access(actor);
+    const movementInput = await this.to_quarantine_movement_input(
+      "transfer_to_quarantine",
+      input,
+      actor,
+      "available",
+      "quarantine"
+    );
+
+    return this.supplyRepository.createInventoryMovement(movementInput);
+  }
+
+  async releaseFromQuarantine(input: QuarantineMovementPayload, actor: AuthPrincipal) {
+    this.assert_inventory_quarantine_access(actor);
+    const movementInput = await this.to_quarantine_movement_input(
+      "release_from_quarantine",
+      input,
+      actor,
+      "quarantine",
+      "available"
+    );
+
+    return this.supplyRepository.createInventoryMovement(movementInput);
   }
 
   async confirmSupplierRequestBySupplier(
@@ -525,6 +579,104 @@ export class SupplyService {
     });
   }
 
+  private async to_quarantine_movement_input(
+    movementType: "transfer_to_quarantine" | "release_from_quarantine",
+    input: QuarantineMovementPayload,
+    actor: AuthPrincipal,
+    bucketFrom: InventoryBucketStatus,
+    bucketTo: InventoryBucketStatus
+  ): Promise<CreateInventoryMovementInput> {
+    this.assert_positive_quantity(input.quantity, "InventoryMovement quantity");
+
+    const product = await this.supplyRepository.getProductById(input.productId);
+    if (!product) {
+      throw new NotFoundException(`Product '${input.productId}' was not found`);
+    }
+
+    const warehouse = await this.supplyRepository.getWarehouseById(input.warehouseId);
+    if (!warehouse) {
+      throw new NotFoundException(`Warehouse '${input.warehouseId}' was not found`);
+    }
+
+    return {
+      movementType,
+      productId: input.productId,
+      warehouseId: input.warehouseId,
+      quantity: input.quantity,
+      bucketFrom,
+      bucketTo,
+      reason: input.reason?.trim() || null,
+      performedBy: actor.userId
+    };
+  }
+
+  private async record_receipt_movements(
+    receipt: PurchaseReceiptReadModel,
+    performedBy: string
+  ): Promise<void> {
+    for (const item of receipt.items) {
+      const quantity = Number(item.quantity);
+      this.assert_positive_quantity(quantity, "InventoryMovement receipt quantity");
+
+      await this.supplyRepository.createInventoryMovement({
+        movementType: "receipt",
+        productId: item.productId,
+        warehouseId: receipt.warehouseId,
+        quantity,
+        bucketFrom: null,
+        bucketTo: "on_hand",
+        unitCost: item.unitCost,
+        totalCost: item.lineTotal,
+        purchaseReceiptId: receipt.id,
+        reason: "purchase_receipt",
+        performedBy
+      });
+    }
+  }
+
+  private async record_reservation_create_movements(
+    reservations: ReservationReadModel[],
+    performedBy: string
+  ): Promise<void> {
+    for (const reservation of reservations) {
+      const quantity = Number(reservation.quantity);
+      this.assert_positive_quantity(quantity, "InventoryMovement reservation quantity");
+
+      await this.supplyRepository.createInventoryMovement({
+        movementType: "reservation_create",
+        productId: reservation.productId,
+        warehouseId: reservation.warehouseId,
+        quantity,
+        bucketFrom: "available",
+        bucketTo: "reserved",
+        orderId: reservation.orderId,
+        reservationId: reservation.id,
+        reason: "reservation_create",
+        performedBy
+      });
+    }
+  }
+
+  private async record_reservation_release_movement(
+    reservation: ReservationReadModel
+  ): Promise<void> {
+    const quantity = Number(reservation.quantity);
+    this.assert_positive_quantity(quantity, "InventoryMovement reservation quantity");
+
+    await this.supplyRepository.createInventoryMovement({
+      movementType: "reservation_release",
+      productId: reservation.productId,
+      warehouseId: reservation.warehouseId,
+      quantity,
+      bucketFrom: "reserved",
+      bucketTo: "available",
+      orderId: reservation.orderId,
+      reservationId: reservation.id,
+      reason: "reservation_release",
+      performedBy: reservation.createdBy
+    });
+  }
+
   private assert_supplier_write_access(actor: AuthPrincipal): void {
     const isAllowed = actor.roleCodes.some((roleCode) =>
       supplier_write_role_codes.has(roleCode as "seller" | "admin" | "ceo")
@@ -625,6 +777,28 @@ export class SupplyService {
       throw new ForbiddenException({
         code: "ACCESS_DENIED",
         message: "StockLock release action is allowed only for seller role"
+      });
+    }
+  }
+
+  private assert_inventory_quarantine_access(actor: AuthPrincipal): void {
+    const isAllowed = actor.roleCodes.some((roleCode) =>
+      inventory_quarantine_role_codes.has(roleCode as "warehouse")
+    );
+
+    if (!isAllowed) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "Inventory quarantine commands are allowed only for warehouse role"
+      });
+    }
+  }
+
+  private assert_positive_quantity(quantity: number, fieldName: string): void {
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: `${fieldName} must be greater than zero`
       });
     }
   }

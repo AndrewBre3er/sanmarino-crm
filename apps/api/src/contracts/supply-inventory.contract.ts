@@ -37,15 +37,11 @@ export const supply_inventory_read_side_contract = {
     "supplier-requests",
     "purchase-receipts",
     "stock-locks",
-    "reservations"
-  ] as const,
-  deferredCollections: [
-    "products",
-    "warehouses",
-    "stock-balances",
+    "reservations",
     "inventory-movements"
   ] as const,
-  freezePhase: "supply-step-7-durable-reservation-foundation"
+  deferredCollections: ["products", "warehouses", "stock-balances"] as const,
+  freezePhase: "supply-step-8-inventory-movement-quarantine-baseline"
 } as const;
 
 export const supplier_request_role_matrix_contract = {
@@ -73,6 +69,21 @@ export const reservation_foundation_contract = {
   listAndDetailVisibility: "all_roles" as const,
   requiresOrderId: true as const,
   forbidsIssueWriteoffSideEffects: true as const
+} as const;
+
+export const movement_quarantine_foundation_contract = {
+  readApi: "implemented" as const,
+  createApi: "narrow_commands_only" as const,
+  supportedMovementTypes: [
+    "receipt",
+    "reservation_create",
+    "reservation_release",
+    "transfer_to_quarantine",
+    "release_from_quarantine"
+  ] as const,
+  issueFlow: "deferred_until_orders_fulfillment" as const,
+  quarantineIsExplicitBucket: true as const,
+  returnToStockDefaultBucket: "quarantine" as const
 } as const;
 
 export const supplier_request_file_access_contract = {

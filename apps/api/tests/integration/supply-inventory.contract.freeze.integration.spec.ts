@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  movement_quarantine_foundation_contract,
   purchase_receipt_role_matrix_contract,
   reservation_foundation_contract,
   stock_lock_role_matrix_contract,
@@ -44,22 +45,22 @@ describe("supply + inventory contract freeze", () => {
     expect(supply_inventory_status_contract.inventoryBucket).toEqual(inventory_bucket_statuses);
   });
 
-  it("marks read-side resources split between implemented and deferred for Supply Step 7", () => {
+  it("marks read-side resources split between implemented and deferred for Supply Step 8", () => {
     expect(supply_inventory_read_side_contract.freezePhase).toBe(
-      "supply-step-7-durable-reservation-foundation"
+      "supply-step-8-inventory-movement-quarantine-baseline"
     );
     expect(supply_inventory_read_side_contract.implementedCollections).toEqual([
       "suppliers",
       "supplier-requests",
       "purchase-receipts",
       "stock-locks",
-      "reservations"
+      "reservations",
+      "inventory-movements"
     ]);
     expect(supply_inventory_read_side_contract.deferredCollections).toEqual([
       "products",
       "warehouses",
-      "stock-balances",
-      "inventory-movements"
+      "stock-balances"
     ]);
   });
 
@@ -104,5 +105,22 @@ describe("supply + inventory contract freeze", () => {
     expect(supplier_request_file_access_contract.storageImplementation).toBe(
       "deferred_step_4_contract_access_baseline"
     );
+  });
+
+  it("keeps inventory movement + quarantine foundation baseline fixed", () => {
+    expect(movement_quarantine_foundation_contract.readApi).toBe("implemented");
+    expect(movement_quarantine_foundation_contract.createApi).toBe("narrow_commands_only");
+    expect(movement_quarantine_foundation_contract.supportedMovementTypes).toEqual([
+      "receipt",
+      "reservation_create",
+      "reservation_release",
+      "transfer_to_quarantine",
+      "release_from_quarantine"
+    ]);
+    expect(movement_quarantine_foundation_contract.issueFlow).toBe(
+      "deferred_until_orders_fulfillment"
+    );
+    expect(movement_quarantine_foundation_contract.quarantineIsExplicitBucket).toBe(true);
+    expect(movement_quarantine_foundation_contract.returnToStockDefaultBucket).toBe("quarantine");
   });
 });
