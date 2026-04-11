@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { PrismaCrmLeadReadRepository } from "../read-side/crm/lead.read.repository";
 import { PrismaCrmDealRepository } from "../transactional/crm/deal.repository";
 import { PrismaCrmLeadRepository } from "../transactional/crm/lead.repository";
+import { PrismaOrdersOrderRepository } from "../transactional/orders/order.repository";
 import { LeadsController } from "./leads.controller";
 import { LeadsService } from "./leads.service";
 
@@ -11,7 +12,8 @@ import { LeadsService } from "./leads.service";
     LeadsService,
     PrismaCrmLeadReadRepository,
     PrismaCrmLeadRepository,
-    PrismaCrmDealRepository
+    PrismaCrmDealRepository,
+    PrismaOrdersOrderRepository
   ]
 })
 export class LeadsModule {}

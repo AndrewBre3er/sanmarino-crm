@@ -15,6 +15,7 @@ import {
   type LogisticsDeliveryTaskCreateInput,
   type LogisticsDeliveryTaskRecord,
   type LogisticsDeliveryTaskRepositoryContract,
+  type EnsureOrderFromDealInput,
   type LogisticsDeliveryTaskUpdateInput,
   type OrdersOrderCreateInput,
   type OrdersOrderRecord,
@@ -58,6 +59,15 @@ class FakeOrderRepository implements OrdersOrderRepositoryContract {
 
   async create(input: OrdersOrderCreateInput): Promise<OrdersOrderRecord> {
     void input;
+    throw new Error("not needed in test");
+  }
+
+  async ensureFromDeal(
+    input: EnsureOrderFromDealInput,
+    options?: RepositoryUpdateOptions
+  ): Promise<OrdersOrderRecord> {
+    void input;
+    void options;
     throw new Error("not needed in test");
   }
 

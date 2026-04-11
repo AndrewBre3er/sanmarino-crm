@@ -16,8 +16,10 @@ import {
 } from "../transactional/crm/lead.repository";
 import {
   PrismaCrmDealRepository,
+  type CrmDealRecord,
   type EnsureDealFromLeadInput
 } from "../transactional/crm/deal.repository";
+import { PrismaOrdersOrderRepository } from "../transactional/orders/order.repository";
 import type { LeadStatus } from "../transactional/shared/status.contract";
 import {
   PrismaCrmLeadReadRepository,
@@ -50,7 +52,9 @@ export class LeadsService {
     @Inject(PrismaCrmLeadRepository)
     private readonly leadRepository: PrismaCrmLeadRepository,
     @Inject(PrismaCrmDealRepository)
-    private readonly dealRepository: PrismaCrmDealRepository
+    private readonly dealRepository: PrismaCrmDealRepository,
+    @Inject(PrismaOrdersOrderRepository)
+    private readonly orderRepository: PrismaOrdersOrderRepository
   ) {}
 
   async listLeads(
@@ -199,7 +203,26 @@ export class LeadsService {
 
   private async ensure_deal_for_lead_in_processing(currentLead: CrmLeadRecord): Promise<void> {
     const input = this.to_ensure_deal_from_lead_input(currentLead);
-    await this.dealRepository.ensureFromLead(input);
+    const deal = await this.dealRepository.ensureFromLead(input);
+    this.assert_deal_can_materialize_order(deal);
+
+    await this.orderRepository.ensureFromDeal({
+      dealId: deal.id,
+      clientId: deal.clientId,
+      ...(deal.deliveryMode !== undefined ? { deliveryMode: deal.deliveryMode } : {}),
+      ...(deal.notes !== undefined ? { notes: deal.notes } : {})
+    });
+
+    await this.dealRepository.markConvertedToOrder(deal.id);
+  }
+
+  private assert_deal_can_materialize_order(deal: CrmDealRecord): void {
+    if (deal.status === "cancelled") {
+      throw new ConflictException({
+        code: "TRANSITION_NOT_ALLOWED",
+        message: "Order auto-create is not allowed for cancelled deal state"
+      });
+    }
   }
 
   private to_ensure_deal_from_lead_input(currentLead: CrmLeadRecord): EnsureDealFromLeadInput {

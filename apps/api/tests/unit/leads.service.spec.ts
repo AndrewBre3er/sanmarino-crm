@@ -13,10 +13,17 @@ import type {
 } from "../../src/modules/read-side/crm/lead.read.repository";
 import type { ReadCollectionQueryInput } from "../../src/modules/read-side/shared/read-model.contract";
 import type {
+  CrmDealRecord,
+  PrismaCrmDealRepository
+} from "../../src/modules/transactional/crm/deal.repository";
+import type {
   CrmLeadRecord,
   PrismaCrmLeadRepository
 } from "../../src/modules/transactional/crm/lead.repository";
-import type { PrismaCrmDealRepository } from "../../src/modules/transactional/crm/deal.repository";
+import type {
+  OrdersOrderRecord,
+  PrismaOrdersOrderRepository
+} from "../../src/modules/transactional/orders/order.repository";
 
 function build_query(): ReadCollectionQueryInput {
   return {
@@ -90,6 +97,62 @@ function make_lead_read_model(overrides: Partial<CrmLeadReadModel> = {}): CrmLea
   };
 }
 
+function make_deal_record(overrides: Partial<CrmDealRecord> = {}): CrmDealRecord {
+  const now = new Date().toISOString();
+  return {
+    id: "deal_1",
+    leadId: "lead_1",
+    clientId: "client_1",
+    contactId: "contact_1",
+    status: "in_progress",
+    title: "Lead title",
+    deliveryMode: null,
+    expectedValue: null,
+    notes: null,
+    responsibleUserId: "seller_1",
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+    deletedAt: null,
+    deletedBy: null,
+    deleteReason: null,
+    isDeleted: false,
+    ...overrides
+  };
+}
+
+function make_order_record(overrides: Partial<OrdersOrderRecord> = {}): OrdersOrderRecord {
+  const now = new Date().toISOString();
+  return {
+    id: "order_1",
+    orderNumber: "ORD-DEAL-lead_1",
+    dealId: "deal_1",
+    clientId: "client_1",
+    status: "assembling",
+    paymentControlStatus: "none",
+    paymentControlDueAt: null,
+    fulfillmentType: "manual",
+    deliveryStatus: "not_scheduled",
+    currency: "RUB",
+    subtotalAmount: "0",
+    discountAmount: "0",
+    totalAmount: "0",
+    notes: null,
+    readyForPartialShipmentAt: null,
+    readyForShipmentAt: null,
+    partiallyShippedAt: null,
+    shippedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+    deletedAt: null,
+    deletedBy: null,
+    deleteReason: null,
+    isDeleted: false,
+    ...overrides
+  };
+}
+
 function make_service() {
   const readRepository = {
     list: vi.fn(),
@@ -108,6 +171,7 @@ function make_service() {
 
   const dealRepository = {
     ensureFromLead: vi.fn(),
+    markConvertedToOrder: vi.fn(),
     findById: vi.fn(),
     list: vi.fn(),
     create: vi.fn(),
@@ -117,11 +181,23 @@ function make_service() {
     withTransaction: vi.fn()
   } as unknown as PrismaCrmDealRepository;
 
+  const orderRepository = {
+    ensureFromDeal: vi.fn(),
+    findById: vi.fn(),
+    list: vi.fn(),
+    create: vi.fn(),
+    updateById: vi.fn(),
+    softDeleteById: vi.fn(),
+    restoreById: vi.fn(),
+    withTransaction: vi.fn()
+  } as unknown as PrismaOrdersOrderRepository;
+
   return {
-    service: new LeadsService(readRepository, writeRepository, dealRepository),
+    service: new LeadsService(readRepository, writeRepository, dealRepository, orderRepository),
     readRepository,
     writeRepository,
-    dealRepository
+    dealRepository,
+    orderRepository
   };
 }
 
@@ -165,8 +241,8 @@ describe("leads service", () => {
     expect(detail.id).toBe("lead_1");
   });
 
-  it("applies valid status transition new -> in_processing and auto-creates deal", async () => {
-    const { service, writeRepository, dealRepository } = make_service();
+  it("applies valid status transition new -> in_processing and auto-creates deal/order baseline", async () => {
+    const { service, writeRepository, dealRepository, orderRepository } = make_service();
     const seller = make_user(["seller"], "seller_1");
 
     vi.mocked(writeRepository.findById).mockResolvedValue(
@@ -177,16 +253,11 @@ describe("leads service", () => {
         title: "Lead title"
       })
     );
-    vi.mocked(dealRepository.ensureFromLead).mockResolvedValue({
-      id: "deal_1",
-      leadId: "lead_1",
-      clientId: "client_1",
-      status: "in_progress",
-      title: "Lead title",
-      responsibleUserId: "seller_1",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
+    vi.mocked(dealRepository.ensureFromLead).mockResolvedValue(make_deal_record());
+    vi.mocked(orderRepository.ensureFromDeal).mockResolvedValue(make_order_record());
+    vi.mocked(dealRepository.markConvertedToOrder).mockResolvedValue(
+      make_deal_record({ status: "converted_to_order" })
+    );
     vi.mocked(writeRepository.updateById).mockResolvedValue(
       make_lead_record({ status: "in_processing" })
     );
@@ -209,11 +280,18 @@ describe("leads service", () => {
         title: "Lead title"
       })
     );
+    expect(orderRepository.ensureFromDeal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dealId: "deal_1",
+        clientId: "client_1"
+      })
+    );
+    expect(dealRepository.markConvertedToOrder).toHaveBeenCalledWith("deal_1");
     expect(updated.status).toBe("in_processing");
   });
 
   it("rejects invalid status transition", async () => {
-    const { service, writeRepository, dealRepository } = make_service();
+    const { service, writeRepository, dealRepository, orderRepository } = make_service();
     const seller = make_user(["seller"], "seller_1");
 
     vi.mocked(writeRepository.findById).mockResolvedValue(
@@ -224,6 +302,7 @@ describe("leads service", () => {
       service.updateLeadStatus("lead_1", { status: "cancelled", reason: "cancel" }, seller)
     ).rejects.toBeInstanceOf(ConflictException);
     expect(dealRepository.ensureFromLead).not.toHaveBeenCalled();
+    expect(orderRepository.ensureFromDeal).not.toHaveBeenCalled();
   });
 
   it("rejects new -> cancelled without reason", async () => {
@@ -254,8 +333,8 @@ describe("leads service", () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("handles repeated in_processing status idempotently without duplicate flow", async () => {
-    const { service, writeRepository, dealRepository } = make_service();
+  it("handles repeated in_processing status idempotently without duplicate order creation flow", async () => {
+    const { service, writeRepository, dealRepository, orderRepository } = make_service();
     const seller = make_user(["seller"], "seller_1");
 
     vi.mocked(writeRepository.findById).mockResolvedValue(
@@ -266,16 +345,11 @@ describe("leads service", () => {
         title: "Lead title"
       })
     );
-    vi.mocked(dealRepository.ensureFromLead).mockResolvedValue({
-      id: "deal_1",
-      leadId: "lead_1",
-      clientId: "client_1",
-      status: "in_progress",
-      title: "Lead title",
-      responsibleUserId: "seller_1",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
+    vi.mocked(dealRepository.ensureFromLead).mockResolvedValue(make_deal_record());
+    vi.mocked(orderRepository.ensureFromDeal).mockResolvedValue(make_order_record());
+    vi.mocked(dealRepository.markConvertedToOrder).mockResolvedValue(
+      make_deal_record({ status: "converted_to_order" })
+    );
 
     const updated = await service.updateLeadStatus(
       "lead_1",
@@ -284,12 +358,14 @@ describe("leads service", () => {
     );
 
     expect(dealRepository.ensureFromLead).toHaveBeenCalledTimes(1);
+    expect(orderRepository.ensureFromDeal).toHaveBeenCalledTimes(1);
+    expect(dealRepository.markConvertedToOrder).toHaveBeenCalledTimes(1);
     expect(writeRepository.updateById).not.toHaveBeenCalled();
     expect(updated.status).toBe("in_processing");
   });
 
   it("does not create deal when cancelled lead is moved to in_processing", async () => {
-    const { service, writeRepository, dealRepository } = make_service();
+    const { service, writeRepository, dealRepository, orderRepository } = make_service();
     const seller = make_user(["seller"], "seller_1");
 
     vi.mocked(writeRepository.findById).mockResolvedValue(
@@ -300,6 +376,32 @@ describe("leads service", () => {
       service.updateLeadStatus("lead_1", { status: "in_processing" }, seller)
     ).rejects.toBeInstanceOf(ConflictException);
     expect(dealRepository.ensureFromLead).not.toHaveBeenCalled();
+    expect(orderRepository.ensureFromDeal).not.toHaveBeenCalled();
+  });
+
+  it("does not create order for cancelled deal state returned from ensure flow", async () => {
+    const { service, writeRepository, dealRepository, orderRepository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(writeRepository.findById).mockResolvedValue(
+      make_lead_record({
+        status: "new",
+        clientId: "client_1",
+        responsibleUserId: "seller_1",
+        title: "Lead title"
+      })
+    );
+    vi.mocked(dealRepository.ensureFromLead).mockResolvedValue(
+      make_deal_record({ status: "cancelled" })
+    );
+
+    await expect(
+      service.updateLeadStatus("lead_1", { status: "in_processing" }, seller)
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(orderRepository.ensureFromDeal).not.toHaveBeenCalled();
+    expect(dealRepository.markConvertedToOrder).not.toHaveBeenCalled();
+    expect(writeRepository.updateById).not.toHaveBeenCalled();
   });
 
   it("returns not found for missing lead detail", async () => {

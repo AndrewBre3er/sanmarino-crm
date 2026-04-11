@@ -55,6 +55,10 @@ export interface CrmDealRepositoryContract
     input: EnsureDealFromLeadInput,
     options?: RepositoryUpdateOptions
   ): Promise<CrmDealRecord>;
+  markConvertedToOrder(
+    dealId: string,
+    options?: RepositoryUpdateOptions
+  ): Promise<CrmDealRecord>;
 }
 
 export interface EnsureDealFromLeadInput {
@@ -98,6 +102,51 @@ export class PrismaCrmDealRepository implements CrmDealRepositoryContract {
     });
 
     return map_crm_deal_record(deal);
+  }
+
+  async markConvertedToOrder(
+    dealId: string,
+    options?: RepositoryUpdateOptions
+  ): Promise<CrmDealRecord> {
+    void options;
+    const client = this.get_client();
+
+    const transitioned = await client.crmDeal.updateMany({
+      where: {
+        id: dealId,
+        isDeleted: false,
+        status: "IN_PROGRESS"
+      },
+      data: {
+        status: "CONVERTED_TO_ORDER"
+      }
+    });
+
+    if (transitioned.count === 1) {
+      const converted = await client.crmDeal.findUnique({
+        where: { id: dealId }
+      });
+
+      if (converted) {
+        return map_crm_deal_record(converted);
+      }
+    }
+
+    const current = await client.crmDeal.findUnique({
+      where: { id: dealId }
+    });
+
+    if (!current || current.isDeleted) {
+      throw new Error(`Deal '${dealId}' was not found`);
+    }
+
+    if (current.status === "CONVERTED_TO_ORDER") {
+      return map_crm_deal_record(current);
+    }
+
+    throw new Error(
+      `Deal '${dealId}' status '${prisma_status_to_deal[current.status]}' cannot be converted to order`
+    );
   }
 
   async findById(id: string, options?: RepositoryFindOptions): Promise<CrmDealRecord | null> {
