@@ -47,7 +47,7 @@ export const api_openapi_tags = {
   },
   ordersRead: {
     name: "orders-read",
-    description: "Read-only Orders endpoints"
+    description: "Orders endpoints: list/detail and baseline command transitions for status/control overlays"
   },
   paymentsRead: {
     name: "payments-read",

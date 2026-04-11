@@ -7,6 +7,7 @@ import {
   assert_payment_status_transition,
   assert_return_request_status_transition
 } from "../../src/modules/transactional";
+import { assert_order_control_overlay_transition } from "../../src/modules/transactional/orders/order-control.transition.guard";
 
 describe("transactional status transition guards", () => {
   it("allows canonical deal transition and blocks rollback from converted state", () => {
@@ -29,6 +30,13 @@ describe("transactional status transition guards", () => {
       assert_order_status_transition("ready_for_shipment", "shipped")
     ).not.toThrow();
     expect(() => assert_order_status_transition("assembling", "shipped")).toThrowError();
+  });
+
+  it("enforces control overlay transition matrix", () => {
+    expect(() =>
+      assert_order_control_overlay_transition("none", "on_control")
+    ).not.toThrow();
+    expect(() => assert_order_control_overlay_transition("none", "problem")).toThrowError();
   });
 
   it("rejects delivered -> planned for delivery task", () => {

@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { api_openapi_tags } from "../../contracts/openapi.contract";
 import { require_roles } from "../auth/auth.access.decorator";
@@ -50,6 +58,85 @@ export class OrdersController {
   async detail(@Param("orderId") orderId: string, @Req() request: AuthenticatedRequestLike) {
     const access = get_authenticated_access(request);
     const order = await this.ordersService.getOrder(orderId, access.user);
+    return { data: order };
+  }
+
+  @Post(":orderId/mark-ready-for-partial-shipment")
+  @require_roles("seller", "warehouse", "logistics", "admin", "ceo")
+  async markReadyForPartialShipment(
+    @Param("orderId") orderId: string,
+    @Req() request: AuthenticatedRequestLike
+  ) {
+    const access = get_authenticated_access(request);
+    const order = await this.ordersService.transitionOrderStatus(
+      orderId,
+      "ready_for_partial_shipment",
+      access.user
+    );
+    return { data: order };
+  }
+
+  @Post(":orderId/mark-ready-for-shipment")
+  @require_roles("seller", "warehouse", "logistics", "admin", "ceo")
+  async markReadyForShipment(@Param("orderId") orderId: string, @Req() request: AuthenticatedRequestLike) {
+    const access = get_authenticated_access(request);
+    const order = await this.ordersService.transitionOrderStatus(
+      orderId,
+      "ready_for_shipment",
+      access.user
+    );
+    return { data: order };
+  }
+
+  @Post(":orderId/ship-partial")
+  @require_roles("seller", "warehouse", "logistics", "admin", "ceo")
+  async shipPartial(@Param("orderId") orderId: string, @Req() request: AuthenticatedRequestLike) {
+    const access = get_authenticated_access(request);
+    const order = await this.ordersService.transitionOrderStatus(
+      orderId,
+      "partially_shipped",
+      access.user
+    );
+    return { data: order };
+  }
+
+  @Post(":orderId/ship-complete")
+  @require_roles("seller", "warehouse", "logistics", "admin", "ceo")
+  async shipComplete(@Param("orderId") orderId: string, @Req() request: AuthenticatedRequestLike) {
+    const access = get_authenticated_access(request);
+    const order = await this.ordersService.transitionOrderStatus(orderId, "shipped", access.user);
+    return { data: order };
+  }
+
+  @Post(":orderId/control/mark-on-control")
+  @require_roles("logistics", "finance", "admin", "ceo")
+  async markOnControl(@Param("orderId") orderId: string, @Req() request: AuthenticatedRequestLike) {
+    const access = get_authenticated_access(request);
+    const order = await this.ordersService.transitionOrderControlOverlay(
+      orderId,
+      "on_control",
+      access.user
+    );
+    return { data: order };
+  }
+
+  @Post(":orderId/control/mark-problem")
+  @require_roles("logistics", "finance", "admin", "ceo")
+  async markProblem(@Param("orderId") orderId: string, @Req() request: AuthenticatedRequestLike) {
+    const access = get_authenticated_access(request);
+    const order = await this.ordersService.transitionOrderControlOverlay(
+      orderId,
+      "problem",
+      access.user
+    );
+    return { data: order };
+  }
+
+  @Post(":orderId/control/clear")
+  @require_roles("finance", "admin", "ceo")
+  async clearControl(@Param("orderId") orderId: string, @Req() request: AuthenticatedRequestLike) {
+    const access = get_authenticated_access(request);
+    const order = await this.ordersService.transitionOrderControlOverlay(orderId, "none", access.user);
     return { data: order };
   }
 }

@@ -33,7 +33,9 @@ describe("orders controller", () => {
         items: [],
         pagination: { page: 1, pageSize: 20, totalItems: 0, totalPages: 0 }
       }),
-      getOrder: vi.fn()
+      getOrder: vi.fn(),
+      transitionOrderStatus: vi.fn(),
+      transitionOrderControlOverlay: vi.fn()
     } as unknown as OrdersService;
     const controller = new OrdersController(ordersService);
 
@@ -61,7 +63,9 @@ describe("orders controller", () => {
         id: "order_1",
         status: "assembling",
         paymentControlStatus: "none"
-      })
+      }),
+      transitionOrderStatus: vi.fn(),
+      transitionOrderControlOverlay: vi.fn()
     } as unknown as OrdersService;
     const controller = new OrdersController(ordersService);
 
@@ -76,6 +80,81 @@ describe("orders controller", () => {
         paymentControlStatus: "none"
       }
     });
+  });
+
+  it("calls status transition command endpoints", async () => {
+    const ordersService = {
+      listOrders: vi.fn(),
+      getOrder: vi.fn(),
+      transitionOrderStatus: vi.fn().mockResolvedValue({ id: "order_1" }),
+      transitionOrderControlOverlay: vi.fn()
+    } as unknown as OrdersService;
+    const controller = new OrdersController(ordersService);
+    const request = build_request("seller_1", ["seller"]);
+
+    await controller.markReadyForPartialShipment("order_1", request);
+    await controller.markReadyForShipment("order_1", request);
+    await controller.shipPartial("order_1", request);
+    await controller.shipComplete("order_1", request);
+
+    expect(ordersService.transitionOrderStatus).toHaveBeenNthCalledWith(
+      1,
+      "order_1",
+      "ready_for_partial_shipment",
+      request.auth.user
+    );
+    expect(ordersService.transitionOrderStatus).toHaveBeenNthCalledWith(
+      2,
+      "order_1",
+      "ready_for_shipment",
+      request.auth.user
+    );
+    expect(ordersService.transitionOrderStatus).toHaveBeenNthCalledWith(
+      3,
+      "order_1",
+      "partially_shipped",
+      request.auth.user
+    );
+    expect(ordersService.transitionOrderStatus).toHaveBeenNthCalledWith(
+      4,
+      "order_1",
+      "shipped",
+      request.auth.user
+    );
+  });
+
+  it("calls control overlay command endpoints", async () => {
+    const ordersService = {
+      listOrders: vi.fn(),
+      getOrder: vi.fn(),
+      transitionOrderStatus: vi.fn(),
+      transitionOrderControlOverlay: vi.fn().mockResolvedValue({ id: "order_1" })
+    } as unknown as OrdersService;
+    const controller = new OrdersController(ordersService);
+    const request = build_request("finance_1", ["finance"]);
+
+    await controller.markOnControl("order_1", request);
+    await controller.markProblem("order_1", request);
+    await controller.clearControl("order_1", request);
+
+    expect(ordersService.transitionOrderControlOverlay).toHaveBeenNthCalledWith(
+      1,
+      "order_1",
+      "on_control",
+      request.auth.user
+    );
+    expect(ordersService.transitionOrderControlOverlay).toHaveBeenNthCalledWith(
+      2,
+      "order_1",
+      "problem",
+      request.auth.user
+    );
+    expect(ordersService.transitionOrderControlOverlay).toHaveBeenNthCalledWith(
+      3,
+      "order_1",
+      "none",
+      request.auth.user
+    );
   });
 
   it("keeps read access baseline role matrix for orders surface", () => {
@@ -95,11 +174,33 @@ describe("orders controller", () => {
     ]);
   });
 
-  it("keeps step-3 surface read-only and defers mutation endpoints", () => {
-    const endpoint_methods = Object.getOwnPropertyNames(OrdersController.prototype)
-      .filter((method_name) => method_name !== "constructor")
-      .sort();
+  it("keeps command role matrix for status/control actions", () => {
+    const markReadyRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      OrdersController.prototype.markReadyForShipment
+    ) as { authenticated?: boolean; requiredRoleCodes?: string[] };
+    const markOnControlRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      OrdersController.prototype.markOnControl
+    ) as { authenticated?: boolean; requiredRoleCodes?: string[] };
+    const clearControlRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      OrdersController.prototype.clearControl
+    ) as { authenticated?: boolean; requiredRoleCodes?: string[] };
 
-    expect(endpoint_methods).toEqual(["detail", "list"]);
+    expect(markReadyRequirements?.requiredRoleCodes).toEqual([
+      "seller",
+      "warehouse",
+      "logistics",
+      "admin",
+      "ceo"
+    ]);
+    expect(markOnControlRequirements?.requiredRoleCodes).toEqual([
+      "logistics",
+      "finance",
+      "admin",
+      "ceo"
+    ]);
+    expect(clearControlRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
   });
 });
