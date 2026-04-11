@@ -9,6 +9,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { OrdersModule } from "./modules/orders/orders.module";
+import { PaymentsModule } from "./modules/payments/payments.module";
 import { TransactionalReadModule } from "./modules/read-side/read-side.module";
 import { SupplyModule } from "./modules/supply/supply.module";
 import { UsersModule } from "./modules/users/users.module";
@@ -22,6 +23,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     UsersModule,
     LeadsModule,
     OrdersModule,
+    PaymentsModule,
     CrmRelationsModule,
     TransactionalReadModule,
     SupplyModule

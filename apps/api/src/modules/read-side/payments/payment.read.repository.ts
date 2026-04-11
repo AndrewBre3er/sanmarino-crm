@@ -3,6 +3,9 @@ import type { PaymentsPayment, PaymentStatus as PrismaPaymentStatus, Prisma } fr
 import { PrismaService } from "../../../prisma/prisma.service";
 import type { PaymentMethod, PaymentStatus } from "../../transactional/shared/status.contract";
 import type {
+  PaymentsPaymentReadScope,
+} from "./payment.read.scope";
+import type {
   ReadCollectionQueryInput,
   ReadCollectionResult
 } from "../shared/read-model.contract";
@@ -34,8 +37,15 @@ export interface PaymentsPaymentReadModel {
 }
 
 export interface PaymentsPaymentReadRepositoryContract {
-  list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<PaymentsPaymentReadModel>>;
-  getById(paymentId: string, includeDeleted?: boolean): Promise<PaymentsPaymentReadModel | null>;
+  list(
+    query: ReadCollectionQueryInput,
+    scope?: PaymentsPaymentReadScope
+  ): Promise<ReadCollectionResult<PaymentsPaymentReadModel>>;
+  getById(
+    paymentId: string,
+    includeDeleted?: boolean,
+    scope?: PaymentsPaymentReadScope
+  ): Promise<PaymentsPaymentReadModel | null>;
 }
 
 function map_payment_read_model(record: PaymentsPayment): PaymentsPaymentReadModel {
@@ -64,7 +74,8 @@ export class PrismaPaymentsPaymentReadRepository implements PaymentsPaymentReadR
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
   async list(
-    query: ReadCollectionQueryInput
+    query: ReadCollectionQueryInput,
+    scope?: PaymentsPaymentReadScope
   ): Promise<ReadCollectionResult<PaymentsPaymentReadModel>> {
     const where: Prisma.PaymentsPaymentWhereInput = {};
 
@@ -87,6 +98,14 @@ export class PrismaPaymentsPaymentReadRepository implements PaymentsPaymentReadR
       } else {
         where.status = { in: mapped };
       }
+    }
+
+    if (scope?.responsibleUserId) {
+      where.order = {
+        deal: {
+          responsibleUserId: scope.responsibleUserId
+        }
+      };
     }
 
     const orderBy = {
@@ -113,10 +132,24 @@ export class PrismaPaymentsPaymentReadRepository implements PaymentsPaymentReadR
 
   async getById(
     paymentId: string,
-    includeDeleted = false
+    includeDeleted = false,
+    scope?: PaymentsPaymentReadScope
   ): Promise<PaymentsPaymentReadModel | null> {
-    const payment = await this.prismaService.paymentsPayment.findUnique({
-      where: { id: paymentId }
+    const and_clauses: Prisma.PaymentsPaymentWhereInput[] = [{ id: paymentId }];
+    if (scope?.responsibleUserId) {
+      and_clauses.push({
+        order: {
+          deal: {
+            responsibleUserId: scope.responsibleUserId
+          }
+        }
+      });
+    }
+
+    const payment = await this.prismaService.paymentsPayment.findFirst({
+      where: {
+        AND: and_clauses
+      }
     });
 
     if (!payment) {
