@@ -23,6 +23,8 @@ export interface FinanceEntryReadModel {
   currency: string;
   recognizedAt: string;
   paymentId: string | null;
+  expenseId: string | null;
+  marketingExpenseId: string | null;
   orderId: string | null;
   cashOperationId: string | null;
   description: string | null;
@@ -48,6 +50,8 @@ function map_finance_entry_read_model(record: FinanceFinanceEntry): FinanceEntry
     currency: record.currency,
     recognizedAt: to_iso_datetime(record.recognizedAt) ?? "",
     paymentId: record.paymentId,
+    expenseId: record.expenseId,
+    marketingExpenseId: record.marketingExpenseId,
     orderId: record.orderId,
     cashOperationId: record.cashOperationId,
     description: record.description
@@ -108,6 +112,16 @@ export class PrismaFinanceEntryReadRepository implements FinanceEntryReadReposit
     const paymentId = extract_eq_filter(query, "paymentId");
     if (paymentId) {
       and_clauses.push({ paymentId });
+    }
+
+    const expenseId = extract_eq_filter(query, "expenseId");
+    if (expenseId) {
+      and_clauses.push({ expenseId });
+    }
+
+    const marketingExpenseId = extract_eq_filter(query, "marketingExpenseId");
+    if (marketingExpenseId) {
+      and_clauses.push({ marketingExpenseId });
     }
 
     if (scope?.responsibleUserId) {

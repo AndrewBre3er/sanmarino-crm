@@ -58,6 +58,22 @@ export class FinanceEntriesReadController {
       });
     }
 
+    if (query.expenseId) {
+      additionalFilters.push({
+        field: "expenseId",
+        operator: "eq",
+        value: query.expenseId
+      });
+    }
+
+    if (query.marketingExpenseId) {
+      additionalFilters.push({
+        field: "marketingExpenseId",
+        operator: "eq",
+        value: query.marketingExpenseId
+      });
+    }
+
     if (additionalFilters.length > 0) {
       readQuery.contract.filters = [...(readQuery.contract.filters ?? []), ...additionalFilters];
     }

@@ -6,6 +6,7 @@ import { RequestContextPropagationInterceptor } from "./common/request-context/r
 import { RequestContextStore } from "./common/request-context/request-context.store";
 import { CrmRelationsModule } from "./modules/crm-relations/crm-relations.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { FinanceModule } from "./modules/finance/finance.module";
 import { HealthModule } from "./modules/health/health.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { OrdersModule } from "./modules/orders/orders.module";
@@ -24,6 +25,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     LeadsModule,
     OrdersModule,
     PaymentsModule,
+    FinanceModule,
     CrmRelationsModule,
     TransactionalReadModule,
     SupplyModule

@@ -51,7 +51,13 @@ function build_query(): ReadCollectionQueryInput {
       filters: [
         { field: "entryType", operator: "eq", value: "income" },
         { field: "orderId", operator: "eq", value: "11111111-1111-4111-8111-111111111111" },
-        { field: "paymentId", operator: "eq", value: "22222222-2222-4222-8222-222222222222" }
+        { field: "paymentId", operator: "eq", value: "22222222-2222-4222-8222-222222222222" },
+        { field: "expenseId", operator: "eq", value: "44444444-4444-4444-8444-444444444444" },
+        {
+          field: "marketingExpenseId",
+          operator: "eq",
+          value: "55555555-5555-4555-8555-555555555555"
+        }
       ]
     }
   };
@@ -63,6 +69,8 @@ function build_finance_entry_record() {
     entryType: "INCOME",
     orderId: "11111111-1111-4111-8111-111111111111",
     paymentId: "22222222-2222-4222-8222-222222222222",
+    expenseId: "44444444-4444-4444-8444-444444444444",
+    marketingExpenseId: "55555555-5555-4555-8555-555555555555",
     cashOperationId: "33333333-3333-4333-8333-333333333333",
     returnRequestId: null,
     amount: "2000.00",
@@ -100,6 +108,12 @@ describe("finance entries read repository", () => {
               paymentId: "22222222-2222-4222-8222-222222222222"
             },
             {
+              expenseId: "44444444-4444-4444-8444-444444444444"
+            },
+            {
+              marketingExpenseId: "55555555-5555-4555-8555-555555555555"
+            },
+            {
               order: {
                 deal: {
                   responsibleUserId: "seller_1"
@@ -118,6 +132,8 @@ describe("finance entries read repository", () => {
         currency: "RUB",
         recognizedAt: "2026-04-12T10:30:00.000Z",
         paymentId: "22222222-2222-4222-8222-222222222222",
+        expenseId: "44444444-4444-4444-8444-444444444444",
+        marketingExpenseId: "55555555-5555-4555-8555-555555555555",
         orderId: "11111111-1111-4111-8111-111111111111",
         cashOperationId: "33333333-3333-4333-8333-333333333333",
         description: "Income recognized from payment.completed cash-basis event"
@@ -155,6 +171,8 @@ describe("finance entries read repository", () => {
       currency: "RUB",
       recognizedAt: "2026-04-12T10:30:00.000Z",
       paymentId: "22222222-2222-4222-8222-222222222222",
+      expenseId: "44444444-4444-4444-8444-444444444444",
+      marketingExpenseId: "55555555-5555-4555-8555-555555555555",
       orderId: "11111111-1111-4111-8111-111111111111",
       cashOperationId: "33333333-3333-4333-8333-333333333333",
       description: "Income recognized from payment.completed cash-basis event"

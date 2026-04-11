@@ -14,6 +14,7 @@ import {
 import {
   deal_statuses,
   delivery_task_statuses,
+  expense_types,
   finance_entry_types,
   fulfillment_statuses,
   lead_statuses,
@@ -22,6 +23,7 @@ import {
   return_request_statuses,
   type DealStatus,
   type DeliveryTaskStatus,
+  type ExpenseType,
   type FinanceEntryType,
   type FulfillmentStatus,
   type LeadStatus,
@@ -224,6 +226,37 @@ export class FinanceEntriesReadQueryDto extends BaseReadCollectionQueryDto {
   @Transform(({ value }) => trim_to_undefined(value))
   @IsUUID()
   paymentId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  expenseId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  marketingExpenseId?: string;
+}
+
+export class ExpensesReadQueryDto extends BaseReadCollectionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => to_string_array(value))
+  @IsArray()
+  @IsIn(expense_types, { each: true })
+  expenseType?: ExpenseType[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  relatedOrderId?: string;
+}
+
+export class MarketingExpensesReadQueryDto extends BaseReadCollectionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsString()
+  @MaxLength(128)
+  source?: string;
 }
 
 export class DeliveryTasksReadQueryDto extends BaseReadCollectionQueryDto {

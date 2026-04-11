@@ -951,6 +951,10 @@ model FinanceFinanceEntry {
   order           OrdersOrder?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
   paymentId       String?              @map("payment_id") @db.Uuid
   payment         PaymentsPayment?     @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  expenseId       String?              @map("expense_id") @db.Uuid
+  expense         FinanceExpense?      @relation("FinanceEntryExpense", fields: [expenseId], references: [id], onDelete: SetNull)
+  marketingExpenseId String?           @map("marketing_expense_id") @db.Uuid
+  marketingExpense FinanceMarketingExpense? @relation("FinanceEntryMarketingExpense", fields: [marketingExpenseId], references: [id], onDelete: SetNull)
   cashOperationId String?              @map("cash_operation_id") @db.Uuid
   cashOperation   PaymentsCashOperation? @relation(fields: [cashOperationId], references: [id], onDelete: SetNull)
   returnRequestId String?              @map("return_request_id") @db.Uuid
@@ -966,6 +970,8 @@ model FinanceFinanceEntry {
 
   @@index([entryType])
   @@index([paymentId])
+  @@index([expenseId])
+  @@index([marketingExpenseId])
   @@index([recognizedAt])
   @@map("finance_entries")
   @@schema("finance")
@@ -980,6 +986,7 @@ model FinanceExpense {
   description    String?       @db.Text
   relatedOrderId String?       @map("related_order_id") @db.Uuid
   relatedOrder   OrdersOrder?  @relation("FinanceExpenseRelatedOrder", fields: [relatedOrderId], references: [id], onDelete: SetNull)
+  financeEntries FinanceFinanceEntry[] @relation("FinanceEntryExpense")
   createdBy      String        @map("created_by") @db.Uuid
   createdByUser  UsersUser     @relation("FinanceExpenseCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -999,6 +1006,7 @@ model FinanceMarketingExpense {
   currency      String    @default("RUB") @db.VarChar(3)
   occurredAt    DateTime  @map("occurred_at") @db.Timestamptz(6)
   description   String?   @db.Text
+  financeEntries FinanceFinanceEntry[] @relation("FinanceEntryMarketingExpense")
   createdBy     String    @map("created_by") @db.Uuid
   createdByUser UsersUser @relation("FinanceMarketingExpenseCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
