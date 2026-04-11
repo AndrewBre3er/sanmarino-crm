@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   purchase_receipt_role_matrix_contract,
+  reservation_foundation_contract,
   stock_lock_role_matrix_contract,
   supplier_request_file_access_contract,
   supplier_request_role_matrix_contract,
@@ -43,21 +44,21 @@ describe("supply + inventory contract freeze", () => {
     expect(supply_inventory_status_contract.inventoryBucket).toEqual(inventory_bucket_statuses);
   });
 
-  it("marks read-side resources split between implemented and deferred for Supply Step 6", () => {
+  it("marks read-side resources split between implemented and deferred for Supply Step 7", () => {
     expect(supply_inventory_read_side_contract.freezePhase).toBe(
-      "supply-step-6-soft-lock-pre-reserve-baseline"
+      "supply-step-7-durable-reservation-foundation"
     );
     expect(supply_inventory_read_side_contract.implementedCollections).toEqual([
       "suppliers",
       "supplier-requests",
       "purchase-receipts",
-      "stock-locks"
+      "stock-locks",
+      "reservations"
     ]);
     expect(supply_inventory_read_side_contract.deferredCollections).toEqual([
       "products",
       "warehouses",
       "stock-balances",
-      "reservations",
       "inventory-movements"
     ]);
   });
@@ -79,6 +80,14 @@ describe("supply + inventory contract freeze", () => {
     expect(stock_lock_role_matrix_contract.create).toEqual(["seller"]);
     expect(stock_lock_role_matrix_contract.release).toEqual(["seller"]);
     expect(stock_lock_role_matrix_contract.listAndDetailVisibility).toBe("all_roles");
+  });
+
+  it("keeps reservation foundation baseline fixed before Orders core", () => {
+    expect(reservation_foundation_contract.createApi).toBe("internal_only_until_orders_core");
+    expect(reservation_foundation_contract.releaseApi).toBe("internal_only_until_orders_core");
+    expect(reservation_foundation_contract.listAndDetailVisibility).toBe("all_roles");
+    expect(reservation_foundation_contract.requiresOrderId).toBe(true);
+    expect(reservation_foundation_contract.forbidsIssueWriteoffSideEffects).toBe(true);
   });
 
   it("keeps attachment matrix at contract/access baseline with explicit deferred storage", () => {

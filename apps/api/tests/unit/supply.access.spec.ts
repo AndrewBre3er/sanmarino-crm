@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { auth_access_metadata_key } from "../../src/modules/auth/auth.access.contract";
 import { bootstrap_role_codes } from "../../src/modules/auth/auth.contract";
 import { PurchaseReceiptsController } from "../../src/modules/supply/purchase-receipts.controller";
+import { ReservationsController } from "../../src/modules/supply/reservations.controller";
 import { StockLocksController } from "../../src/modules/supply/stock-locks.controller";
 import { SupplierRequestsController } from "../../src/modules/supply/supplier-requests.controller";
 import { SuppliersController } from "../../src/modules/supply/suppliers.controller";
@@ -13,7 +14,8 @@ describe("supply access baseline", () => {
       SuppliersController,
       SupplierRequestsController,
       PurchaseReceiptsController,
-      StockLocksController
+      StockLocksController,
+      ReservationsController
     ];
 
     for (const controller of controllers) {
@@ -135,5 +137,15 @@ describe("supply access baseline", () => {
     };
 
     expect(releaseRequirements?.requiredRoleCodes).toEqual(["seller"]);
+  });
+
+  it("keeps reservation foundation mutation API internal-only before Orders core", () => {
+    const reservationControllerPrototype = ReservationsController.prototype as {
+      create?: unknown;
+      release?: unknown;
+    };
+
+    expect(reservationControllerPrototype.create).toBeUndefined();
+    expect(reservationControllerPrototype.release).toBeUndefined();
   });
 });

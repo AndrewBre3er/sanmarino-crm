@@ -9,6 +9,7 @@ import type { AuthPrincipal, AuthRoleCode } from "../../src/modules/auth/auth.co
 import type { ReadCollectionQueryInput } from "../../src/modules/read-side/shared/read-model.contract";
 import type {
   PrismaSupplyRepository,
+  ReservationReadModel,
   StockLockReadModel,
   PurchaseReceiptReadModel,
   SupplierRequestReadModel
@@ -175,10 +176,47 @@ function make_stock_lock(overrides: Partial<StockLockReadModel> = {}): StockLock
   };
 }
 
+function make_reservation(
+  overrides: Partial<ReservationReadModel> = {}
+): ReservationReadModel {
+  const now = new Date().toISOString();
+
+  return {
+    id: "reservation_1",
+    orderId: "00000000-0000-0000-0000-000000000101",
+    productId: "00000000-0000-0000-0000-000000000012",
+    warehouseId: "00000000-0000-0000-0000-000000000030",
+    quantity: "2",
+    status: "active",
+    expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    releasedAt: null,
+    consumedAt: null,
+    createdBy: "seller_1",
+    createdAt: now,
+    updatedAt: now,
+    order: {
+      id: "00000000-0000-0000-0000-000000000101",
+      orderNumber: "ORD-101"
+    },
+    product: {
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    },
+    warehouse: {
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    },
+    ...overrides
+  };
+}
+
 function make_service() {
   const repository = {
     listSuppliers: vi.fn(),
     getSupplierById: vi.fn(),
+    getOrderById: vi.fn(),
     getProductById: vi.fn(),
     getDealById: vi.fn(),
     getWarehouseById: vi.fn(),
@@ -193,7 +231,12 @@ function make_service() {
     listStockLocks: vi.fn(),
     getStockLockById: vi.fn(),
     createStockLock: vi.fn(),
-    updateStockLockById: vi.fn()
+    updateStockLockById: vi.fn(),
+    listReservations: vi.fn(),
+    getReservationById: vi.fn(),
+    createReservations: vi.fn(),
+    updateReservationById: vi.fn(),
+    createInventoryMovement: vi.fn()
   } as unknown as PrismaSupplyRepository;
 
   return {
@@ -913,5 +956,183 @@ describe("supply service", () => {
       )
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.createStockLock).not.toHaveBeenCalled();
+  });
+
+  it("supports reservation list/detail baseline", async () => {
+    const { service, repository } = make_service();
+    const query = build_query();
+    const reservation = make_reservation();
+
+    vi.mocked(repository.listReservations).mockResolvedValue({
+      items: [reservation],
+      pagination: { page: 1, pageSize: 20, totalItems: 1, totalPages: 1 }
+    });
+    vi.mocked(repository.getReservationById).mockResolvedValue(reservation);
+
+    const listed = await service.listReservations(query);
+    const detail = await service.getReservation("reservation_1");
+
+    expect(listed.items).toHaveLength(1);
+    expect(detail.id).toBe("reservation_1");
+    expect(detail.order.orderNumber).toBe("ORD-101");
+  });
+
+  it("marks active reservation as expired in read model when TTL is passed", async () => {
+    const { service, repository } = make_service();
+    vi.mocked(repository.getReservationById).mockResolvedValue(
+      make_reservation({
+        status: "active",
+        expiresAt: new Date(Date.now() - 60_000).toISOString()
+      })
+    );
+
+    const detail = await service.getReservation("reservation_1");
+    expect(detail.status).toBe("expired");
+  });
+
+  it("rejects reservation create when order does not exist", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getOrderById).mockResolvedValue(null);
+
+    await expect(
+      service.createReservationsForOrder(
+        {
+          orderId: "00000000-0000-0000-0000-000000000101",
+          warehouseId: "00000000-0000-0000-0000-000000000030",
+          items: [
+            {
+              productId: "00000000-0000-0000-0000-000000000012",
+              quantity: 2,
+              expiresAt: "2026-04-15T10:00:00.000Z"
+            }
+          ]
+        },
+        seller
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repository.createReservations).not.toHaveBeenCalled();
+  });
+
+  it("creates reservation only with order and without issue/writeoff side effects", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getOrderById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000101",
+      orderNumber: "ORD-101",
+      isDeleted: false
+    });
+    vi.mocked(repository.getWarehouseById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    });
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.createReservations).mockResolvedValue([make_reservation()]);
+
+    const created = await service.createReservationsForOrder(
+      {
+        orderId: "00000000-0000-0000-0000-000000000101",
+        warehouseId: "00000000-0000-0000-0000-000000000030",
+        items: [
+          {
+            productId: "00000000-0000-0000-0000-000000000012",
+            quantity: 2,
+            expiresAt: "2026-04-15T10:00:00.000Z"
+          }
+        ]
+      },
+      seller
+    );
+
+    expect(repository.createReservations).toHaveBeenCalledWith([
+      expect.objectContaining({
+        orderId: "00000000-0000-0000-0000-000000000101",
+        warehouseId: "00000000-0000-0000-0000-000000000030",
+        productId: "00000000-0000-0000-0000-000000000012",
+        quantity: 2,
+        status: "active",
+        createdBy: "seller_1"
+      })
+    ]);
+    expect(created).toHaveLength(1);
+    expect(created[0]?.status).toBe("active");
+    expect(repository.createStockLock).not.toHaveBeenCalled();
+    expect((repository as unknown as { createInventoryMovement: ReturnType<typeof vi.fn> }).createInventoryMovement).not.toHaveBeenCalled();
+  });
+
+  it("keeps reservation layer separated from soft lock layer", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getOrderById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000101",
+      orderNumber: "ORD-101",
+      isDeleted: false
+    });
+    vi.mocked(repository.getWarehouseById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    });
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.createReservations).mockResolvedValue([make_reservation()]);
+
+    await service.createReservationsForOrder(
+      {
+        orderId: "00000000-0000-0000-0000-000000000101",
+        warehouseId: "00000000-0000-0000-0000-000000000030",
+        items: [
+          {
+            productId: "00000000-0000-0000-0000-000000000012",
+            quantity: 2,
+            expiresAt: "2026-04-15T10:00:00.000Z"
+          }
+        ]
+      },
+      seller
+    );
+
+    expect(repository.createReservations).toHaveBeenCalledOnce();
+    expect(repository.createStockLock).not.toHaveBeenCalled();
+    expect(repository.updateStockLockById).not.toHaveBeenCalled();
+  });
+
+  it("releases active reservation via internal foundation path", async () => {
+    const { service, repository } = make_service();
+
+    vi.mocked(repository.getReservationById).mockResolvedValue(
+      make_reservation({
+        status: "active",
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      })
+    );
+    vi.mocked(repository.updateReservationById).mockResolvedValue(
+      make_reservation({
+        status: "released",
+        releasedAt: new Date().toISOString()
+      })
+    );
+
+    const released = await service.releaseReservationInternal("reservation_1");
+
+    expect(repository.updateReservationById).toHaveBeenCalledWith(
+      "reservation_1",
+      expect.objectContaining({
+        status: "released",
+        releasedAt: expect.any(String)
+      })
+    );
+    expect(released.status).toBe("released");
   });
 });

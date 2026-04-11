@@ -18,11 +18,13 @@ import { StatusTransitionError } from "../transactional/shared/transition.guard"
 import { assert_supplier_request_status_transition } from "./supplier-request.transition.guard";
 import {
   PrismaSupplyRepository,
+  type CreateReservationInput,
   type CreatePurchaseReceiptInput,
   type CreateStockLockInput,
   type CreateSupplierInput,
   type CreateSupplierRequestInput,
   type PurchaseReceiptReadModel,
+  type ReservationReadModel,
   type StockLockListReadModel,
   type StockLockReadModel,
   type SupplierRequestItemReadModel,
@@ -89,6 +91,18 @@ export interface CreateStockLockPayload {
   quantity: number;
   ttlMinutes?: number;
   idempotencyKey?: string;
+}
+
+export interface CreateReservationItemPayload {
+  productId: string;
+  quantity: number;
+  expiresAt: string;
+}
+
+export interface CreateReservationsForOrderPayload {
+  orderId: string;
+  warehouseId: string;
+  items: CreateReservationItemPayload[];
 }
 
 export interface ConfirmSupplierRequestBySupplierPayload {
@@ -317,6 +331,87 @@ export class SupplyService {
     });
 
     return this.apply_stock_lock_status_baseline(updated);
+  }
+
+  async listReservations(query: ReadCollectionQueryInput) {
+    const listed = await this.supplyRepository.listReservations(query);
+    const now = new Date();
+
+    return {
+      ...listed,
+      items: listed.items.map((item) => this.apply_reservation_status_baseline(item, now))
+    };
+  }
+
+  async getReservation(reservationId: string) {
+    const reservation = await this.get_reservation_or_throw(reservationId);
+    return this.apply_reservation_status_baseline(reservation);
+  }
+
+  async createReservationsForOrder(
+    input: CreateReservationsForOrderPayload,
+    actor: AuthPrincipal
+  ) {
+    const order = await this.supplyRepository.getOrderById(input.orderId);
+    if (!order || order.isDeleted) {
+      throw new BadRequestException({
+        code: "RESERVATION_NOT_ALLOWED",
+        message: "Durable reservation is allowed only for an existing active Order"
+      });
+    }
+
+    const warehouse = await this.supplyRepository.getWarehouseById(input.warehouseId);
+    if (!warehouse) {
+      throw new NotFoundException(`Warehouse '${input.warehouseId}' was not found`);
+    }
+
+    const createInput: CreateReservationInput[] = [];
+    for (const [index, item] of input.items.entries()) {
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException({
+          code: "VALIDATION_ERROR",
+          message: `Reservation item #${index + 1} quantity must be greater than zero`
+        });
+      }
+
+      const product = await this.supplyRepository.getProductById(item.productId);
+      if (!product) {
+        throw new NotFoundException(`Product '${item.productId}' was not found`);
+      }
+
+      createInput.push({
+        orderId: input.orderId,
+        warehouseId: input.warehouseId,
+        productId: item.productId,
+        quantity: item.quantity,
+        status: "active",
+        expiresAt: this.resolve_reservation_expires_at(item.expiresAt, index),
+        createdBy: actor.userId
+      });
+    }
+
+    const created = await this.supplyRepository.createReservations(createInput);
+    return created.map((item) => this.apply_reservation_status_baseline(item));
+  }
+
+  async releaseReservationInternal(reservationId: string) {
+    const current = this.apply_reservation_status_baseline(
+      await this.get_reservation_or_throw(reservationId)
+    );
+
+    if (current.status !== "active") {
+      throw new ConflictException({
+        code: "TRANSITION_NOT_ALLOWED",
+        message: `Reservation transition '${current.status}' -> 'released' is not allowed`
+      });
+    }
+
+    const updated = await this.supplyRepository.updateReservationById(reservationId, {
+      status: "released",
+      releasedAt: new Date().toISOString()
+    });
+
+    return this.apply_reservation_status_baseline(updated);
   }
 
   async confirmSupplierRequestBySupplier(
@@ -572,6 +667,15 @@ export class SupplyService {
     return stockLock;
   }
 
+  private async get_reservation_or_throw(reservationId: string): Promise<ReservationReadModel> {
+    const reservation = await this.supplyRepository.getReservationById(reservationId);
+    if (!reservation) {
+      throw new NotFoundException(`Reservation '${reservationId}' was not found`);
+    }
+
+    return reservation;
+  }
+
   private resolve_stock_lock_ttl_minutes(ttlMinutes?: number): number {
     if (ttlMinutes === undefined) {
       return stock_lock_ttl_default_minutes;
@@ -600,6 +704,25 @@ export class SupplyService {
     return expiresAt.toISOString();
   }
 
+  private resolve_reservation_expires_at(rawExpiresAt: string, lineIndex: number): string {
+    const expiresAt = new Date(rawExpiresAt);
+    if (Number.isNaN(expiresAt.valueOf())) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: `Reservation item #${lineIndex + 1} has invalid expiresAt`
+      });
+    }
+
+    if (expiresAt.getTime() <= Date.now()) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: `Reservation item #${lineIndex + 1} expiresAt must be in the future`
+      });
+    }
+
+    return expiresAt.toISOString();
+  }
+
   private apply_stock_lock_status_baseline(
     stockLock: StockLockReadModel | StockLockListReadModel,
     now = new Date()
@@ -619,6 +742,29 @@ export class SupplyService {
 
     return {
       ...stockLock,
+      status: "expired"
+    };
+  }
+
+  private apply_reservation_status_baseline(
+    reservation: ReservationReadModel,
+    now = new Date()
+  ): ReservationReadModel {
+    if (reservation.status !== "active") {
+      return reservation;
+    }
+
+    const expiresAt = new Date(reservation.expiresAt);
+    if (Number.isNaN(expiresAt.valueOf())) {
+      return reservation;
+    }
+
+    if (expiresAt.getTime() > now.getTime()) {
+      return reservation;
+    }
+
+    return {
+      ...reservation,
       status: "expired"
     };
   }

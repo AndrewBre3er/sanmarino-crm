@@ -36,16 +36,16 @@ export const supply_inventory_read_side_contract = {
     "suppliers",
     "supplier-requests",
     "purchase-receipts",
-    "stock-locks"
+    "stock-locks",
+    "reservations"
   ] as const,
   deferredCollections: [
     "products",
     "warehouses",
     "stock-balances",
-    "reservations",
     "inventory-movements"
   ] as const,
-  freezePhase: "supply-step-6-soft-lock-pre-reserve-baseline"
+  freezePhase: "supply-step-7-durable-reservation-foundation"
 } as const;
 
 export const supplier_request_role_matrix_contract = {
@@ -65,6 +65,14 @@ export const stock_lock_role_matrix_contract = {
   create: ["seller"] as const,
   release: ["seller"] as const,
   listAndDetailVisibility: "all_roles" as const
+} as const;
+
+export const reservation_foundation_contract = {
+  createApi: "internal_only_until_orders_core" as const,
+  releaseApi: "internal_only_until_orders_core" as const,
+  listAndDetailVisibility: "all_roles" as const,
+  requiresOrderId: true as const,
+  forbidsIssueWriteoffSideEffects: true as const
 } as const;
 
 export const supplier_request_file_access_contract = {

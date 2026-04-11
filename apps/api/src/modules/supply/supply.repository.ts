@@ -3,6 +3,7 @@ import type {
   InventoryPurchaseReceipt,
   InventoryPurchaseReceiptItem,
   InventoryProduct,
+  InventoryReservation,
   InventoryStockLock,
   InventorySupplier,
   InventorySupplierRequest,
@@ -10,12 +11,14 @@ import type {
   InventoryWarehouse,
   Prisma,
   ProductUnit as PrismaProductUnit,
+  ReservationStatus as PrismaReservationStatus,
   StockLockStatus as PrismaStockLockStatus,
   SupplierRequestStatus as PrismaSupplierRequestStatus
 } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import type {
   ProductUnit,
+  ReservationStatus,
   StockLockStatus,
   SupplierRequestStatus
 } from "../transactional/shared/status.contract";
@@ -60,6 +63,12 @@ export interface ProductReadModel {
   sku: string;
   name: string;
   unit: ProductUnit;
+}
+
+export interface OrderReadModel {
+  id: string;
+  orderNumber: string;
+  isDeleted: boolean;
 }
 
 export interface WarehouseReadModel {
@@ -214,6 +223,29 @@ export interface StockLockListReadModel {
   warehouse: WarehouseReadModel;
 }
 
+export interface ReservationOrderReadModel {
+  id: string;
+  orderNumber: string;
+}
+
+export interface ReservationReadModel {
+  id: string;
+  orderId: string;
+  productId: string;
+  warehouseId: string;
+  quantity: string;
+  status: ReservationStatus;
+  expiresAt: string;
+  releasedAt: string | null;
+  consumedAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  order: ReservationOrderReadModel;
+  product: ProductReadModel;
+  warehouse: WarehouseReadModel;
+}
+
 export interface CreateSupplierInput {
   name: string;
   phone?: string | null;
@@ -273,6 +305,22 @@ export interface UpdateStockLockInput {
   releasedAt?: string | null;
 }
 
+export interface CreateReservationInput {
+  orderId: string;
+  productId: string;
+  warehouseId: string;
+  quantity: number;
+  status: ReservationStatus;
+  expiresAt: string;
+  createdBy: string;
+}
+
+export interface UpdateReservationInput {
+  status?: ReservationStatus;
+  releasedAt?: string | null;
+  consumedAt?: string | null;
+}
+
 export interface UpdateSupplierRequestInput {
   status?: SupplierRequestStatus;
   expectedSupplyDate?: string;
@@ -307,6 +355,15 @@ type PurchaseReceiptWithItemsRecord = InventoryPurchaseReceipt & {
 };
 
 type StockLockWithRelationsRecord = InventoryStockLock & {
+  product: InventoryProduct;
+  warehouse: InventoryWarehouse;
+};
+
+type ReservationWithRelationsRecord = InventoryReservation & {
+  order: {
+    id: string;
+    orderNumber: string;
+  };
   product: InventoryProduct;
   warehouse: InventoryWarehouse;
 };
@@ -661,6 +718,29 @@ function map_stock_lock_list_record(record: StockLockWithRelationsRecord): Stock
   };
 }
 
+function map_reservation_record(record: ReservationWithRelationsRecord): ReservationReadModel {
+  return {
+    id: record.id,
+    orderId: record.orderId,
+    productId: record.productId,
+    warehouseId: record.warehouseId,
+    quantity: to_decimal_string(record.qty) ?? "0",
+    status: from_prisma_enum(record.status) as ReservationStatus,
+    expiresAt: to_iso_datetime(record.expiresAt) ?? "",
+    releasedAt: to_iso_datetime(record.releasedAt),
+    consumedAt: to_iso_datetime(record.consumedAt),
+    createdBy: record.createdBy,
+    createdAt: to_iso_datetime(record.createdAt) ?? "",
+    updatedAt: to_iso_datetime(record.updatedAt) ?? "",
+    order: {
+      id: record.order.id,
+      orderNumber: record.order.orderNumber
+    },
+    product: map_product_record(record.product),
+    warehouse: map_warehouse_record(record.warehouse)
+  };
+}
+
 @Injectable()
 export class PrismaSupplyRepository {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
@@ -738,6 +818,27 @@ export class PrismaSupplyRepository {
 
     return {
       id: deal.id
+    };
+  }
+
+  async getOrderById(orderId: string): Promise<OrderReadModel | null> {
+    const order = await this.prismaService.ordersOrder.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        orderNumber: true,
+        isDeleted: true
+      }
+    });
+
+    if (!order) {
+      return null;
+    }
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      isDeleted: order.isDeleted
     };
   }
 
@@ -1226,5 +1327,167 @@ export class PrismaSupplyRepository {
     });
 
     return map_stock_lock_detail_record(updated as StockLockWithRelationsRecord);
+  }
+
+  async listReservations(
+    query: ReadCollectionQueryInput
+  ): Promise<ReadCollectionResult<ReservationReadModel>> {
+    const where: Prisma.InventoryReservationWhereInput = {};
+
+    if (query.search) {
+      where.OR = [
+        { order: { orderNumber: { contains: query.search, mode: "insensitive" } } },
+        { product: { sku: { contains: query.search, mode: "insensitive" } } },
+        { product: { name: { contains: query.search, mode: "insensitive" } } },
+        { warehouse: { name: { contains: query.search, mode: "insensitive" } } }
+      ];
+    }
+
+    if (query.status && query.status.length > 0) {
+      const mappedStatuses = query.status.map((status) =>
+        to_prisma_enum<PrismaReservationStatus>(status)
+      );
+      const [firstStatus] = mappedStatuses;
+      if (mappedStatuses.length === 1 && firstStatus) {
+        where.status = firstStatus;
+      } else {
+        where.status = { in: mappedStatuses };
+      }
+    }
+
+    const orderBy = {
+      [query.sortField]: query.sortDirection
+    } as Prisma.InventoryReservationOrderByWithRelationInput;
+
+    const [items, totalItems] = await this.prismaService.$transaction([
+      this.prismaService.inventoryReservation.findMany({
+        where,
+        orderBy,
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: {
+          order: {
+            select: {
+              id: true,
+              orderNumber: true
+            }
+          },
+          product: true,
+          warehouse: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      }),
+      this.prismaService.inventoryReservation.count({ where })
+    ]);
+
+    return {
+      items: items.map((item) => map_reservation_record(item as ReservationWithRelationsRecord)),
+      pagination: build_page_pagination_meta(totalItems, query.page, query.pageSize),
+      ...(query.contract.filters ? { appliedFilters: query.contract.filters } : {}),
+      ...(query.contract.sort ? { appliedSort: query.contract.sort } : {})
+    };
+  }
+
+  async getReservationById(reservationId: string): Promise<ReservationReadModel | null> {
+    const reservation = await this.prismaService.inventoryReservation.findUnique({
+      where: { id: reservationId },
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true
+          }
+        },
+        product: true,
+        warehouse: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    if (!reservation) {
+      return null;
+    }
+
+    return map_reservation_record(reservation as ReservationWithRelationsRecord);
+  }
+
+  async createReservations(input: CreateReservationInput[]): Promise<ReservationReadModel[]> {
+    const created = await this.prismaService.$transaction(
+      input.map((reservationLine) =>
+        this.prismaService.inventoryReservation.create({
+          data: {
+            orderId: reservationLine.orderId,
+            productId: reservationLine.productId,
+            warehouseId: reservationLine.warehouseId,
+            qty: reservationLine.quantity.toFixed(3),
+            status: to_prisma_enum<PrismaReservationStatus>(reservationLine.status),
+            expiresAt: new Date(reservationLine.expiresAt),
+            createdBy: reservationLine.createdBy
+          },
+          include: {
+            order: {
+              select: {
+                id: true,
+                orderNumber: true
+              }
+            },
+            product: true,
+            warehouse: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        })
+      )
+    );
+
+    return created.map((item) => map_reservation_record(item as ReservationWithRelationsRecord));
+  }
+
+  async updateReservationById(
+    reservationId: string,
+    input: UpdateReservationInput
+  ): Promise<ReservationReadModel> {
+    const updated = await this.prismaService.inventoryReservation.update({
+      where: { id: reservationId },
+      data: {
+        ...(input.status !== undefined
+          ? { status: to_prisma_enum<PrismaReservationStatus>(input.status) }
+          : {}),
+        ...(input.releasedAt !== undefined
+          ? { releasedAt: input.releasedAt ? new Date(input.releasedAt) : null }
+          : {}),
+        ...(input.consumedAt !== undefined
+          ? { consumedAt: input.consumedAt ? new Date(input.consumedAt) : null }
+          : {})
+      },
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true
+          }
+        },
+        product: true,
+        warehouse: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    return map_reservation_record(updated as ReservationWithRelationsRecord);
   }
 }
