@@ -19,6 +19,10 @@ export * from "./payments/payment.read.repository";
 export * from "./payments/payment.read.use-cases";
 export * from "./payments/payment.read.controller";
 
+export * from "./finance/finance-entry.read.repository";
+export * from "./finance/finance-entry.read.use-cases";
+export * from "./finance/finance-entry.read.controller";
+
 export * from "./logistics/delivery-task.read.repository";
 export * from "./logistics/delivery-task.read.use-cases";
 export * from "./logistics/delivery-task.read.controller";
@@ -26,4 +30,3 @@ export * from "./logistics/delivery-task.read.controller";
 export * from "./returns/return-request.read.repository";
 export * from "./returns/return-request.read.use-cases";
 export * from "./returns/return-request.read.controller";
-

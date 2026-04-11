@@ -4,6 +4,7 @@ import {
   build_page_pagination_meta,
   build_read_collection_query,
   type DealsReadQueryDto,
+  type FinanceEntriesReadQueryDto,
   type OrdersReadQueryDto
 } from "../../src/modules/read-side/shared/read-query.dto";
 
@@ -68,6 +69,28 @@ describe("read-side query contracts", () => {
       pageSize: 20,
       totalItems: 45,
       totalPages: 3
+    });
+  });
+
+  it("supports finance entries entryType filters in collection query", () => {
+    const dto: FinanceEntriesReadQueryDto = {
+      entryType: ["income"],
+      sortBy: "recognizedAt",
+      sortDirection: "desc"
+    };
+
+    const query = build_read_collection_query(dto, {
+      defaultSortField: "recognizedAt",
+      allowedSortFields: ["recognizedAt", "createdAt", "entryType", "amount"],
+      statusField: "entryType",
+      statusValues: dto.entryType
+    });
+
+    expect(query.status).toEqual(["income"]);
+    expect(query.contract.filters?.[0]).toEqual({
+      field: "entryType",
+      operator: "eq",
+      value: "income"
     });
   });
 });

@@ -2,6 +2,12 @@ import { Module } from "@nestjs/common";
 import { DealsReadController } from "./crm/deal.read.controller";
 import { PrismaCrmDealReadRepository } from "./crm/deal.read.repository";
 import { GetDealDetailUseCase, ListDealsUseCase } from "./crm/deal.read.use-cases";
+import { FinanceEntriesReadController } from "./finance/finance-entry.read.controller";
+import { PrismaFinanceEntryReadRepository } from "./finance/finance-entry.read.repository";
+import {
+  GetFinanceEntryDetailUseCase,
+  ListFinanceEntriesUseCase
+} from "./finance/finance-entry.read.use-cases";
 import { DeliveryTasksReadController } from "./logistics/delivery-task.read.controller";
 import { PrismaLogisticsDeliveryTaskReadRepository } from "./logistics/delivery-task.read.repository";
 import {
@@ -24,6 +30,7 @@ import {
   controllers: [
     DealsReadController,
     PaymentsReadController,
+    FinanceEntriesReadController,
     DeliveryTasksReadController,
     ReturnRequestsReadController
   ],
@@ -31,6 +38,7 @@ import {
     PrismaCrmDealReadRepository,
     PrismaOrdersOrderReadRepository,
     PrismaPaymentsPaymentReadRepository,
+    PrismaFinanceEntryReadRepository,
     PrismaLogisticsDeliveryTaskReadRepository,
     PrismaOrdersReturnRequestReadRepository,
     ListDealsUseCase,
@@ -39,6 +47,8 @@ import {
     GetOrderDetailUseCase,
     ListPaymentsUseCase,
     GetPaymentDetailUseCase,
+    ListFinanceEntriesUseCase,
+    GetFinanceEntryDetailUseCase,
     ListDeliveryTasksUseCase,
     GetDeliveryTaskDetailUseCase,
     ListReturnRequestsUseCase,

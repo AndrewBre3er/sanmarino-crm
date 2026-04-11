@@ -14,6 +14,7 @@ import {
 import {
   deal_statuses,
   delivery_task_statuses,
+  finance_entry_types,
   fulfillment_statuses,
   lead_statuses,
   order_statuses,
@@ -21,6 +22,7 @@ import {
   return_request_statuses,
   type DealStatus,
   type DeliveryTaskStatus,
+  type FinanceEntryType,
   type FulfillmentStatus,
   type LeadStatus,
   type OrderStatus,
@@ -204,6 +206,24 @@ export class PaymentsReadQueryDto extends BaseReadCollectionQueryDto {
   @IsArray()
   @IsIn(payment_statuses, { each: true })
   status?: PaymentStatus[];
+}
+
+export class FinanceEntriesReadQueryDto extends BaseReadCollectionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => to_string_array(value))
+  @IsArray()
+  @IsIn(finance_entry_types, { each: true })
+  entryType?: FinanceEntryType[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  orderId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  paymentId?: string;
 }
 
 export class DeliveryTasksReadQueryDto extends BaseReadCollectionQueryDto {
