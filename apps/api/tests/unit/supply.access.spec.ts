@@ -3,12 +3,18 @@ import { describe, expect, it } from "vitest";
 import { auth_access_metadata_key } from "../../src/modules/auth/auth.access.contract";
 import { bootstrap_role_codes } from "../../src/modules/auth/auth.contract";
 import { PurchaseReceiptsController } from "../../src/modules/supply/purchase-receipts.controller";
+import { StockLocksController } from "../../src/modules/supply/stock-locks.controller";
 import { SupplierRequestsController } from "../../src/modules/supply/supplier-requests.controller";
 import { SuppliersController } from "../../src/modules/supply/suppliers.controller";
 
 describe("supply access baseline", () => {
-  it("keeps suppliers/supplier-requests/purchase-receipts list/detail visible for all roles", () => {
-    const controllers = [SuppliersController, SupplierRequestsController, PurchaseReceiptsController];
+  it("keeps supply list/detail endpoints visible for all roles", () => {
+    const controllers = [
+      SuppliersController,
+      SupplierRequestsController,
+      PurchaseReceiptsController,
+      StockLocksController
+    ];
 
     for (const controller of controllers) {
       const requirements = Reflect.getMetadata(auth_access_metadata_key, controller) as {
@@ -45,6 +51,13 @@ describe("supply access baseline", () => {
       authenticated?: boolean;
       requiredRoleCodes?: string[];
     };
+    const stockLockCreateRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      StockLocksController.prototype.create
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
 
     expect(supplierCreateRequirements?.authenticated).toBe(true);
     expect(supplierCreateRequirements?.requiredRoleCodes).toEqual(["seller", "admin", "ceo"]);
@@ -52,6 +65,8 @@ describe("supply access baseline", () => {
     expect(supplierRequestCreateRequirements?.requiredRoleCodes).toEqual(["seller"]);
     expect(purchaseReceiptCreateRequirements?.authenticated).toBe(true);
     expect(purchaseReceiptCreateRequirements?.requiredRoleCodes).toEqual(["warehouse"]);
+    expect(stockLockCreateRequirements?.authenticated).toBe(true);
+    expect(stockLockCreateRequirements?.requiredRoleCodes).toEqual(["seller"]);
   });
 
   it("keeps role matrix for supplier request status commands", () => {
@@ -108,5 +123,17 @@ describe("supply access baseline", () => {
       "finance",
       "ceo"
     ]);
+  });
+
+  it("keeps stock lock release role baseline", () => {
+    const releaseRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      StockLocksController.prototype.release
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+
+    expect(releaseRequirements?.requiredRoleCodes).toEqual(["seller"]);
   });
 });

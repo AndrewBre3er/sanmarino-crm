@@ -2,17 +2,21 @@ import { Inject, Injectable } from "@nestjs/common";
 import type {
   InventoryPurchaseReceipt,
   InventoryPurchaseReceiptItem,
+  InventoryProduct,
+  InventoryStockLock,
   InventorySupplier,
   InventorySupplierRequest,
   InventorySupplierRequestItem,
   InventoryWarehouse,
   Prisma,
   ProductUnit as PrismaProductUnit,
+  StockLockStatus as PrismaStockLockStatus,
   SupplierRequestStatus as PrismaSupplierRequestStatus
 } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import type {
   ProductUnit,
+  StockLockStatus,
   SupplierRequestStatus
 } from "../transactional/shared/status.contract";
 import type {
@@ -49,6 +53,13 @@ export interface SupplierReadModel {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProductReadModel {
+  id: string;
+  sku: string;
+  name: string;
+  unit: ProductUnit;
 }
 
 export interface WarehouseReadModel {
@@ -167,6 +178,42 @@ export interface PurchaseReceiptListReadModel {
   hasDiscrepancy: boolean;
 }
 
+export interface StockLockReadModel {
+  id: string;
+  productId: string;
+  warehouseId: string;
+  orderId: string | null;
+  dealId: string | null;
+  quantity: string;
+  status: StockLockStatus;
+  idempotencyKey: string | null;
+  expiresAt: string;
+  releasedAt: string | null;
+  promotedReservationId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  product: ProductReadModel;
+  warehouse: WarehouseReadModel;
+}
+
+export interface StockLockListReadModel {
+  id: string;
+  productId: string;
+  warehouseId: string;
+  orderId: string | null;
+  dealId: string | null;
+  quantity: string;
+  status: StockLockStatus;
+  expiresAt: string;
+  releasedAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  product: ProductReadModel;
+  warehouse: WarehouseReadModel;
+}
+
 export interface CreateSupplierInput {
   name: string;
   phone?: string | null;
@@ -210,6 +257,22 @@ export interface CreatePurchaseReceiptInput {
   items: CreatePurchaseReceiptItemInput[];
 }
 
+export interface CreateStockLockInput {
+  productId: string;
+  warehouseId: string;
+  dealId: string;
+  quantity: number;
+  status: StockLockStatus;
+  expiresAt: string;
+  idempotencyKey?: string | null;
+  createdBy: string;
+}
+
+export interface UpdateStockLockInput {
+  status?: StockLockStatus;
+  releasedAt?: string | null;
+}
+
 export interface UpdateSupplierRequestInput {
   status?: SupplierRequestStatus;
   expectedSupplyDate?: string;
@@ -243,6 +306,11 @@ type PurchaseReceiptWithItemsRecord = InventoryPurchaseReceipt & {
   items: InventoryPurchaseReceiptItem[];
 };
 
+type StockLockWithRelationsRecord = InventoryStockLock & {
+  product: InventoryProduct;
+  warehouse: InventoryWarehouse;
+};
+
 function to_iso_date(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
@@ -273,6 +341,15 @@ function map_supplier_record(record: InventorySupplier): SupplierReadModel {
     notes: record.notes,
     createdAt: to_iso_datetime(record.createdAt) ?? "",
     updatedAt: to_iso_datetime(record.updatedAt) ?? ""
+  };
+}
+
+function map_product_record(record: InventoryProduct): ProductReadModel {
+  return {
+    id: record.id,
+    sku: record.sku,
+    name: record.name,
+    unit: api_product_unit_by_prisma[record.unit]
   };
 }
 
@@ -544,6 +621,46 @@ function map_purchase_receipt_list_record(
   };
 }
 
+function map_stock_lock_detail_record(record: StockLockWithRelationsRecord): StockLockReadModel {
+  return {
+    id: record.id,
+    productId: record.productId,
+    warehouseId: record.warehouseId,
+    orderId: record.orderId,
+    dealId: record.dealId,
+    quantity: to_decimal_string(record.qty) ?? "0",
+    status: from_prisma_enum(record.status) as StockLockStatus,
+    idempotencyKey: record.idempotencyKey,
+    expiresAt: to_iso_datetime(record.expiresAt) ?? "",
+    releasedAt: to_iso_datetime(record.releasedAt),
+    promotedReservationId: record.promotedReservationId,
+    createdBy: record.createdBy,
+    createdAt: to_iso_datetime(record.createdAt) ?? "",
+    updatedAt: to_iso_datetime(record.updatedAt) ?? "",
+    product: map_product_record(record.product),
+    warehouse: map_warehouse_record(record.warehouse)
+  };
+}
+
+function map_stock_lock_list_record(record: StockLockWithRelationsRecord): StockLockListReadModel {
+  return {
+    id: record.id,
+    productId: record.productId,
+    warehouseId: record.warehouseId,
+    orderId: record.orderId,
+    dealId: record.dealId,
+    quantity: to_decimal_string(record.qty) ?? "0",
+    status: from_prisma_enum(record.status) as StockLockStatus,
+    expiresAt: to_iso_datetime(record.expiresAt) ?? "",
+    releasedAt: to_iso_datetime(record.releasedAt),
+    createdBy: record.createdBy,
+    createdAt: to_iso_datetime(record.createdAt) ?? "",
+    updatedAt: to_iso_datetime(record.updatedAt) ?? "",
+    product: map_product_record(record.product),
+    warehouse: map_warehouse_record(record.warehouse)
+  };
+}
+
 @Injectable()
 export class PrismaSupplyRepository {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
@@ -593,6 +710,35 @@ export class PrismaSupplyRepository {
     }
 
     return map_supplier_record(supplier);
+  }
+
+  async getProductById(productId: string): Promise<ProductReadModel | null> {
+    const product = await this.prismaService.inventoryProduct.findUnique({
+      where: { id: productId }
+    });
+
+    if (!product) {
+      return null;
+    }
+
+    return map_product_record(product);
+  }
+
+  async getDealById(dealId: string): Promise<{ id: string } | null> {
+    const deal = await this.prismaService.crmDeal.findUnique({
+      where: { id: dealId },
+      select: {
+        id: true
+      }
+    });
+
+    if (!deal) {
+      return null;
+    }
+
+    return {
+      id: deal.id
+    };
   }
 
   async getWarehouseById(warehouseId: string): Promise<WarehouseReadModel | null> {
@@ -949,5 +1095,136 @@ export class PrismaSupplyRepository {
     });
 
     return map_purchase_receipt_detail_record(created as PurchaseReceiptWithItemsRecord);
+  }
+
+  async listStockLocks(
+    query: ReadCollectionQueryInput
+  ): Promise<ReadCollectionResult<StockLockListReadModel>> {
+    const where: Prisma.InventoryStockLockWhereInput = {};
+
+    if (query.search) {
+      where.OR = [
+        { product: { sku: { contains: query.search, mode: "insensitive" } } },
+        { product: { name: { contains: query.search, mode: "insensitive" } } },
+        { warehouse: { name: { contains: query.search, mode: "insensitive" } } }
+      ];
+    }
+
+    if (query.status && query.status.length > 0) {
+      const mappedStatuses = query.status.map((status) =>
+        to_prisma_enum<PrismaStockLockStatus>(status)
+      );
+      const [firstStatus] = mappedStatuses;
+      if (mappedStatuses.length === 1 && firstStatus) {
+        where.status = firstStatus;
+      } else {
+        where.status = { in: mappedStatuses };
+      }
+    }
+
+    const orderBy = {
+      [query.sortField]: query.sortDirection
+    } as Prisma.InventoryStockLockOrderByWithRelationInput;
+
+    const [items, totalItems] = await this.prismaService.$transaction([
+      this.prismaService.inventoryStockLock.findMany({
+        where,
+        orderBy,
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: {
+          product: true,
+          warehouse: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      }),
+      this.prismaService.inventoryStockLock.count({ where })
+    ]);
+
+    return {
+      items: items.map((item) => map_stock_lock_list_record(item as StockLockWithRelationsRecord)),
+      pagination: build_page_pagination_meta(totalItems, query.page, query.pageSize),
+      ...(query.contract.filters ? { appliedFilters: query.contract.filters } : {}),
+      ...(query.contract.sort ? { appliedSort: query.contract.sort } : {})
+    };
+  }
+
+  async getStockLockById(stockLockId: string): Promise<StockLockReadModel | null> {
+    const stockLock = await this.prismaService.inventoryStockLock.findUnique({
+      where: { id: stockLockId },
+      include: {
+        product: true,
+        warehouse: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    if (!stockLock) {
+      return null;
+    }
+
+    return map_stock_lock_detail_record(stockLock as StockLockWithRelationsRecord);
+  }
+
+  async createStockLock(input: CreateStockLockInput): Promise<StockLockReadModel> {
+    const created = await this.prismaService.inventoryStockLock.create({
+      data: {
+        productId: input.productId,
+        warehouseId: input.warehouseId,
+        dealId: input.dealId,
+        qty: input.quantity.toFixed(3),
+        status: to_prisma_enum<PrismaStockLockStatus>(input.status),
+        expiresAt: new Date(input.expiresAt),
+        ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
+        createdBy: input.createdBy
+      },
+      include: {
+        product: true,
+        warehouse: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    return map_stock_lock_detail_record(created as StockLockWithRelationsRecord);
+  }
+
+  async updateStockLockById(
+    stockLockId: string,
+    input: UpdateStockLockInput
+  ): Promise<StockLockReadModel> {
+    const updated = await this.prismaService.inventoryStockLock.update({
+      where: { id: stockLockId },
+      data: {
+        ...(input.status !== undefined
+          ? { status: to_prisma_enum<PrismaStockLockStatus>(input.status) }
+          : {}),
+        ...(input.releasedAt !== undefined
+          ? { releasedAt: input.releasedAt ? new Date(input.releasedAt) : null }
+          : {})
+      },
+      include: {
+        product: true,
+        warehouse: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    return map_stock_lock_detail_record(updated as StockLockWithRelationsRecord);
   }
 }

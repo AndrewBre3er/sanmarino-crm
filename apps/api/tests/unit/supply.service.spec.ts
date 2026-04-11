@@ -9,6 +9,7 @@ import type { AuthPrincipal, AuthRoleCode } from "../../src/modules/auth/auth.co
 import type { ReadCollectionQueryInput } from "../../src/modules/read-side/shared/read-model.contract";
 import type {
   PrismaSupplyRepository,
+  StockLockReadModel,
   PurchaseReceiptReadModel,
   SupplierRequestReadModel
 } from "../../src/modules/supply/supply.repository";
@@ -142,10 +143,44 @@ function make_purchase_receipt(
   };
 }
 
+function make_stock_lock(overrides: Partial<StockLockReadModel> = {}): StockLockReadModel {
+  const now = new Date().toISOString();
+
+  return {
+    id: "stock_lock_1",
+    productId: "00000000-0000-0000-0000-000000000012",
+    warehouseId: "00000000-0000-0000-0000-000000000030",
+    orderId: null,
+    dealId: "00000000-0000-0000-0000-000000000011",
+    quantity: "2",
+    status: "active",
+    idempotencyKey: null,
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    releasedAt: null,
+    promotedReservationId: null,
+    createdBy: "seller_1",
+    createdAt: now,
+    updatedAt: now,
+    product: {
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    },
+    warehouse: {
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    },
+    ...overrides
+  };
+}
+
 function make_service() {
   const repository = {
     listSuppliers: vi.fn(),
     getSupplierById: vi.fn(),
+    getProductById: vi.fn(),
+    getDealById: vi.fn(),
     getWarehouseById: vi.fn(),
     createSupplier: vi.fn(),
     listSupplierRequests: vi.fn(),
@@ -154,7 +189,11 @@ function make_service() {
     updateSupplierRequestById: vi.fn(),
     listPurchaseReceipts: vi.fn(),
     getPurchaseReceiptById: vi.fn(),
-    createPurchaseReceipt: vi.fn()
+    createPurchaseReceipt: vi.fn(),
+    listStockLocks: vi.fn(),
+    getStockLockById: vi.fn(),
+    createStockLock: vi.fn(),
+    updateStockLockById: vi.fn()
   } as unknown as PrismaSupplyRepository;
 
   return {
@@ -681,5 +720,198 @@ describe("supply service", () => {
     await expect(
       service.markSupplierRequestStocked("missing_request", warehouse)
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("supports stock lock create/list/detail baseline for seller", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+    const query = build_query();
+    const stockLock = make_stock_lock();
+
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.getWarehouseById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    });
+    vi.mocked(repository.getDealById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000011"
+    });
+    vi.mocked(repository.createStockLock).mockResolvedValue(stockLock);
+    vi.mocked(repository.listStockLocks).mockResolvedValue({
+      items: [stockLock],
+      pagination: { page: 1, pageSize: 20, totalItems: 1, totalPages: 1 }
+    });
+    vi.mocked(repository.getStockLockById).mockResolvedValue(stockLock);
+
+    const created = await service.createStockLock(
+      {
+        productId: "00000000-0000-0000-0000-000000000012",
+        warehouseId: "00000000-0000-0000-0000-000000000030",
+        dealId: "00000000-0000-0000-0000-000000000011",
+        quantity: 2,
+        ttlMinutes: 7
+      },
+      seller
+    );
+    const listed = await service.listStockLocks(query);
+    const detail = await service.getStockLock("stock_lock_1");
+
+    const createArgs = vi.mocked(repository.createStockLock).mock.calls[0]?.[0];
+    expect(createArgs).toEqual(
+      expect.objectContaining({
+        productId: "00000000-0000-0000-0000-000000000012",
+        warehouseId: "00000000-0000-0000-0000-000000000030",
+        dealId: "00000000-0000-0000-0000-000000000011",
+        quantity: 2,
+        status: "active",
+        createdBy: "seller_1"
+      })
+    );
+    expect(createArgs).not.toHaveProperty("orderId");
+    expect(createArgs).not.toHaveProperty("promotedReservationId");
+    expect(createArgs?.expiresAt).toEqual(expect.any(String));
+    expect(created.status).toBe("active");
+    expect(listed.items).toHaveLength(1);
+    expect(detail.id).toBe("stock_lock_1");
+  });
+
+  it("marks active stock lock as expired in read model when TTL is passed", async () => {
+    const { service, repository } = make_service();
+    vi.mocked(repository.getStockLockById).mockResolvedValue(
+      make_stock_lock({
+        status: "active",
+        expiresAt: new Date(Date.now() - 60_000).toISOString()
+      })
+    );
+
+    const detail = await service.getStockLock("stock_lock_1");
+    expect(detail.status).toBe("expired");
+  });
+
+  it("releases active stock lock for seller", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getStockLockById).mockResolvedValue(
+      make_stock_lock({
+        status: "active",
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      })
+    );
+    vi.mocked(repository.updateStockLockById).mockResolvedValue(
+      make_stock_lock({
+        status: "released",
+        releasedAt: new Date().toISOString()
+      })
+    );
+
+    const released = await service.releaseStockLock("stock_lock_1", seller);
+
+    expect(repository.updateStockLockById).toHaveBeenCalledWith(
+      "stock_lock_1",
+      expect.objectContaining({
+        status: "released",
+        releasedAt: expect.any(String)
+      })
+    );
+    expect(released.status).toBe("released");
+  });
+
+  it("rejects stock lock release when lock is already expired", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getStockLockById).mockResolvedValue(
+      make_stock_lock({
+        status: "active",
+        expiresAt: new Date(Date.now() - 60_000).toISOString()
+      })
+    );
+
+    await expect(service.releaseStockLock("stock_lock_1", seller)).rejects.toBeInstanceOf(
+      ConflictException
+    );
+    expect(repository.updateStockLockById).not.toHaveBeenCalled();
+  });
+
+  it("enforces stock lock create/release role baseline: seller only", async () => {
+    const { service, repository } = make_service();
+    const warehouse = make_user(["warehouse"], "warehouse_1");
+
+    await expect(
+      service.createStockLock(
+        {
+          productId: "00000000-0000-0000-0000-000000000012",
+          warehouseId: "00000000-0000-0000-0000-000000000030",
+          dealId: "00000000-0000-0000-0000-000000000011",
+          quantity: 1
+        },
+        warehouse
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.releaseStockLock("stock_lock_1", warehouse)).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+
+    expect(repository.createStockLock).not.toHaveBeenCalled();
+    expect(repository.updateStockLockById).not.toHaveBeenCalled();
+  });
+
+  it("rejects stock lock create when linkage is invalid", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getProductById).mockResolvedValue(null);
+
+    await expect(
+      service.createStockLock(
+        {
+          productId: "00000000-0000-0000-0000-000000000012",
+          warehouseId: "00000000-0000-0000-0000-000000000030",
+          dealId: "00000000-0000-0000-0000-000000000011",
+          quantity: 1
+        },
+        seller
+      )
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(repository.createStockLock).not.toHaveBeenCalled();
+  });
+
+  it("rejects stock lock create when ttl is outside short-lived range", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.getWarehouseById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000030",
+      name: "Main warehouse"
+    });
+    vi.mocked(repository.getDealById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000011"
+    });
+
+    await expect(
+      service.createStockLock(
+        {
+          productId: "00000000-0000-0000-0000-000000000012",
+          warehouseId: "00000000-0000-0000-0000-000000000030",
+          dealId: "00000000-0000-0000-0000-000000000011",
+          quantity: 1,
+          ttlMinutes: 3
+        },
+        seller
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repository.createStockLock).not.toHaveBeenCalled();
   });
 });

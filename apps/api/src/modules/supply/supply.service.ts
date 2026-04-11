@@ -11,6 +11,7 @@ import type { AuthPrincipal } from "../auth/auth.contract";
 import type { ReadCollectionQueryInput } from "../read-side/shared/read-model.contract";
 import type {
   ProductUnit,
+  StockLockStatus,
   SupplierRequestStatus
 } from "../transactional/shared/status.contract";
 import { StatusTransitionError } from "../transactional/shared/transition.guard";
@@ -18,9 +19,12 @@ import { assert_supplier_request_status_transition } from "./supplier-request.tr
 import {
   PrismaSupplyRepository,
   type CreatePurchaseReceiptInput,
+  type CreateStockLockInput,
   type CreateSupplierInput,
   type CreateSupplierRequestInput,
   type PurchaseReceiptReadModel,
+  type StockLockListReadModel,
+  type StockLockReadModel,
   type SupplierRequestItemReadModel,
   type SupplierRequestReadModel
 } from "./supply.repository";
@@ -31,8 +35,13 @@ const supplier_request_confirm_role_codes = new Set(["seller"] as const);
 const supplier_request_paid_role_codes = new Set(["finance", "ceo"] as const);
 const supplier_request_stocked_role_codes = new Set(["warehouse"] as const);
 const purchase_receipt_create_role_codes = new Set(["warehouse"] as const);
+const stock_lock_create_role_codes = new Set(["seller"] as const);
+const stock_lock_release_role_codes = new Set(["seller"] as const);
 const supplier_request_business_source_types = ["deal", "order"] as const;
 const supplier_request_file_role_codes = new Set(["warehouse", "finance", "ceo"] as const);
+const stock_lock_ttl_default_minutes = 10;
+const stock_lock_ttl_min_minutes = 5;
+const stock_lock_ttl_max_minutes = 10;
 
 export interface CreateSupplierPayload {
   name: string;
@@ -71,6 +80,15 @@ export interface CreatePurchaseReceiptPayload {
   supplierRequestId: string;
   receivedAt: string;
   items: CreatePurchaseReceiptItemPayload[];
+}
+
+export interface CreateStockLockPayload {
+  productId: string;
+  warehouseId: string;
+  dealId: string;
+  quantity: number;
+  ttlMinutes?: number;
+  idempotencyKey?: string;
 }
 
 export interface ConfirmSupplierRequestBySupplierPayload {
@@ -226,6 +244,79 @@ export class SupplyService {
     };
 
     return this.supplyRepository.createPurchaseReceipt(createInput);
+  }
+
+  async listStockLocks(query: ReadCollectionQueryInput) {
+    const listed = await this.supplyRepository.listStockLocks(query);
+    const now = new Date();
+
+    return {
+      ...listed,
+      items: listed.items.map((item) => this.apply_stock_lock_status_baseline(item, now))
+    };
+  }
+
+  async getStockLock(stockLockId: string) {
+    const stockLock = await this.get_stock_lock_or_throw(stockLockId);
+    return this.apply_stock_lock_status_baseline(stockLock);
+  }
+
+  async createStockLock(input: CreateStockLockPayload, actor: AuthPrincipal) {
+    this.assert_stock_lock_create_access(actor);
+
+    const product = await this.supplyRepository.getProductById(input.productId);
+    if (!product) {
+      throw new NotFoundException(`Product '${input.productId}' was not found`);
+    }
+
+    const warehouse = await this.supplyRepository.getWarehouseById(input.warehouseId);
+    if (!warehouse) {
+      throw new NotFoundException(`Warehouse '${input.warehouseId}' was not found`);
+    }
+
+    const deal = await this.supplyRepository.getDealById(input.dealId);
+    if (!deal) {
+      throw new NotFoundException(`Deal '${input.dealId}' was not found`);
+    }
+
+    const ttlMinutes = this.resolve_stock_lock_ttl_minutes(input.ttlMinutes);
+    const createInput: CreateStockLockInput = {
+      productId: input.productId,
+      warehouseId: input.warehouseId,
+      dealId: input.dealId,
+      quantity: input.quantity,
+      status: "active",
+      expiresAt: this.build_expires_at_from_now(ttlMinutes),
+      ...(input.idempotencyKey !== undefined
+        ? { idempotencyKey: input.idempotencyKey.trim() }
+        : {}),
+      createdBy: actor.userId
+    };
+
+    const created = await this.supplyRepository.createStockLock(createInput);
+    return this.apply_stock_lock_status_baseline(created);
+  }
+
+  async releaseStockLock(stockLockId: string, actor: AuthPrincipal) {
+    this.assert_stock_lock_release_access(actor);
+
+    const current = this.apply_stock_lock_status_baseline(
+      await this.get_stock_lock_or_throw(stockLockId)
+    );
+
+    if (current.status !== "active") {
+      throw new ConflictException({
+        code: "TRANSITION_NOT_ALLOWED",
+        message: `StockLock transition '${current.status}' -> 'released' is not allowed`
+      });
+    }
+
+    const updated = await this.supplyRepository.updateStockLockById(stockLockId, {
+      status: "released",
+      releasedAt: new Date().toISOString()
+    });
+
+    return this.apply_stock_lock_status_baseline(updated);
   }
 
   async confirmSupplierRequestBySupplier(
@@ -417,6 +508,32 @@ export class SupplyService {
     }
   }
 
+  private assert_stock_lock_create_access(actor: AuthPrincipal): void {
+    const isAllowed = actor.roleCodes.some((roleCode) =>
+      stock_lock_create_role_codes.has(roleCode as "seller")
+    );
+
+    if (!isAllowed) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "StockLock create action is allowed only for seller role"
+      });
+    }
+  }
+
+  private assert_stock_lock_release_access(actor: AuthPrincipal): void {
+    const isAllowed = actor.roleCodes.some((roleCode) =>
+      stock_lock_release_role_codes.has(roleCode as "seller")
+    );
+
+    if (!isAllowed) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "StockLock release action is allowed only for seller role"
+      });
+    }
+  }
+
   private assert_supplier_request_transition(
     from: SupplierRequestStatus,
     to: SupplierRequestStatus
@@ -444,6 +561,66 @@ export class SupplyService {
     }
 
     return supplierRequest;
+  }
+
+  private async get_stock_lock_or_throw(stockLockId: string): Promise<StockLockReadModel> {
+    const stockLock = await this.supplyRepository.getStockLockById(stockLockId);
+    if (!stockLock) {
+      throw new NotFoundException(`StockLock '${stockLockId}' was not found`);
+    }
+
+    return stockLock;
+  }
+
+  private resolve_stock_lock_ttl_minutes(ttlMinutes?: number): number {
+    if (ttlMinutes === undefined) {
+      return stock_lock_ttl_default_minutes;
+    }
+
+    if (!Number.isInteger(ttlMinutes)) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "StockLock ttlMinutes must be an integer"
+      });
+    }
+
+    if (ttlMinutes < stock_lock_ttl_min_minutes || ttlMinutes > stock_lock_ttl_max_minutes) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: `StockLock ttlMinutes must stay within ${stock_lock_ttl_min_minutes}-${stock_lock_ttl_max_minutes} minutes`
+      });
+    }
+
+    return ttlMinutes;
+  }
+
+  private build_expires_at_from_now(ttlMinutes: number): string {
+    const now = Date.now();
+    const expiresAt = new Date(now + ttlMinutes * 60 * 1000);
+    return expiresAt.toISOString();
+  }
+
+  private apply_stock_lock_status_baseline(
+    stockLock: StockLockReadModel | StockLockListReadModel,
+    now = new Date()
+  ) {
+    if (stockLock.status !== "active") {
+      return stockLock;
+    }
+
+    const expiresAt = new Date(stockLock.expiresAt);
+    if (Number.isNaN(expiresAt.valueOf())) {
+      return stockLock;
+    }
+
+    if (expiresAt.getTime() > now.getTime()) {
+      return stockLock;
+    }
+
+    return {
+      ...stockLock,
+      status: "expired"
+    };
   }
 
   private apply_file_visibility_baseline(
