@@ -25,6 +25,10 @@ import type {
   OrderControlOverlayStatus,
   OrderStatus
 } from "../transactional/shared/status.contract";
+import {
+  evaluate_order_shipment_progress,
+  OrderShipmentProgressError
+} from "./order-shipment-status.policy";
 
 const privileged_order_read_roles = new Set([
   "admin",
@@ -74,16 +78,12 @@ export class OrdersService {
     const order = await this.find_order_for_command(orderId, scope);
 
     const currentStatus = from_prisma_enum(order.status) as OrderStatus;
+    this.assert_status_transition(currentStatus, targetStatus);
 
     if (targetStatus === "partially_shipped" || targetStatus === "shipped") {
-      throw new ConflictException({
-        code: "TRANSITION_DEFERRED",
-        message:
-          "Transitions to partially_shipped/shipped are deferred until fulfillment/logistics baseline is enabled"
-      });
+      const shipment_progress = await this.read_order_shipment_progress(order.id);
+      this.assert_shipment_status_requirement(targetStatus, shipment_progress);
     }
-
-    this.assert_status_transition(currentStatus, targetStatus);
 
     const now = new Date();
     const statusPatch: Prisma.OrdersOrderUpdateInput = {
@@ -93,6 +93,12 @@ export class OrdersService {
         : {}),
       ...(targetStatus === "ready_for_shipment" && !order.readyForShipmentAt
         ? { readyForShipmentAt: now }
+        : {}),
+      ...(targetStatus === "partially_shipped" && !order.partiallyShippedAt
+        ? { partiallyShippedAt: now }
+        : {}),
+      ...(targetStatus === "shipped" && !order.shippedAt
+        ? { shippedAt: now }
         : {})
     };
 
@@ -173,6 +179,108 @@ export class OrdersService {
     }
   }
 
+  private async read_order_shipment_progress(orderId: string) {
+    const [order_items, completed_fulfillment_count, pending_fulfillment_count, completed_fulfillment_items] =
+      await this.prismaService.$transaction([
+        this.prismaService.ordersOrderItem.findMany({
+          where: { orderId },
+          select: {
+            id: true,
+            qty: true
+          }
+        }),
+        this.prismaService.ordersFulfillment.count({
+          where: {
+            orderId,
+            status: "COMPLETED"
+          }
+        }),
+        this.prismaService.ordersFulfillment.count({
+          where: {
+            orderId,
+            status: "PENDING"
+          }
+        }),
+        this.prismaService.ordersFulfillmentItem.findMany({
+          where: {
+            fulfillment: {
+              orderId,
+              status: "COMPLETED"
+            }
+          },
+          select: {
+            orderItemId: true,
+            qty: true
+          }
+        })
+      ]);
+
+    try {
+      return evaluate_order_shipment_progress({
+        orderItems: order_items.map((item) => ({
+          orderItemId: item.id,
+          qty: to_quantity_number(item.qty)
+        })),
+        completedFulfillmentCount: completed_fulfillment_count,
+        pendingFulfillmentCount: pending_fulfillment_count,
+        completedShipmentItems: completed_fulfillment_items.map((item) => ({
+          orderItemId: item.orderItemId,
+          qty: to_quantity_number(item.qty)
+        }))
+      });
+    } catch (error) {
+      if (error instanceof OrderShipmentProgressError) {
+        throw new ConflictException({
+          code: "FULFILLMENT_PROGRESS_INVALID",
+          message: error.message
+        });
+      }
+
+      throw error;
+    }
+  }
+
+  private assert_shipment_status_requirement(
+    targetStatus: Extract<OrderStatus, "partially_shipped" | "shipped">,
+    shipmentProgress: ReturnType<typeof evaluate_order_shipment_progress>
+  ): void {
+    if (!shipmentProgress.hasCompletedFulfillment) {
+      throw new ConflictException({
+        code: "FULFILLMENT_PROGRESS_REQUIRED",
+        message: "Shipment transition requires at least one completed fulfillment"
+      });
+    }
+
+    if (targetStatus === "partially_shipped") {
+      if (shipmentProgress.recommendedStatus === "shipped") {
+        throw new ConflictException({
+          code: "FULFILLMENT_PROGRESS_COMPLETE",
+          message: "Order fulfillment is complete; use ship-complete command"
+        });
+      }
+
+      if (shipmentProgress.recommendedStatus !== "partially_shipped") {
+        throw new ConflictException({
+          code: "FULFILLMENT_PROGRESS_REQUIRED",
+          message: shipmentProgress.hasOrderItems
+            ? "Partial shipment requires item-level completed fulfillment evidence"
+            : "Partial shipment requires both completed and pending fulfillments for orders without items"
+        });
+      }
+
+      return;
+    }
+
+    if (shipmentProgress.recommendedStatus !== "shipped") {
+      throw new ConflictException({
+        code: "FULFILLMENT_PROGRESS_INCOMPLETE",
+        message: shipmentProgress.hasOrderItems
+          ? "Complete shipment requires full fulfillment completion for all order items"
+          : "Complete shipment requires all fulfillments to be completed"
+      });
+    }
+  }
+
   private async find_order_for_command(
     orderId: string,
     scope?: OrdersOrderReadScope
@@ -183,6 +291,8 @@ export class OrdersService {
     paymentControlDueAt: Date | null;
     readyForPartialShipmentAt: Date | null;
     readyForShipmentAt: Date | null;
+    partiallyShippedAt: Date | null;
+    shippedAt: Date | null;
   }> {
     const and_clauses: Prisma.OrdersOrderWhereInput[] = [
       { id: orderId },
@@ -207,7 +317,9 @@ export class OrdersService {
         paymentControlStatus: true,
         paymentControlDueAt: true,
         readyForPartialShipmentAt: true,
-        readyForShipmentAt: true
+        readyForShipmentAt: true,
+        partiallyShippedAt: true,
+        shippedAt: true
       }
     });
 
@@ -247,4 +359,9 @@ function can_clear_problem_overlay(actor: Pick<AuthPrincipal, "roleCodes">): boo
   return actor.roleCodes.some((roleCode) =>
     roleCode === "finance" || roleCode === "ceo" || roleCode === "admin"
   );
+}
+
+function to_quantity_number(value: number | string | { toString: () => string }): number {
+  const quantity = Number(typeof value === "number" ? value : value.toString());
+  return Number.isFinite(quantity) ? quantity : 0;
 }

@@ -102,4 +102,15 @@ export class FulfillmentsController {
     const fulfillment = await this.fulfillmentsService.createFulfillment(payload, access.user);
     return { data: fulfillment };
   }
+
+  @Post(":fulfillmentId/confirm-execution")
+  @require_roles("warehouse", "logistics", "admin", "ceo")
+  async confirmExecution(
+    @Param("fulfillmentId") fulfillmentId: string,
+    @Req() request: AuthenticatedRequestLike
+  ) {
+    const access = get_authenticated_access(request);
+    const fulfillment = await this.fulfillmentsService.confirmExecution(fulfillmentId, access.user);
+    return { data: fulfillment };
+  }
 }

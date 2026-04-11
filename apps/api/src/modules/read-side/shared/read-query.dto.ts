@@ -9,7 +9,7 @@ import {
   IsUUID,
   Max,
   MaxLength,
-  Min
+  Min,
 } from "class-validator";
 import {
   deal_statuses,
@@ -25,7 +25,7 @@ import {
   type LeadStatus,
   type OrderStatus,
   type PaymentStatus,
-  type ReturnRequestStatus
+  type ReturnRequestStatus,
 } from "../../transactional/shared/status.contract";
 import type {
   CollectionQueryContract,
@@ -33,13 +33,13 @@ import type {
   PagePaginationMeta,
   ReadCollectionQueryInput,
   SortClause,
-  SortDirection
+  SortDirection,
 } from "./read-model.contract";
 
 const read_query_defaults = {
   page: 1,
   pageSize: 20,
-  maxPageSize: 100
+  maxPageSize: 100,
 } as const;
 
 function trim_to_undefined(value: unknown): string | undefined {
@@ -94,7 +94,10 @@ function normalize_boolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
-function to_status_filters(status_field: string, statuses: string[]): FilterClause[] {
+function to_status_filters(
+  status_field: string,
+  statuses: string[],
+): FilterClause[] {
   if (statuses.length === 0) {
     return [];
   }
@@ -105,8 +108,8 @@ function to_status_filters(status_field: string, statuses: string[]): FilterClau
       {
         field: status_field,
         operator: "eq",
-        value: single_status
-      }
+        value: single_status,
+      },
     ];
   }
 
@@ -114,8 +117,8 @@ function to_status_filters(status_field: string, statuses: string[]): FilterClau
     {
       field: status_field,
       operator: "in",
-      value: statuses
-    }
+      value: statuses,
+    },
   ];
 }
 
@@ -241,7 +244,7 @@ export interface BuildReadCollectionQueryOptions {
 
 export function build_read_collection_query(
   dto: BaseReadCollectionQueryDto,
-  options: BuildReadCollectionQueryOptions
+  options: BuildReadCollectionQueryOptions,
 ): ReadCollectionQueryInput {
   const page = dto.page ?? read_query_defaults.page;
   const pageSize = dto.pageSize ?? read_query_defaults.pageSize;
@@ -255,7 +258,9 @@ export function build_read_collection_query(
   const includeDeleted = dto.includeDeleted ?? false;
 
   const statuses = options.statusValues ? [...options.statusValues] : [];
-  const filters = options.statusField ? to_status_filters(options.statusField, statuses) : [];
+  const filters = options.statusField
+    ? to_status_filters(options.statusField, statuses)
+    : [];
   const sort: SortClause[] = [{ field: sortField, direction: sortDirection }];
 
   const contract: CollectionQueryContract = {
@@ -264,11 +269,11 @@ export function build_read_collection_query(
       mode: "page",
       page: {
         page,
-        pageSize
-      }
+        pageSize,
+      },
     },
     ...(sort.length > 0 ? { sort } : {}),
-    ...(filters.length > 0 ? { filters } : {})
+    ...(filters.length > 0 ? { filters } : {}),
   };
 
   return {
@@ -279,21 +284,22 @@ export function build_read_collection_query(
     ...(statuses.length > 0 ? { status: statuses } : {}),
     sortField,
     sortDirection,
-    contract
+    contract,
   };
 }
 
 export function build_page_pagination_meta(
   total_items: number,
   page: number,
-  page_size: number
+  page_size: number,
 ): PagePaginationMeta {
-  const total_pages = total_items === 0 ? 0 : Math.ceil(total_items / page_size);
+  const total_pages =
+    total_items === 0 ? 0 : Math.ceil(total_items / page_size);
 
   return {
     page,
     pageSize: page_size,
     totalItems: total_items,
-    totalPages: total_pages
+    totalPages: total_pages,
   };
 }

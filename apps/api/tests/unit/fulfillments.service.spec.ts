@@ -34,17 +34,23 @@ function create_prisma_mock() {
   const ordersFulfillmentCount = vi.fn();
   const ordersFulfillmentFindFirst = vi.fn();
   const ordersFulfillmentCreate = vi.fn();
+  const ordersFulfillmentUpdate = vi.fn();
   const ordersFulfillmentItemCreateMany = vi.fn();
+  const ordersFulfillmentItemFindMany = vi.fn();
   const ordersOrderFindFirst = vi.fn();
   const ordersOrderItemFindMany = vi.fn();
   const ordersOrderUpdate = vi.fn();
 
   const transactionClient = {
     ordersFulfillment: {
-      create: ordersFulfillmentCreate
+      create: ordersFulfillmentCreate,
+      findFirst: ordersFulfillmentFindFirst,
+      update: ordersFulfillmentUpdate,
+      count: ordersFulfillmentCount
     },
     ordersFulfillmentItem: {
-      createMany: ordersFulfillmentItemCreateMany
+      createMany: ordersFulfillmentItemCreateMany,
+      findMany: ordersFulfillmentItemFindMany
     },
     ordersOrder: {
       findFirst: ordersOrderFindFirst,
@@ -59,7 +65,8 @@ function create_prisma_mock() {
     ordersFulfillment: {
       findMany: ordersFulfillmentFindMany,
       count: ordersFulfillmentCount,
-      findFirst: ordersFulfillmentFindFirst
+      findFirst: ordersFulfillmentFindFirst,
+      update: ordersFulfillmentUpdate
     },
     ordersOrder: {
       findFirst: ordersOrderFindFirst,
@@ -69,7 +76,8 @@ function create_prisma_mock() {
       findMany: ordersOrderItemFindMany
     },
     ordersFulfillmentItem: {
-      createMany: ordersFulfillmentItemCreateMany
+      createMany: ordersFulfillmentItemCreateMany,
+      findMany: ordersFulfillmentItemFindMany
     },
     $transaction: vi.fn(async (arg: unknown) => {
       if (typeof arg === "function") {
@@ -90,7 +98,9 @@ function create_prisma_mock() {
     ordersFulfillmentCount,
     ordersFulfillmentFindFirst,
     ordersFulfillmentCreate,
+    ordersFulfillmentUpdate,
     ordersFulfillmentItemCreateMany,
+    ordersFulfillmentItemFindMany,
     ordersOrderFindFirst,
     ordersOrderItemFindMany,
     ordersOrderUpdate
@@ -291,5 +301,204 @@ describe("fulfillments service", () => {
     expect(ordersFulfillmentItemCreateMany).toHaveBeenCalledOnce();
     expect(ordersOrderUpdate).not.toHaveBeenCalled();
     expect(fulfillment.status).toBe("pending");
+  });
+
+  it("confirms fulfillment execution and syncs order to partially_shipped", async () => {
+    const {
+      prismaService,
+      ordersFulfillmentFindFirst,
+      ordersFulfillmentUpdate,
+      ordersFulfillmentCount,
+      ordersFulfillmentItemFindMany,
+      ordersOrderItemFindMany,
+      ordersOrderUpdate
+    } = create_prisma_mock();
+    ordersFulfillmentFindFirst
+      .mockResolvedValueOnce({
+        id: "ful_1",
+        orderId: "order_1",
+        status: "PENDING",
+        fulfillmentType: "DELIVERY",
+        order: {
+          id: "order_1",
+          status: "READY_FOR_PARTIAL_SHIPMENT",
+          paymentControlStatus: "NONE",
+          paymentControlDueAt: null,
+          readyForPartialShipmentAt: null,
+          readyForShipmentAt: null,
+          partiallyShippedAt: null,
+          shippedAt: null
+        }
+      })
+      .mockResolvedValueOnce({
+        id: "ful_1",
+        orderId: "order_1",
+        status: "COMPLETED",
+        fulfillmentType: "DELIVERY",
+        fulfilledAt: new Date(),
+        failureReason: null,
+        createdBy: "warehouse_1",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        version: 2,
+        _count: { items: 1 },
+        items: [
+          {
+            id: "fitem_1",
+            fulfillmentId: "ful_1",
+            orderItemId: "item_1",
+            qty: "2.00",
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        ]
+      });
+    ordersOrderItemFindMany.mockResolvedValue([{ id: "item_1", qty: "5.00" }]);
+    ordersFulfillmentCount.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+    ordersFulfillmentItemFindMany.mockResolvedValue([{ orderItemId: "item_1", qty: "2.00" }]);
+
+    const service = new FulfillmentsService(prismaService);
+    const result = await service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]));
+
+    expect(ordersFulfillmentUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "ful_1" },
+        data: expect.objectContaining({
+          status: "COMPLETED",
+          fulfilledAt: expect.any(Date)
+        })
+      })
+    );
+    expect(ordersOrderUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "order_1" },
+        data: expect.objectContaining({
+          status: "PARTIALLY_SHIPPED",
+          partiallyShippedAt: expect.any(Date)
+        })
+      })
+    );
+    const orderUpdatePayload = ordersOrderUpdate.mock.calls[0]?.[0]?.data as Record<string, unknown>;
+    expect(orderUpdatePayload.paymentControlStatus).toBeUndefined();
+    expect(orderUpdatePayload.deliveryStatus).toBeUndefined();
+    expect(result.status).toBe("completed");
+  });
+
+  it("confirms fulfillment execution and syncs order to shipped", async () => {
+    const {
+      prismaService,
+      ordersFulfillmentFindFirst,
+      ordersFulfillmentUpdate,
+      ordersFulfillmentCount,
+      ordersFulfillmentItemFindMany,
+      ordersOrderItemFindMany,
+      ordersOrderUpdate
+    } = create_prisma_mock();
+    ordersFulfillmentFindFirst
+      .mockResolvedValueOnce({
+        id: "ful_1",
+        orderId: "order_1",
+        status: "PENDING",
+        fulfillmentType: "DELIVERY",
+        order: {
+          id: "order_1",
+          status: "READY_FOR_SHIPMENT",
+          paymentControlStatus: "NONE",
+          paymentControlDueAt: null,
+          readyForPartialShipmentAt: null,
+          readyForShipmentAt: null,
+          partiallyShippedAt: null,
+          shippedAt: null
+        }
+      })
+      .mockResolvedValueOnce({
+        id: "ful_1",
+        orderId: "order_1",
+        status: "COMPLETED",
+        fulfillmentType: "DELIVERY",
+        fulfilledAt: new Date(),
+        failureReason: null,
+        createdBy: "warehouse_1",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        version: 2,
+        _count: { items: 1 },
+        items: [
+          {
+            id: "fitem_1",
+            fulfillmentId: "ful_1",
+            orderItemId: "item_1",
+            qty: "5.00",
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        ]
+      });
+    ordersOrderItemFindMany.mockResolvedValue([{ id: "item_1", qty: "5.00" }]);
+    ordersFulfillmentCount.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+    ordersFulfillmentItemFindMany.mockResolvedValue([{ orderItemId: "item_1", qty: "5.00" }]);
+
+    const service = new FulfillmentsService(prismaService);
+    const result = await service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]));
+
+    expect(ordersFulfillmentUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "ful_1" },
+        data: expect.objectContaining({
+          status: "COMPLETED",
+          fulfilledAt: expect.any(Date)
+        })
+      })
+    );
+    expect(ordersOrderUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "order_1" },
+        data: expect.objectContaining({
+          status: "SHIPPED",
+          shippedAt: expect.any(Date)
+        })
+      })
+    );
+    const orderUpdatePayload = ordersOrderUpdate.mock.calls[0]?.[0]?.data as Record<string, unknown>;
+    expect(orderUpdatePayload.paymentControlStatus).toBeUndefined();
+    expect(orderUpdatePayload.deliveryStatus).toBeUndefined();
+    expect(result.status).toBe("completed");
+  });
+
+  it("blocks confirm execution when shipment transition is invalid for current order state", async () => {
+    const {
+      prismaService,
+      ordersFulfillmentFindFirst,
+      ordersFulfillmentCount,
+      ordersFulfillmentItemFindMany,
+      ordersOrderItemFindMany,
+      ordersOrderUpdate
+    } = create_prisma_mock();
+    ordersFulfillmentFindFirst.mockResolvedValueOnce({
+      id: "ful_1",
+      orderId: "order_1",
+      status: "PENDING",
+      fulfillmentType: "DELIVERY",
+      order: {
+        id: "order_1",
+        status: "ASSEMBLING",
+        paymentControlStatus: "NONE",
+        paymentControlDueAt: null,
+        readyForPartialShipmentAt: null,
+        readyForShipmentAt: null,
+        partiallyShippedAt: null,
+        shippedAt: null
+      }
+    });
+    ordersOrderItemFindMany.mockResolvedValue([{ id: "item_1", qty: "5.00" }]);
+    ordersFulfillmentCount.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+    ordersFulfillmentItemFindMany.mockResolvedValue([{ orderItemId: "item_1", qty: "2.00" }]);
+
+    const service = new FulfillmentsService(prismaService);
+
+    await expect(
+      service.confirmExecution("ful_1", actor("warehouse_1", ["warehouse"]))
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(ordersOrderUpdate).not.toHaveBeenCalled();
   });
 });

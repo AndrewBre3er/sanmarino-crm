@@ -8,6 +8,7 @@ import {
 import type {
   FulfillmentStatus as PrismaFulfillmentStatus,
   OrderFulfillmentType as PrismaOrderFulfillmentType,
+  OrderStatus as PrismaOrderStatus,
   Prisma
 } from "@prisma/client";
 import type { AuthPrincipal } from "../auth/auth.contract";
@@ -24,10 +25,16 @@ import type {
 } from "../read-side/shared/read-model.contract";
 import { PrismaService } from "../../prisma/prisma.service";
 import { resolve_order_read_scope } from "./orders.service";
+import { assert_order_status_transition } from "../transactional/orders/order.transition.guard";
 import type {
   FulfillmentStatus,
-  OrderFulfillmentType
+  OrderFulfillmentType,
+  OrderStatus
 } from "../transactional/shared/status.contract";
+import {
+  evaluate_order_shipment_progress,
+  OrderShipmentProgressError
+} from "./order-shipment-status.policy";
 
 export interface FulfillmentItemReadModel {
   id: string;
@@ -342,6 +349,173 @@ export class FulfillmentsService {
 
     return this.getFulfillment(fulfillment_id, actor);
   }
+
+  async confirmExecution(
+    fulfillmentId: string,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">
+  ): Promise<FulfillmentDetailReadModel> {
+    const scope = resolve_order_read_scope(actor, undefined);
+
+    await this.prismaService.$transaction(async (transactionClient) => {
+      const and_clauses: Prisma.OrdersFulfillmentWhereInput[] = [{ id: fulfillmentId }];
+      if (scope?.responsibleUserId) {
+        and_clauses.push({
+          order: {
+            deal: {
+              responsibleUserId: scope.responsibleUserId
+            }
+          }
+        });
+      }
+
+      const fulfillment = await transactionClient.ordersFulfillment.findFirst({
+        where: {
+          AND: and_clauses
+        },
+        select: {
+          id: true,
+          orderId: true,
+          status: true,
+          order: {
+            select: {
+              id: true,
+              status: true,
+              partiallyShippedAt: true,
+              shippedAt: true
+            }
+          }
+        }
+      });
+
+      if (!fulfillment) {
+        throw new NotFoundException(`Fulfillment '${fulfillmentId}' was not found`);
+      }
+
+      if (fulfillment.status === "FAILED" || fulfillment.status === "CANCELLED") {
+        throw new ConflictException({
+          code: "TRANSITION_NOT_ALLOWED",
+          message: "Only pending/completed fulfillment can be confirmed"
+        });
+      }
+
+      const now = new Date();
+      if (fulfillment.status === "PENDING") {
+        await transactionClient.ordersFulfillment.update({
+          where: { id: fulfillment.id },
+          data: {
+            status: "COMPLETED",
+            fulfilledAt: now
+          }
+        });
+      }
+
+      const shipment_progress = await this.read_order_shipment_progress(
+        transactionClient,
+        fulfillment.orderId
+      );
+      const target_status = shipment_progress.recommendedStatus;
+      if (!target_status) {
+        return;
+      }
+
+      const current_order_status = from_prisma_enum(fulfillment.order.status) as OrderStatus;
+      if (current_order_status === target_status) {
+        return;
+      }
+
+      this.assert_order_status_transition(current_order_status, target_status);
+
+      await transactionClient.ordersOrder.update({
+        where: { id: fulfillment.orderId },
+        data: {
+          status: to_prisma_enum<PrismaOrderStatus>(target_status),
+          ...(target_status === "partially_shipped" && !fulfillment.order.partiallyShippedAt
+            ? { partiallyShippedAt: now }
+            : {}),
+          ...(target_status === "shipped" && !fulfillment.order.shippedAt
+            ? { shippedAt: now }
+            : {})
+        }
+      });
+    });
+
+    return this.getFulfillment(fulfillmentId, actor);
+  }
+
+  private async read_order_shipment_progress(
+    transactionClient: Prisma.TransactionClient,
+    orderId: string
+  ) {
+    const [order_items, completed_fulfillment_count, pending_fulfillment_count, completed_fulfillment_items] =
+      await Promise.all([
+        transactionClient.ordersOrderItem.findMany({
+          where: { orderId },
+          select: {
+            id: true,
+            qty: true
+          }
+        }),
+        transactionClient.ordersFulfillment.count({
+          where: {
+            orderId,
+            status: "COMPLETED"
+          }
+        }),
+        transactionClient.ordersFulfillment.count({
+          where: {
+            orderId,
+            status: "PENDING"
+          }
+        }),
+        transactionClient.ordersFulfillmentItem.findMany({
+          where: {
+            fulfillment: {
+              orderId,
+              status: "COMPLETED"
+            }
+          },
+          select: {
+            orderItemId: true,
+            qty: true
+          }
+        })
+      ]);
+
+    try {
+      return evaluate_order_shipment_progress({
+        orderItems: order_items.map((item) => ({
+          orderItemId: item.id,
+          qty: to_quantity_number(item.qty)
+        })),
+        completedFulfillmentCount: completed_fulfillment_count,
+        pendingFulfillmentCount: pending_fulfillment_count,
+        completedShipmentItems: completed_fulfillment_items.map((item) => ({
+          orderItemId: item.orderItemId,
+          qty: to_quantity_number(item.qty)
+        }))
+      });
+    } catch (error) {
+      if (error instanceof OrderShipmentProgressError) {
+        throw new ConflictException({
+          code: "FULFILLMENT_PROGRESS_INVALID",
+          message: error.message
+        });
+      }
+
+      throw error;
+    }
+  }
+
+  private assert_order_status_transition(from: OrderStatus, to: OrderStatus): void {
+    try {
+      assert_order_status_transition(from, to);
+    } catch (error) {
+      throw new ConflictException({
+        code: "TRANSITION_NOT_ALLOWED",
+        message: error instanceof Error ? error.message : "Order status transition is not allowed"
+      });
+    }
+  }
 }
 
 function normalize_create_items(items: CreateFulfillmentItemInput[] | undefined): CreateFulfillmentItemInput[] {
@@ -379,4 +553,9 @@ function normalize_create_items(items: CreateFulfillmentItemInput[] | undefined)
 
     return { orderItemId, qty };
   });
+}
+
+function to_quantity_number(value: number | string | { toString: () => string }): number {
+  const quantity = Number(typeof value === "number" ? value : value.toString());
+  return Number.isFinite(quantity) ? quantity : 0;
 }

@@ -90,7 +90,8 @@ describe("fulfillments controller", () => {
         pagination: { page: 1, pageSize: 20, totalItems: 0, totalPages: 0 }
       }),
       getFulfillment: vi.fn(),
-      createFulfillment: vi.fn()
+      createFulfillment: vi.fn(),
+      confirmExecution: vi.fn()
     } as unknown as FulfillmentsService;
     const controller = new FulfillmentsController(service);
     const request = build_request("seller_1", ["seller"]);
@@ -108,7 +109,8 @@ describe("fulfillments controller", () => {
         id: "ful_1",
         status: "pending"
       }),
-      createFulfillment: vi.fn()
+      createFulfillment: vi.fn(),
+      confirmExecution: vi.fn()
     } as unknown as FulfillmentsService;
     const controller = new FulfillmentsController(service);
     const request = build_request("seller_1", ["seller"]);
@@ -128,7 +130,8 @@ describe("fulfillments controller", () => {
     const service = {
       listFulfillments: vi.fn(),
       getFulfillment: vi.fn(),
-      createFulfillment: vi.fn().mockResolvedValue({ id: "ful_1" })
+      createFulfillment: vi.fn().mockResolvedValue({ id: "ful_1" }),
+      confirmExecution: vi.fn()
     } as unknown as FulfillmentsService;
     const controller = new FulfillmentsController(service);
     const request = build_request("warehouse_1", ["warehouse"]);
@@ -141,6 +144,22 @@ describe("fulfillments controller", () => {
 
     expect(service.createFulfillment).toHaveBeenCalledWith(payload, request.auth.user);
     expect(result).toEqual({ data: { id: "ful_1" } });
+  });
+
+  it("confirms fulfillment execution", async () => {
+    const service = {
+      listFulfillments: vi.fn(),
+      getFulfillment: vi.fn(),
+      createFulfillment: vi.fn(),
+      confirmExecution: vi.fn().mockResolvedValue({ id: "ful_1", status: "completed" })
+    } as unknown as FulfillmentsService;
+    const controller = new FulfillmentsController(service);
+    const request = build_request("warehouse_1", ["warehouse"]);
+
+    const result = await controller.confirmExecution("ful_1", request);
+
+    expect(service.confirmExecution).toHaveBeenCalledWith("ful_1", request.auth.user);
+    expect(result).toEqual({ data: { id: "ful_1", status: "completed" } });
   });
 
   it("keeps role metadata for read and create surfaces", () => {
@@ -158,6 +177,13 @@ describe("fulfillments controller", () => {
       authenticated?: boolean;
       requiredRoleCodes?: string[];
     };
+    const confirmRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      FulfillmentsController.prototype.confirmExecution
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
 
     expect(classRequirements?.requiredRoleCodes).toEqual([
       "seller",
@@ -168,6 +194,12 @@ describe("fulfillments controller", () => {
       "ceo"
     ]);
     expect(createRequirements?.requiredRoleCodes).toEqual([
+      "warehouse",
+      "logistics",
+      "admin",
+      "ceo"
+    ]);
+    expect(confirmRequirements?.requiredRoleCodes).toEqual([
       "warehouse",
       "logistics",
       "admin",
