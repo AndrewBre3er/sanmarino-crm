@@ -77,8 +77,19 @@ export interface OrdersOrderDetailReadModel extends OrdersOrderReadModel {
 }
 
 export interface OrdersOrderReadRepositoryContract {
-  list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<OrdersOrderReadModel>>;
-  getById(orderId: string, includeDeleted?: boolean): Promise<OrdersOrderDetailReadModel | null>;
+  list(
+    query: ReadCollectionQueryInput,
+    scope?: OrdersOrderReadScope
+  ): Promise<ReadCollectionResult<OrdersOrderReadModel>>;
+  getById(
+    orderId: string,
+    includeDeleted?: boolean,
+    scope?: OrdersOrderReadScope
+  ): Promise<OrdersOrderDetailReadModel | null>;
+}
+
+export interface OrdersOrderReadScope {
+  responsibleUserId?: string;
 }
 
 function map_order_item_read_model(record: OrdersOrderItem): OrdersOrderItemReadModel {
@@ -134,7 +145,10 @@ function map_order_read_model(record: OrdersOrder): OrdersOrderReadModel {
 export class PrismaOrdersOrderReadRepository implements OrdersOrderReadRepositoryContract {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
-  async list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<OrdersOrderReadModel>> {
+  async list(
+    query: ReadCollectionQueryInput,
+    scope?: OrdersOrderReadScope
+  ): Promise<ReadCollectionResult<OrdersOrderReadModel>> {
     const where: Prisma.OrdersOrderWhereInput = {};
 
     if (!query.includeDeleted) {
@@ -156,6 +170,12 @@ export class PrismaOrdersOrderReadRepository implements OrdersOrderReadRepositor
       } else {
         where.status = { in: mapped };
       }
+    }
+
+    if (scope?.responsibleUserId) {
+      where.deal = {
+        responsibleUserId: scope.responsibleUserId
+      };
     }
 
     const orderBy = {
@@ -180,9 +200,24 @@ export class PrismaOrdersOrderReadRepository implements OrdersOrderReadRepositor
     };
   }
 
-  async getById(orderId: string, includeDeleted = false): Promise<OrdersOrderDetailReadModel | null> {
-    const order = await this.prismaService.ordersOrder.findUnique({
-      where: { id: orderId },
+  async getById(
+    orderId: string,
+    includeDeleted = false,
+    scope?: OrdersOrderReadScope
+  ): Promise<OrdersOrderDetailReadModel | null> {
+    const and_clauses: Prisma.OrdersOrderWhereInput[] = [{ id: orderId }];
+    if (scope?.responsibleUserId) {
+      and_clauses.push({
+        deal: {
+          responsibleUserId: scope.responsibleUserId
+        }
+      });
+    }
+
+    const order = await this.prismaService.ordersOrder.findFirst({
+      where: {
+        AND: and_clauses
+      },
       include: {
         items: {
           orderBy: { lineNo: "asc" }

@@ -8,7 +8,6 @@ import {
   GetDeliveryTaskDetailUseCase,
   ListDeliveryTasksUseCase
 } from "./logistics/delivery-task.read.use-cases";
-import { OrdersReadController } from "./orders/order.read.controller";
 import { PrismaOrdersOrderReadRepository } from "./orders/order.read.repository";
 import { GetOrderDetailUseCase, ListOrdersUseCase } from "./orders/order.read.use-cases";
 import { PaymentsReadController } from "./payments/payment.read.controller";
@@ -24,7 +23,6 @@ import {
 @Module({
   controllers: [
     DealsReadController,
-    OrdersReadController,
     PaymentsReadController,
     DeliveryTasksReadController,
     ReturnRequestsReadController

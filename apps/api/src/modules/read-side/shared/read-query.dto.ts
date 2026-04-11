@@ -186,6 +186,11 @@ export class OrdersReadQueryDto extends BaseReadCollectionQueryDto {
   @IsArray()
   @IsIn(order_statuses, { each: true })
   status?: OrderStatus[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  responsibleUserId?: string;
 }
 
 export class PaymentsReadQueryDto extends BaseReadCollectionQueryDto {
