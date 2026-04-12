@@ -86,6 +86,13 @@ export class OrdersService {
     }
 
     const now = new Date();
+    const controlOverlayPatch = await this.build_system_money_control_patch_for_shipment_transition(
+      order.id,
+      targetStatus,
+      from_prisma_enum(order.paymentControlStatus) as OrderControlOverlayStatus,
+      order.paymentControlDueAt,
+      order.totalAmount
+    );
     const statusPatch: Prisma.OrdersOrderUpdateInput = {
       status: to_prisma_enum<PrismaOrderStatus>(targetStatus),
       ...(targetStatus === "ready_for_partial_shipment" && !order.readyForPartialShipmentAt
@@ -99,7 +106,8 @@ export class OrdersService {
         : {}),
       ...(targetStatus === "shipped" && !order.shippedAt
         ? { shippedAt: now }
-        : {})
+        : {}),
+      ...controlOverlayPatch
     };
 
     await this.prismaService.ordersOrder.update({
@@ -289,6 +297,7 @@ export class OrdersService {
     status: PrismaOrderStatus;
     paymentControlStatus: PrismaOrderPaymentControlStatus;
     paymentControlDueAt: Date | null;
+    totalAmount: Prisma.Decimal | number | string;
     readyForPartialShipmentAt: Date | null;
     readyForShipmentAt: Date | null;
     partiallyShippedAt: Date | null;
@@ -316,6 +325,7 @@ export class OrdersService {
         status: true,
         paymentControlStatus: true,
         paymentControlDueAt: true,
+        totalAmount: true,
         readyForPartialShipmentAt: true,
         readyForShipmentAt: true,
         partiallyShippedAt: true,
@@ -328,6 +338,57 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  private async build_system_money_control_patch_for_shipment_transition(
+    orderId: string,
+    targetStatus: OrderStatus,
+    currentControlStatus: OrderControlOverlayStatus,
+    currentControlDueAt: Date | null,
+    orderTotalAmount: Prisma.Decimal | number | string
+  ): Promise<Prisma.OrdersOrderUpdateInput> {
+    if (!is_shipment_status(targetStatus)) {
+      return {};
+    }
+
+    const uncoveredAmount = await this.read_uncovered_amount(orderId, orderTotalAmount);
+    if (uncoveredAmount <= 0) {
+      return {};
+    }
+
+    if (currentControlStatus !== "none") {
+      return {};
+    }
+
+    this.assert_control_overlay_transition("none", "on_control");
+    return {
+      paymentControlStatus: to_prisma_enum<PrismaOrderPaymentControlStatus>("on_control"),
+      ...(currentControlDueAt ? {} : { paymentControlDueAt: new Date() })
+    };
+  }
+
+  private async read_uncovered_amount(
+    orderId: string,
+    orderTotalAmount: Prisma.Decimal | number | string
+  ): Promise<number> {
+    const completedPayments = await this.prismaService.paymentsPayment.aggregate({
+      where: {
+        orderId,
+        status: "COMPLETED",
+        isDeleted: false
+      },
+      _sum: {
+        amount: true,
+        refundedAmount: true
+      }
+    });
+
+    const grossPaid = to_money_number(completedPayments._sum.amount);
+    const refunded = to_money_number(completedPayments._sum.refundedAmount);
+    const netPaid = Math.max(0, grossPaid - refunded);
+    const orderTotal = to_money_number(orderTotalAmount);
+
+    return orderTotal - netPaid;
   }
 }
 
@@ -364,4 +425,17 @@ function can_clear_problem_overlay(actor: Pick<AuthPrincipal, "roleCodes">): boo
 function to_quantity_number(value: number | string | { toString: () => string }): number {
   const quantity = Number(typeof value === "number" ? value : value.toString());
   return Number.isFinite(quantity) ? quantity : 0;
+}
+
+function to_money_number(value: Prisma.Decimal | number | string | null | undefined): number {
+  if (value == null) {
+    return 0;
+  }
+
+  const money = Number(typeof value === "number" ? value : value.toString());
+  return Number.isFinite(money) ? money : 0;
+}
+
+function is_shipment_status(status: OrderStatus): status is "partially_shipped" | "shipped" {
+  return status === "partially_shipped" || status === "shipped";
 }

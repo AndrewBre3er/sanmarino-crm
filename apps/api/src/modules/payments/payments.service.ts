@@ -11,6 +11,7 @@ import type {
   CashOperationType as PrismaCashOperationType,
   FinanceEntryType as PrismaFinanceEntryType,
   IdempotencyStatus as PrismaIdempotencyStatus,
+  OrderPaymentControlStatus as PrismaOrderPaymentControlStatus,
   PaymentMethod as PrismaPaymentMethod
 } from "@prisma/client";
 import type { AuthPrincipal } from "../auth/auth.contract";
@@ -20,6 +21,8 @@ import {
 } from "../read-side/payments/payment.read.repository";
 import { resolve_payment_read_scope } from "../read-side/payments/payment.read.scope";
 import { from_prisma_enum, to_prisma_enum } from "../read-side/shared/prisma-read.mapper";
+import { assert_order_control_overlay_transition } from "../transactional/orders/order-control.transition.guard";
+import type { OrderControlOverlayStatus } from "../transactional/shared/status.contract";
 import { PrismaService } from "../../prisma/prisma.service";
 
 export interface CreatePaymentInput {
@@ -246,6 +249,11 @@ export class PaymentsService {
           }
         });
 
+        await this.apply_money_control_overlay_from_payment_completion(
+          transactionClient,
+          payment.orderId
+        );
+
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
           data: {
@@ -407,6 +415,87 @@ export class PaymentsService {
       }
     });
   }
+
+  private async apply_money_control_overlay_from_payment_completion(
+    transactionClient: Prisma.TransactionClient,
+    orderId: string
+  ): Promise<void> {
+    const order = await transactionClient.ordersOrder.findFirst({
+      where: {
+        id: orderId,
+        isDeleted: false
+      },
+      select: {
+        id: true,
+        status: true,
+        paymentControlStatus: true,
+        paymentControlDueAt: true,
+        totalAmount: true
+      }
+    });
+
+    if (!order) {
+      return;
+    }
+
+    const orderStatus = from_prisma_enum(order.status);
+    if (orderStatus !== "partially_shipped" && orderStatus !== "shipped") {
+      return;
+    }
+
+    const paymentSummary = await transactionClient.paymentsPayment.aggregate({
+      where: {
+        orderId: order.id,
+        status: "COMPLETED",
+        isDeleted: false
+      },
+      _sum: {
+        amount: true,
+        refundedAmount: true
+      }
+    });
+
+    const grossPaid = to_money_number(paymentSummary._sum.amount);
+    const refundedAmount = to_money_number(paymentSummary._sum.refundedAmount);
+    const netPaid = Math.max(0, grossPaid - refundedAmount);
+    const uncoveredAmount = to_money_number(order.totalAmount) - netPaid;
+    const currentControlStatus = from_prisma_enum(order.paymentControlStatus) as OrderControlOverlayStatus;
+
+    if (uncoveredAmount > 0) {
+      if (currentControlStatus !== "none") {
+        return;
+      }
+
+      assert_order_control_overlay_transition("none", "on_control");
+      await transactionClient.ordersOrder.update({
+        where: {
+          id: order.id
+        },
+        data: {
+          paymentControlStatus: to_prisma_enum<PrismaOrderPaymentControlStatus>("on_control"),
+          ...(order.paymentControlDueAt ? {} : { paymentControlDueAt: new Date() })
+        }
+      });
+      return;
+    }
+
+    if (currentControlStatus !== "on_control") {
+      return;
+    }
+
+    // Step 6 baseline: clear only system money-control (`on_control`) on sufficient coverage.
+    // `problem` escalation clearance remains explicit/deferred flow.
+    assert_order_control_overlay_transition("on_control", "none");
+    await transactionClient.ordersOrder.update({
+      where: {
+        id: order.id
+      },
+      data: {
+        paymentControlStatus: to_prisma_enum<PrismaOrderPaymentControlStatus>("none"),
+        paymentControlDueAt: null
+      }
+    });
+  }
 }
 
 function build_create_payment_request_hash(input: {
@@ -493,4 +582,13 @@ function is_unique_constraint_error(error: unknown): boolean {
 
   const code = (error as { code?: string }).code;
   return code === "P2002";
+}
+
+function to_money_number(value: Prisma.Decimal | number | string | null | undefined): number {
+  if (value == null) {
+    return 0;
+  }
+
+  const amount = Number(typeof value === "number" ? value : value.toString());
+  return Number.isFinite(amount) ? amount : 0;
 }

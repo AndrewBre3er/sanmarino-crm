@@ -28,9 +28,11 @@ function build_payment_read_model(status: "pending" | "completed" = "pending") {
 
 function create_prisma_mock() {
   const ordersOrderFindFirst = vi.fn();
+  const ordersOrderUpdate = vi.fn();
   const paymentsPaymentFindFirst = vi.fn();
   const paymentsPaymentCreate = vi.fn();
   const paymentsPaymentUpdate = vi.fn();
+  const paymentsPaymentAggregate = vi.fn();
   const paymentsCashOperationCreate = vi.fn();
   const financeFinanceEntryCreate = vi.fn();
   const systemIdempotencyRecordFindUnique = vi.fn();
@@ -39,12 +41,14 @@ function create_prisma_mock() {
 
   const transactionClient = {
     ordersOrder: {
-      findFirst: ordersOrderFindFirst
+      findFirst: ordersOrderFindFirst,
+      update: ordersOrderUpdate
     },
     paymentsPayment: {
       findFirst: paymentsPaymentFindFirst,
       create: paymentsPaymentCreate,
-      update: paymentsPaymentUpdate
+      update: paymentsPaymentUpdate,
+      aggregate: paymentsPaymentAggregate
     },
     paymentsCashOperation: {
       create: paymentsCashOperationCreate
@@ -59,12 +63,14 @@ function create_prisma_mock() {
 
   const prismaService = {
     ordersOrder: {
-      findFirst: ordersOrderFindFirst
+      findFirst: ordersOrderFindFirst,
+      update: ordersOrderUpdate
     },
     paymentsPayment: {
       findFirst: paymentsPaymentFindFirst,
       create: paymentsPaymentCreate,
-      update: paymentsPaymentUpdate
+      update: paymentsPaymentUpdate,
+      aggregate: paymentsPaymentAggregate
     },
     paymentsCashOperation: {
       create: paymentsCashOperationCreate
@@ -93,9 +99,11 @@ function create_prisma_mock() {
   return {
     prismaService,
     ordersOrderFindFirst,
+    ordersOrderUpdate,
     paymentsPaymentFindFirst,
     paymentsPaymentCreate,
     paymentsPaymentUpdate,
+    paymentsPaymentAggregate,
     paymentsCashOperationCreate,
     financeFinanceEntryCreate,
     systemIdempotencyRecordFindUnique,
@@ -224,6 +232,7 @@ describe("payments service", () => {
       paymentsPaymentUpdate,
       paymentsCashOperationCreate,
       financeFinanceEntryCreate,
+      ordersOrderUpdate,
       systemIdempotencyRecordFindUnique
     } = create_service_with_mocks();
 
@@ -256,6 +265,7 @@ describe("payments service", () => {
     expect(paymentsPaymentUpdate).not.toHaveBeenCalled();
     expect(paymentsCashOperationCreate).not.toHaveBeenCalled();
     expect(financeFinanceEntryCreate).not.toHaveBeenCalled();
+    expect(ordersOrderUpdate).not.toHaveBeenCalled();
   });
 
   it("completes pending payment and atomically creates cash + income records", async () => {
@@ -266,6 +276,8 @@ describe("payments service", () => {
       paymentsPaymentUpdate,
       paymentsCashOperationCreate,
       financeFinanceEntryCreate,
+      ordersOrderFindFirst,
+      ordersOrderUpdate,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate,
       systemIdempotencyRecordUpdate
@@ -283,6 +295,13 @@ describe("payments service", () => {
     });
     paymentsCashOperationCreate.mockResolvedValue({ id: "cash_1" });
     financeFinanceEntryCreate.mockResolvedValue({ id: "fin_1" });
+    ordersOrderFindFirst.mockResolvedValue({
+      id: "order_1",
+      status: "ASSEMBLING",
+      paymentControlStatus: "NONE",
+      paymentControlDueAt: null,
+      totalAmount: "2000.00"
+    });
     (paymentReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
       build_payment_read_model("completed")
     );
@@ -339,11 +358,143 @@ describe("payments service", () => {
         })
       })
     );
+    expect(ordersOrderUpdate).not.toHaveBeenCalled();
     expect(systemIdempotencyRecordUpdate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: "COMPLETED"
         })
+      })
+    );
+  });
+
+  it("marks shipped underpaid order as on_control on payment.completed", async () => {
+    const {
+      service,
+      paymentReadRepository,
+      paymentsPaymentFindFirst,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
+      ordersOrderFindFirst,
+      ordersOrderUpdate,
+      paymentsPaymentAggregate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_complete_on_control" });
+    paymentsPaymentFindFirst.mockResolvedValue({
+      id: "pay_1",
+      orderId: "order_1",
+      status: "PENDING",
+      amount: "1000.00",
+      externalReference: null,
+      receivedAt: null
+    });
+    paymentsCashOperationCreate.mockResolvedValue({ id: "cash_1" });
+    financeFinanceEntryCreate.mockResolvedValue({ id: "fin_1" });
+    ordersOrderFindFirst.mockResolvedValue({
+      id: "order_1",
+      status: "SHIPPED",
+      paymentControlStatus: "NONE",
+      paymentControlDueAt: null,
+      totalAmount: "5000.00"
+    });
+    paymentsPaymentAggregate.mockResolvedValue({
+      _sum: {
+        amount: "1000.00",
+        refundedAmount: "0.00"
+      }
+    });
+    (paymentReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      build_payment_read_model("completed")
+    );
+
+    const result = await service.completePayment(
+      "pay_1",
+      {
+        userId: "finance_1",
+        roleCodes: ["finance"]
+      },
+      {
+        idempotencyKey: "idem_complete_on_control"
+      }
+    );
+
+    expect(result.status).toBe("completed");
+    expect(ordersOrderUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "order_1" },
+        data: expect.objectContaining({
+          paymentControlStatus: "ON_CONTROL",
+          paymentControlDueAt: expect.any(Date)
+        })
+      })
+    );
+  });
+
+  it("clears system on_control when shipped order payment coverage becomes sufficient", async () => {
+    const {
+      service,
+      paymentReadRepository,
+      paymentsPaymentFindFirst,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
+      ordersOrderFindFirst,
+      ordersOrderUpdate,
+      paymentsPaymentAggregate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_complete_clear_control" });
+    paymentsPaymentFindFirst.mockResolvedValue({
+      id: "pay_1",
+      orderId: "order_1",
+      status: "PENDING",
+      amount: "5000.00",
+      externalReference: null,
+      receivedAt: null
+    });
+    paymentsCashOperationCreate.mockResolvedValue({ id: "cash_1" });
+    financeFinanceEntryCreate.mockResolvedValue({ id: "fin_1" });
+    ordersOrderFindFirst.mockResolvedValue({
+      id: "order_1",
+      status: "SHIPPED",
+      paymentControlStatus: "ON_CONTROL",
+      paymentControlDueAt: new Date("2026-04-12T10:00:00.000Z"),
+      totalAmount: "5000.00"
+    });
+    paymentsPaymentAggregate.mockResolvedValue({
+      _sum: {
+        amount: "5000.00",
+        refundedAmount: "0.00"
+      }
+    });
+    (paymentReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      build_payment_read_model("completed")
+    );
+
+    await service.completePayment(
+      "pay_1",
+      {
+        userId: "finance_1",
+        roleCodes: ["finance"]
+      },
+      {
+        idempotencyKey: "idem_complete_clear_control"
+      }
+    );
+
+    expect(ordersOrderUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "order_1" },
+        data: {
+          paymentControlStatus: "NONE",
+          paymentControlDueAt: null
+        }
       })
     );
   });

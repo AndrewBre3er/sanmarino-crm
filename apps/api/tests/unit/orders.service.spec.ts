@@ -81,6 +81,13 @@ function create_prisma_mock() {
   const ordersOrderItemFindMany = vi.fn();
   const ordersFulfillmentCount = vi.fn();
   const ordersFulfillmentItemFindMany = vi.fn();
+  const paymentsPaymentAggregate = vi.fn();
+  paymentsPaymentAggregate.mockResolvedValue({
+    _sum: {
+      amount: null,
+      refundedAmount: null
+    }
+  });
 
   const prismaService = {
     ordersOrder: {
@@ -96,6 +103,9 @@ function create_prisma_mock() {
     ordersFulfillmentItem: {
       findMany: ordersFulfillmentItemFindMany
     },
+    paymentsPayment: {
+      aggregate: paymentsPaymentAggregate
+    },
     $transaction: vi.fn(async (operations: Promise<unknown>[]) => Promise.all(operations))
   } as unknown as PrismaService;
 
@@ -105,7 +115,8 @@ function create_prisma_mock() {
     update,
     ordersOrderItemFindMany,
     ordersFulfillmentCount,
-    ordersFulfillmentItemFindMany
+    ordersFulfillmentItemFindMany,
+    paymentsPaymentAggregate
   };
 }
 
@@ -301,15 +312,23 @@ describe("orders service", () => {
       update,
       ordersOrderItemFindMany,
       ordersFulfillmentCount,
-      ordersFulfillmentItemFindMany
+      ordersFulfillmentItemFindMany,
+      paymentsPaymentAggregate
     } = create_prisma_mock();
     findFirst.mockResolvedValue({
       id: "order_1",
       status: "READY_FOR_SHIPMENT",
       paymentControlStatus: "NONE",
       paymentControlDueAt: null,
+      totalAmount: "0.00",
       readyForPartialShipmentAt: null,
       readyForShipmentAt: null
+    });
+    paymentsPaymentAggregate.mockResolvedValue({
+      _sum: {
+        amount: "0.00",
+        refundedAmount: "0.00"
+      }
     });
     ordersOrderItemFindMany.mockResolvedValue([{ id: "item_1", qty: "5.00" }]);
     ordersFulfillmentCount.mockResolvedValueOnce(2).mockResolvedValueOnce(0);
@@ -335,6 +354,56 @@ describe("orders service", () => {
     expect(updatePayload.paymentControlStatus).toBeUndefined();
     expect(updatePayload.deliveryStatus).toBeUndefined();
     expect(result.status).toBe("shipped");
+  });
+
+  it("marks shipped underpaid order as on_control without changing main status flow", async () => {
+    const {
+      prismaService,
+      findFirst,
+      update,
+      ordersOrderItemFindMany,
+      ordersFulfillmentCount,
+      ordersFulfillmentItemFindMany,
+      paymentsPaymentAggregate
+    } = create_prisma_mock();
+    findFirst.mockResolvedValue({
+      id: "order_1",
+      status: "READY_FOR_SHIPMENT",
+      paymentControlStatus: "NONE",
+      paymentControlDueAt: null,
+      totalAmount: "5000.00",
+      readyForPartialShipmentAt: null,
+      readyForShipmentAt: null
+    });
+    ordersOrderItemFindMany.mockResolvedValue([{ id: "item_1", qty: "5.00" }]);
+    ordersFulfillmentCount.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+    ordersFulfillmentItemFindMany.mockResolvedValue([{ orderItemId: "item_1", qty: "5.00" }]);
+    paymentsPaymentAggregate.mockResolvedValue({
+      _sum: {
+        amount: "1000.00",
+        refundedAmount: "0.00"
+      }
+    });
+    const repository = {
+      list: vi.fn(),
+      getById: vi.fn().mockResolvedValue(build_order_detail("shipped", "on_control"))
+    } as unknown as PrismaOrdersOrderReadRepository;
+    const service = new OrdersService(prismaService, repository);
+
+    const result = await service.transitionOrderStatus("order_1", "shipped", actor("seller_1", ["seller"]));
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "order_1" },
+        data: expect.objectContaining({
+          status: "SHIPPED",
+          paymentControlStatus: "ON_CONTROL",
+          paymentControlDueAt: expect.any(Date)
+        })
+      })
+    );
+    expect(result.status).toBe("shipped");
+    expect(result.paymentControlStatus).toBe("on_control");
   });
 
   it("applies valid control overlay transition none -> on_control", async () => {
