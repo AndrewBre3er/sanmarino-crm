@@ -160,6 +160,26 @@ describe("fulfillments controller", () => {
     expect(result).toEqual({ data: { id: "ful_1" } });
   });
 
+  it("passes fulfillment linkage payload on create", async () => {
+    const service = {
+      listFulfillments: vi.fn(),
+      getFulfillment: vi.fn(),
+      createFulfillment: vi.fn().mockResolvedValue({ id: "ful_2" }),
+      confirmExecution: vi.fn()
+    } as unknown as FulfillmentsService;
+    const controller = new FulfillmentsController(service);
+    const request = build_request("warehouse_1", ["warehouse"]);
+
+    const payload = {
+      orderId: "order_1",
+      deliveryTaskId: "9ec2bff6-52ab-40cf-b866-84ef5ce80c1e",
+      pickupWindowId: "dcdf6ac9-f137-45ac-815b-5ebc91187ec4"
+    };
+    await controller.create(payload, request);
+
+    expect(service.createFulfillment).toHaveBeenCalledWith(payload, request.auth.user);
+  });
+
   it("confirms fulfillment execution", async () => {
     const service = {
       listFulfillments: vi.fn(),

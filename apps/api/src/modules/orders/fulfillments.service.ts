@@ -53,6 +53,8 @@ export interface FulfillmentItemReadModel {
 export interface FulfillmentReadModel {
   id: string;
   orderId: string;
+  deliveryTaskId: string | null;
+  pickupWindowId: string | null;
   status: FulfillmentStatus;
   fulfillmentType: OrderFulfillmentType;
   fulfilledAt: string | null;
@@ -79,6 +81,8 @@ export interface CreateFulfillmentItemInput {
 export interface CreateFulfillmentInput {
   orderId: string;
   fulfillmentType?: OrderFulfillmentType;
+  deliveryTaskId?: string;
+  pickupWindowId?: string;
   items?: CreateFulfillmentItemInput[];
 }
 
@@ -111,6 +115,8 @@ function map_fulfillment_item(record: {
 function map_fulfillment(record: {
   id: string;
   orderId: string;
+  deliveryTaskId: string | null;
+  pickupWindowId: string | null;
   status: PrismaFulfillmentStatus;
   fulfillmentType: PrismaOrderFulfillmentType;
   fulfilledAt: Date | null;
@@ -123,6 +129,8 @@ function map_fulfillment(record: {
   return {
     id: record.id,
     orderId: record.orderId,
+    deliveryTaskId: record.deliveryTaskId,
+    pickupWindowId: record.pickupWindowId,
     status: from_prisma_enum(record.status) as FulfillmentStatus,
     fulfillmentType: from_prisma_enum(record.fulfillmentType) as OrderFulfillmentType,
     fulfilledAt: to_iso_datetime(record.fulfilledAt),
@@ -332,11 +340,47 @@ export class FulfillmentsService {
         }
       }
 
+      if (payload.deliveryTaskId) {
+        const delivery_task = await transactionClient.logisticsDeliveryTask.findFirst({
+          where: {
+            id: payload.deliveryTaskId,
+            orderId: order.id
+          },
+          select: {
+            id: true
+          }
+        });
+
+        if (!delivery_task) {
+          throw new ConflictException({
+            code: "VALIDATION_ERROR",
+            message: `Delivery task '${payload.deliveryTaskId}' is not linked to order '${order.id}'`
+          });
+        }
+      }
+
+      if (payload.pickupWindowId) {
+        const pickup_window = await transactionClient.logisticsPickupWindow.findUnique({
+          where: {
+            id: payload.pickupWindowId
+          },
+          select: {
+            id: true
+          }
+        });
+
+        if (!pickup_window) {
+          throw new NotFoundException(`Pickup window '${payload.pickupWindowId}' was not found`);
+        }
+      }
+
       const created = await transactionClient.ordersFulfillment.create({
         data: {
           orderId: order.id,
           status: "PENDING",
           createdBy: actor.userId,
+          ...(payload.deliveryTaskId ? { deliveryTaskId: payload.deliveryTaskId } : {}),
+          ...(payload.pickupWindowId ? { pickupWindowId: payload.pickupWindowId } : {}),
           fulfillmentType: payload.fulfillmentType
             ? to_prisma_enum<PrismaOrderFulfillmentType>(payload.fulfillmentType)
             : order.fulfillmentType

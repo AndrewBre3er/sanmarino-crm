@@ -9,6 +9,7 @@ import {
 import { Prisma } from "@prisma/client";
 import type {
   DeliveryTaskStatus as PrismaDeliveryTaskStatus,
+  OrderDeliveryStatus as PrismaOrderDeliveryStatus,
   IdempotencyStatus as PrismaIdempotencyStatus
 } from "@prisma/client";
 import type { AuthPrincipal } from "../auth/auth.contract";
@@ -17,8 +18,9 @@ import {
   type LogisticsDeliveryTaskReadModel
 } from "../read-side/logistics/delivery-task.read.repository";
 import { from_prisma_enum, to_prisma_enum } from "../read-side/shared/prisma-read.mapper";
+import { aggregate_order_delivery_status_from_tasks } from "./order-delivery-status.aggregate";
 import { assert_delivery_task_status_transition } from "../transactional/logistics/delivery-task.transition.guard";
-import type { DeliveryTaskStatus } from "../transactional/shared/status.contract";
+import type { DeliveryTaskStatus, OrderDeliveryStatus } from "../transactional/shared/status.contract";
 import { PrismaService } from "../../prisma/prisma.service";
 
 export interface DeliveryTaskCommandContext {
@@ -143,6 +145,8 @@ export class LogisticsService {
           }
         });
 
+        await this.sync_order_delivery_status(transactionClient, order.id);
+
         await transactionClient.systemIdempotencyRecord.update({
           where: {
             id: idempotency.recordId
@@ -194,6 +198,7 @@ export class LogisticsService {
           },
           select: {
             id: true,
+            orderId: true,
             status: true
           }
         });
@@ -220,6 +225,8 @@ export class LogisticsService {
             ...(normalized.plannedDate !== undefined ? { plannedDate: normalized.plannedDate } : {})
           }
         });
+
+        await this.sync_order_delivery_status(transactionClient, task.orderId);
 
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
@@ -266,6 +273,7 @@ export class LogisticsService {
           },
           select: {
             id: true,
+            orderId: true,
             status: true
           }
         });
@@ -284,6 +292,8 @@ export class LogisticsService {
             status: to_prisma_enum<PrismaDeliveryTaskStatus>("in_transit")
           }
         });
+
+        await this.sync_order_delivery_status(transactionClient, task.orderId);
 
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
@@ -335,6 +345,7 @@ export class LogisticsService {
           },
           select: {
             id: true,
+            orderId: true,
             status: true,
             deliveredAt: true
           }
@@ -356,6 +367,8 @@ export class LogisticsService {
             failureReason: null
           }
         });
+
+        await this.sync_order_delivery_status(transactionClient, task.orderId);
 
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
@@ -407,6 +420,7 @@ export class LogisticsService {
           },
           select: {
             id: true,
+            orderId: true,
             status: true
           }
         });
@@ -427,6 +441,8 @@ export class LogisticsService {
             deliveredAt: null
           }
         });
+
+        await this.sync_order_delivery_status(transactionClient, task.orderId);
 
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
@@ -478,6 +494,7 @@ export class LogisticsService {
           },
           select: {
             id: true,
+            orderId: true,
             status: true
           }
         });
@@ -504,6 +521,8 @@ export class LogisticsService {
             ...(normalized.plannedDate !== undefined ? { plannedDate: normalized.plannedDate } : {})
           }
         });
+
+        await this.sync_order_delivery_status(transactionClient, task.orderId);
 
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
@@ -677,6 +696,29 @@ export class LogisticsService {
           message: error instanceof Error ? error.message : "Delivery task command failed"
         },
         lockedUntil: null
+      }
+    });
+  }
+
+  private async sync_order_delivery_status(
+    transactionClient: Prisma.TransactionClient,
+    orderId: string
+  ): Promise<void> {
+    const tasks = await transactionClient.logisticsDeliveryTask.findMany({
+      where: {
+        orderId
+      },
+      select: {
+        status: true
+      }
+    });
+
+    const statuses = tasks.map((task) => from_prisma_enum(task.status) as DeliveryTaskStatus);
+    const aggregate = aggregate_order_delivery_status_from_tasks(statuses);
+    await transactionClient.ordersOrder.update({
+      where: { id: orderId },
+      data: {
+        deliveryStatus: to_prisma_enum<PrismaOrderDeliveryStatus>(aggregate as OrderDeliveryStatus)
       }
     });
   }
@@ -871,4 +913,3 @@ function is_unique_constraint_error(error: unknown): boolean {
   const code = (error as { code?: string }).code;
   return code === "P2002";
 }
-

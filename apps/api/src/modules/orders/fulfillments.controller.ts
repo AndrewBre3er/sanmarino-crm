@@ -57,6 +57,14 @@ class CreateFulfillmentDto {
   fulfillmentType?: OrderFulfillmentType;
 
   @IsOptional()
+  @IsUUID()
+  deliveryTaskId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  pickupWindowId?: string;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateFulfillmentItemDto)
@@ -110,7 +118,16 @@ export class FulfillmentsController {
   @require_roles("warehouse", "logistics", "admin", "ceo")
   async create(@Body() payload: CreateFulfillmentDto, @Req() request: AuthenticatedRequestLike) {
     const access = get_authenticated_access(request);
-    const fulfillment = await this.fulfillmentsService.createFulfillment(payload, access.user);
+    const fulfillment = await this.fulfillmentsService.createFulfillment(
+      {
+        orderId: payload.orderId,
+        ...(payload.fulfillmentType ? { fulfillmentType: payload.fulfillmentType } : {}),
+        ...(payload.deliveryTaskId ? { deliveryTaskId: payload.deliveryTaskId } : {}),
+        ...(payload.pickupWindowId ? { pickupWindowId: payload.pickupWindowId } : {}),
+        ...(payload.items ? { items: payload.items } : {})
+      },
+      access.user
+    );
     return { data: fulfillment };
   }
 

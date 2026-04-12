@@ -41,6 +41,8 @@ function create_prisma_mock() {
   const ordersOrderFindFirst = vi.fn();
   const ordersOrderItemFindMany = vi.fn();
   const ordersOrderUpdate = vi.fn();
+  const logisticsDeliveryTaskFindFirst = vi.fn();
+  const logisticsPickupWindowFindUnique = vi.fn();
   const systemIdempotencyRecordFindUnique = vi.fn().mockResolvedValue(null);
   const systemIdempotencyRecordCreate = vi.fn().mockResolvedValue({ id: "idem_1" });
   const systemIdempotencyRecordUpdate = vi.fn().mockResolvedValue({ id: "idem_1" });
@@ -64,6 +66,12 @@ function create_prisma_mock() {
     ordersOrder: {
       findFirst: ordersOrderFindFirst,
       update: ordersOrderUpdate
+    },
+    logisticsDeliveryTask: {
+      findFirst: logisticsDeliveryTaskFindFirst
+    },
+    logisticsPickupWindow: {
+      findUnique: logisticsPickupWindowFindUnique
     },
     ordersOrderItem: {
       findMany: ordersOrderItemFindMany
@@ -91,6 +99,12 @@ function create_prisma_mock() {
     ordersOrder: {
       findFirst: ordersOrderFindFirst,
       update: ordersOrderUpdate
+    },
+    logisticsDeliveryTask: {
+      findFirst: logisticsDeliveryTaskFindFirst
+    },
+    logisticsPickupWindow: {
+      findUnique: logisticsPickupWindowFindUnique
     },
     ordersOrderItem: {
       findMany: ordersOrderItemFindMany
@@ -140,6 +154,8 @@ function create_prisma_mock() {
     ordersOrderFindFirst,
     ordersOrderItemFindMany,
     ordersOrderUpdate,
+    logisticsDeliveryTaskFindFirst,
+    logisticsPickupWindowFindUnique,
     systemIdempotencyRecordFindUnique,
     systemIdempotencyRecordCreate,
     systemIdempotencyRecordUpdate,
@@ -343,6 +359,69 @@ describe("fulfillments service", () => {
     expect(ordersFulfillmentItemCreateMany).toHaveBeenCalledOnce();
     expect(ordersOrderUpdate).not.toHaveBeenCalled();
     expect(fulfillment.status).toBe("pending");
+  });
+
+  it("writes and reads fulfillment linkage fields (deliveryTaskId + pickupWindowId)", async () => {
+    const {
+      prismaService,
+      ordersOrderFindFirst,
+      logisticsDeliveryTaskFindFirst,
+      logisticsPickupWindowFindUnique,
+      ordersFulfillmentCreate,
+      ordersFulfillmentFindFirst
+    } = create_prisma_mock();
+
+    ordersOrderFindFirst.mockResolvedValue({
+      id: "order_1",
+      fulfillmentType: "DELIVERY"
+    });
+    logisticsDeliveryTaskFindFirst.mockResolvedValue({
+      id: "task_1"
+    });
+    logisticsPickupWindowFindUnique.mockResolvedValue({
+      id: "pickup_window_1"
+    });
+    ordersFulfillmentCreate.mockResolvedValue({
+      id: "ful_1"
+    });
+    ordersFulfillmentFindFirst.mockResolvedValue({
+      id: "ful_1",
+      orderId: "order_1",
+      deliveryTaskId: "task_1",
+      pickupWindowId: "pickup_window_1",
+      status: "PENDING",
+      fulfillmentType: "DELIVERY",
+      fulfilledAt: null,
+      failureReason: null,
+      createdBy: "warehouse_1",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      version: 1,
+      _count: { items: 0 },
+      items: []
+    });
+
+    const service = new FulfillmentsService(prismaService);
+    const fulfillment = await service.createFulfillment(
+      {
+        orderId: "order_1",
+        deliveryTaskId: "task_1",
+        pickupWindowId: "pickup_window_1"
+      },
+      actor("warehouse_1", ["warehouse"])
+    );
+
+    expect(ordersFulfillmentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          orderId: "order_1",
+          deliveryTaskId: "task_1",
+          pickupWindowId: "pickup_window_1"
+        })
+      })
+    );
+    expect(fulfillment.deliveryTaskId).toBe("task_1");
+    expect(fulfillment.pickupWindowId).toBe("pickup_window_1");
   });
 
   it("confirms fulfillment execution and syncs order to partially_shipped", async () => {

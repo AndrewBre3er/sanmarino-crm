@@ -32,7 +32,9 @@ function build_delivery_task_read_model(
 
 function create_prisma_mock() {
   const ordersOrderFindFirst = vi.fn();
+  const ordersOrderUpdate = vi.fn().mockResolvedValue({ id: "order_1" });
   const logisticsDeliveryTaskFindUnique = vi.fn();
+  const logisticsDeliveryTaskFindMany = vi.fn().mockResolvedValue([]);
   const logisticsDeliveryTaskCreate = vi.fn();
   const logisticsDeliveryTaskUpdate = vi.fn();
   const systemIdempotencyRecordFindUnique = vi.fn();
@@ -41,10 +43,12 @@ function create_prisma_mock() {
 
   const transactionClient = {
     ordersOrder: {
-      findFirst: ordersOrderFindFirst
+      findFirst: ordersOrderFindFirst,
+      update: ordersOrderUpdate
     },
     logisticsDeliveryTask: {
       findUnique: logisticsDeliveryTaskFindUnique,
+      findMany: logisticsDeliveryTaskFindMany,
       create: logisticsDeliveryTaskCreate,
       update: logisticsDeliveryTaskUpdate
     },
@@ -55,10 +59,12 @@ function create_prisma_mock() {
 
   const prismaService = {
     ordersOrder: {
-      findFirst: ordersOrderFindFirst
+      findFirst: ordersOrderFindFirst,
+      update: ordersOrderUpdate
     },
     logisticsDeliveryTask: {
       findUnique: logisticsDeliveryTaskFindUnique,
+      findMany: logisticsDeliveryTaskFindMany,
       create: logisticsDeliveryTaskCreate,
       update: logisticsDeliveryTaskUpdate
     },
@@ -83,7 +89,9 @@ function create_prisma_mock() {
   return {
     prismaService,
     ordersOrderFindFirst,
+    ordersOrderUpdate,
     logisticsDeliveryTaskFindUnique,
+    logisticsDeliveryTaskFindMany,
     logisticsDeliveryTaskCreate,
     logisticsDeliveryTaskUpdate,
     systemIdempotencyRecordFindUnique,
@@ -108,11 +116,13 @@ function create_service_with_mocks() {
 }
 
 describe("logistics service", () => {
-  it("creates delivery task and keeps createdBy from actor context", async () => {
+  it("creates delivery task, keeps createdBy from actor, and aggregates delivery status to scheduled", async () => {
     const {
       service,
       deliveryTaskReadRepository,
       ordersOrderFindFirst,
+      ordersOrderUpdate,
+      logisticsDeliveryTaskFindMany,
       logisticsDeliveryTaskCreate,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate
@@ -122,6 +132,7 @@ describe("logistics service", () => {
     systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_create_1" });
     ordersOrderFindFirst.mockResolvedValue({ id: "order_1" });
     logisticsDeliveryTaskCreate.mockResolvedValue({ id: "task_1" });
+    logisticsDeliveryTaskFindMany.mockResolvedValue([{ status: "PLANNED" }]);
     (deliveryTaskReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
       build_delivery_task_read_model("planned")
     );
@@ -140,13 +151,25 @@ describe("logistics service", () => {
         })
       })
     );
+    expect(ordersOrderUpdate).toHaveBeenCalledWith({
+      where: { id: "order_1" },
+      data: { deliveryStatus: "SCHEDULED" }
+    });
+    const orderUpdatePayload = ordersOrderUpdate.mock.calls[0]?.[0]?.data as Record<
+      string,
+      unknown
+    >;
+    expect(orderUpdatePayload.status).toBeUndefined();
+    expect(orderUpdatePayload.paymentControlStatus).toBeUndefined();
   });
 
-  it("supports valid transition planned -> assigned", async () => {
+  it("supports valid transition planned -> assigned and keeps aggregate scheduled", async () => {
     const {
       service,
       deliveryTaskReadRepository,
+      ordersOrderUpdate,
       logisticsDeliveryTaskFindUnique,
+      logisticsDeliveryTaskFindMany,
       logisticsDeliveryTaskUpdate,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate
@@ -156,9 +179,11 @@ describe("logistics service", () => {
     systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_assign_1" });
     logisticsDeliveryTaskFindUnique.mockResolvedValue({
       id: "task_1",
+      orderId: "order_1",
       status: "PLANNED"
     });
     logisticsDeliveryTaskUpdate.mockResolvedValue({ id: "task_1" });
+    logisticsDeliveryTaskFindMany.mockResolvedValue([{ status: "ASSIGNED" }]);
     (deliveryTaskReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
       build_delivery_task_read_model("assigned")
     );
@@ -178,43 +203,174 @@ describe("logistics service", () => {
         })
       })
     );
+    expect(ordersOrderUpdate).toHaveBeenCalledWith({
+      where: { id: "order_1" },
+      data: { deliveryStatus: "SCHEDULED" }
+    });
   });
 
-  it("supports valid transition assigned -> in_transit", async () => {
+  it("aggregates partially_delivered for mixed delivery task states", async () => {
     const {
       service,
       deliveryTaskReadRepository,
+      ordersOrderUpdate,
       logisticsDeliveryTaskFindUnique,
+      logisticsDeliveryTaskFindMany,
       logisticsDeliveryTaskUpdate,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate
     } = create_service_with_mocks();
 
     systemIdempotencyRecordFindUnique.mockResolvedValue(null);
-    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_start_1" });
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_deliver_partial_1" });
     logisticsDeliveryTaskFindUnique.mockResolvedValue({
       id: "task_1",
+      orderId: "order_1",
+      status: "IN_TRANSIT",
+      deliveredAt: null
+    });
+    logisticsDeliveryTaskUpdate.mockResolvedValue({ id: "task_1" });
+    logisticsDeliveryTaskFindMany.mockResolvedValue([
+      { status: "DELIVERED" },
+      { status: "ASSIGNED" }
+    ]);
+    (deliveryTaskReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      build_delivery_task_read_model("delivered")
+    );
+
+    const result = await service.deliverDeliveryTask(
+      "task_1",
+      {},
+      { userId: "logistics_1", roleCodes: ["logistics"] },
+      { idempotencyKey: "idem_deliver_partial_1" }
+    );
+
+    expect(result.status).toBe("delivered");
+    expect(ordersOrderUpdate).toHaveBeenCalledWith({
+      where: { id: "order_1" },
+      data: { deliveryStatus: "PARTIALLY_DELIVERED" }
+    });
+  });
+
+  it("aggregates delivered when all delivery tasks are delivered", async () => {
+    const {
+      service,
+      deliveryTaskReadRepository,
+      ordersOrderUpdate,
+      logisticsDeliveryTaskFindUnique,
+      logisticsDeliveryTaskFindMany,
+      logisticsDeliveryTaskUpdate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_deliver_full_1" });
+    logisticsDeliveryTaskFindUnique.mockResolvedValue({
+      id: "task_1",
+      orderId: "order_1",
+      status: "IN_TRANSIT",
+      deliveredAt: null
+    });
+    logisticsDeliveryTaskUpdate.mockResolvedValue({ id: "task_1" });
+    logisticsDeliveryTaskFindMany.mockResolvedValue([
+      { status: "DELIVERED" },
+      { status: "DELIVERED" }
+    ]);
+    (deliveryTaskReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      build_delivery_task_read_model("delivered")
+    );
+
+    await service.deliverDeliveryTask(
+      "task_1",
+      {},
+      { userId: "logistics_1", roleCodes: ["logistics"] },
+      { idempotencyKey: "idem_deliver_full_1" }
+    );
+
+    expect(ordersOrderUpdate).toHaveBeenCalledWith({
+      where: { id: "order_1" },
+      data: { deliveryStatus: "DELIVERED" }
+    });
+  });
+
+  it("aggregates failed only when all delivery tasks are failed", async () => {
+    const {
+      service,
+      deliveryTaskReadRepository,
+      ordersOrderUpdate,
+      logisticsDeliveryTaskFindUnique,
+      logisticsDeliveryTaskFindMany,
+      logisticsDeliveryTaskUpdate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_fail_1" });
+    logisticsDeliveryTaskFindUnique.mockResolvedValue({
+      id: "task_1",
+      orderId: "order_1",
+      status: "IN_TRANSIT"
+    });
+    logisticsDeliveryTaskUpdate.mockResolvedValue({ id: "task_1" });
+    logisticsDeliveryTaskFindMany.mockResolvedValue([{ status: "FAILED" }]);
+    (deliveryTaskReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      build_delivery_task_read_model("failed")
+    );
+
+    await service.failDeliveryTask(
+      "task_1",
+      { failureReason: "client_absent" },
+      { userId: "logistics_1", roleCodes: ["logistics"] },
+      { idempotencyKey: "idem_fail_1" }
+    );
+
+    expect(ordersOrderUpdate).toHaveBeenCalledWith({
+      where: { id: "order_1" },
+      data: { deliveryStatus: "FAILED" }
+    });
+  });
+
+  it("does not aggregate failed for mixed failed + active tasks (keeps scheduled)", async () => {
+    const {
+      service,
+      deliveryTaskReadRepository,
+      ordersOrderUpdate,
+      logisticsDeliveryTaskFindUnique,
+      logisticsDeliveryTaskFindMany,
+      logisticsDeliveryTaskUpdate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_fail_2" });
+    logisticsDeliveryTaskFindUnique.mockResolvedValue({
+      id: "task_1",
+      orderId: "order_1",
       status: "ASSIGNED"
     });
     logisticsDeliveryTaskUpdate.mockResolvedValue({ id: "task_1" });
+    logisticsDeliveryTaskFindMany.mockResolvedValue([
+      { status: "FAILED" },
+      { status: "PLANNED" }
+    ]);
     (deliveryTaskReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
-      build_delivery_task_read_model("in_transit")
+      build_delivery_task_read_model("failed")
     );
 
-    const result = await service.startTransitDeliveryTask(
+    await service.failDeliveryTask(
       "task_1",
+      { failureReason: "address_not_found" },
       { userId: "logistics_1", roleCodes: ["logistics"] },
-      { idempotencyKey: "idem_start_1" }
+      { idempotencyKey: "idem_fail_2" }
     );
 
-    expect(result.status).toBe("in_transit");
-    expect(logisticsDeliveryTaskUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: "IN_TRANSIT"
-        })
-      })
-    );
+    expect(ordersOrderUpdate).toHaveBeenCalledWith({
+      where: { id: "order_1" },
+      data: { deliveryStatus: "SCHEDULED" }
+    });
   });
 
   it("rejects invalid transition delivered -> assigned", async () => {
@@ -222,6 +378,7 @@ describe("logistics service", () => {
       service,
       logisticsDeliveryTaskFindUnique,
       logisticsDeliveryTaskUpdate,
+      ordersOrderUpdate,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate,
       systemIdempotencyRecordUpdate
@@ -231,6 +388,7 @@ describe("logistics service", () => {
     systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_assign_2" });
     logisticsDeliveryTaskFindUnique.mockResolvedValue({
       id: "task_1",
+      orderId: "order_1",
       status: "DELIVERED"
     });
 
@@ -244,6 +402,7 @@ describe("logistics service", () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(logisticsDeliveryTaskUpdate).not.toHaveBeenCalled();
+    expect(ordersOrderUpdate).not.toHaveBeenCalled();
     expect(systemIdempotencyRecordUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -258,6 +417,7 @@ describe("logistics service", () => {
       service,
       deliveryTaskReadRepository,
       ordersOrderFindFirst,
+      ordersOrderUpdate,
       logisticsDeliveryTaskCreate,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate
@@ -298,6 +458,7 @@ describe("logistics service", () => {
 
     expect(result.id).toBe("task_1");
     expect(ordersOrderFindFirst).not.toHaveBeenCalled();
+    expect(ordersOrderUpdate).not.toHaveBeenCalled();
     expect(logisticsDeliveryTaskCreate).not.toHaveBeenCalled();
     expect(systemIdempotencyRecordCreate).not.toHaveBeenCalled();
   });
@@ -306,6 +467,7 @@ describe("logistics service", () => {
     const {
       service,
       ordersOrderFindFirst,
+      ordersOrderUpdate,
       logisticsDeliveryTaskCreate,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate
@@ -328,6 +490,7 @@ describe("logistics service", () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(ordersOrderFindFirst).not.toHaveBeenCalled();
+    expect(ordersOrderUpdate).not.toHaveBeenCalled();
     expect(logisticsDeliveryTaskCreate).not.toHaveBeenCalled();
     expect(systemIdempotencyRecordCreate).not.toHaveBeenCalled();
   });
