@@ -152,9 +152,7 @@ export class FulfillmentsService {
 
     if (query.search) {
       and_clauses.push({
-        OR: [
-          { failureReason: { contains: query.search, mode: "insensitive" } }
-        ]
+        OR: [{ failureReason: { contains: query.search, mode: "insensitive" } }]
       });
     }
 
@@ -290,7 +288,8 @@ export class FulfillmentsService {
 
       if (
         payload.fulfillmentType &&
-        payload.fulfillmentType !== (from_prisma_enum(order.fulfillmentType) as OrderFulfillmentType)
+        payload.fulfillmentType !==
+          (from_prisma_enum(order.fulfillmentType) as OrderFulfillmentType)
       ) {
         throw new ConflictException({
           code: "VALIDATION_ERROR",
@@ -337,10 +336,10 @@ export class FulfillmentsService {
         data: {
           orderId: order.id,
           status: "PENDING",
-          fulfillmentType:
-            payload.fulfillmentType
-              ? to_prisma_enum<PrismaOrderFulfillmentType>(payload.fulfillmentType)
-              : order.fulfillmentType
+          createdBy: actor.userId,
+          fulfillmentType: payload.fulfillmentType
+            ? to_prisma_enum<PrismaOrderFulfillmentType>(payload.fulfillmentType)
+            : order.fulfillmentType
         },
         select: {
           id: true
@@ -470,7 +469,10 @@ export class FulfillmentsService {
 
         await transactionClient.auditLogRecord.create({
           data: {
-            eventId: build_fulfillment_execution_audit_event_id(fulfillment.id, context.idempotencyKey),
+            eventId: build_fulfillment_execution_audit_event_id(
+              fulfillment.id,
+              context.idempotencyKey
+            ),
             occurredAt: executedAt,
             action: "orders.fulfillment.confirm_execution",
             entityType: "orders.fulfillment",
@@ -675,7 +677,8 @@ export class FulfillmentsService {
       if (!issue.reservationId) {
         continue;
       }
-      const issued = (issuedQtyByReservation.get(issue.reservationId) ?? 0) + to_quantity_number(issue.qty);
+      const issued =
+        (issuedQtyByReservation.get(issue.reservationId) ?? 0) + to_quantity_number(issue.qty);
       issuedQtyByReservation.set(issue.reservationId, issued);
     }
 
@@ -753,40 +756,44 @@ export class FulfillmentsService {
     transactionClient: Prisma.TransactionClient,
     orderId: string
   ) {
-    const [order_items, completed_fulfillment_count, pending_fulfillment_count, completed_fulfillment_items] =
-      await Promise.all([
-        transactionClient.ordersOrderItem.findMany({
-          where: { orderId },
-          select: {
-            id: true,
-            qty: true
-          }
-        }),
-        transactionClient.ordersFulfillment.count({
-          where: {
+    const [
+      order_items,
+      completed_fulfillment_count,
+      pending_fulfillment_count,
+      completed_fulfillment_items
+    ] = await Promise.all([
+      transactionClient.ordersOrderItem.findMany({
+        where: { orderId },
+        select: {
+          id: true,
+          qty: true
+        }
+      }),
+      transactionClient.ordersFulfillment.count({
+        where: {
+          orderId,
+          status: "COMPLETED"
+        }
+      }),
+      transactionClient.ordersFulfillment.count({
+        where: {
+          orderId,
+          status: "PENDING"
+        }
+      }),
+      transactionClient.ordersFulfillmentItem.findMany({
+        where: {
+          fulfillment: {
             orderId,
             status: "COMPLETED"
           }
-        }),
-        transactionClient.ordersFulfillment.count({
-          where: {
-            orderId,
-            status: "PENDING"
-          }
-        }),
-        transactionClient.ordersFulfillmentItem.findMany({
-          where: {
-            fulfillment: {
-              orderId,
-              status: "COMPLETED"
-            }
-          },
-          select: {
-            orderItemId: true,
-            qty: true
-          }
-        })
-      ]);
+        },
+        select: {
+          orderItemId: true,
+          qty: true
+        }
+      })
+    ]);
 
     try {
       return evaluate_order_shipment_progress({
@@ -825,7 +832,9 @@ export class FulfillmentsService {
   }
 }
 
-function normalize_create_items(items: CreateFulfillmentItemInput[] | undefined): CreateFulfillmentItemInput[] {
+function normalize_create_items(
+  items: CreateFulfillmentItemInput[] | undefined
+): CreateFulfillmentItemInput[] {
   if (!items || items.length === 0) {
     return [];
   }

@@ -16,6 +16,10 @@ import { from_prisma_enum, to_iso_datetime, to_prisma_enum } from "../shared/pri
 export interface LogisticsDeliveryTaskReadModel {
   id: string;
   orderId: string;
+  routeDayId: string | null;
+  deliverySlotId: string | null;
+  driverId: string | null;
+  vehicleId: string | null;
   status: DeliveryTaskStatus;
   sequenceNo: number | null;
   plannedDate: string | null;
@@ -24,7 +28,7 @@ export interface LogisticsDeliveryTaskReadModel {
   addressText: string | null;
   recipientName: string | null;
   recipientPhone: string | null;
-  createdBy: string | null;
+  createdBy: string;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -41,6 +45,10 @@ function map_delivery_task_read_model(record: LogisticsDeliveryTask): LogisticsD
   return {
     id: record.id,
     orderId: record.orderId,
+    routeDayId: record.routeDayId,
+    deliverySlotId: record.deliverySlotId,
+    driverId: record.driverId,
+    vehicleId: record.vehicleId,
     status: from_prisma_enum(record.status) as DeliveryTaskStatus,
     sequenceNo: record.sequenceNo,
     plannedDate: to_iso_datetime(record.plannedDate),

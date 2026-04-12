@@ -1,5 +1,12 @@
 import { api_error_codes } from "../common/errors/api-error.contract";
 import { request_context_headers } from "../common/request-context/request-context.contract";
+import {
+  logistics_fulfillment_boundary_rules_contract,
+  logistics_fulfillment_command_contract,
+  logistics_fulfillment_event_contract,
+  logistics_fulfillment_linkage_contract,
+  logistics_fulfillment_resource_contract
+} from "./logistics-fulfillment.contract";
 import { payments_finance_command_contract } from "./payments-finance.contract";
 
 export const api_openapi_contract = {
@@ -20,9 +27,16 @@ export const api_openapi_contract = {
     "- refund requires ReturnRequest linkage",
     "- income recognition source is payment.completed only",
     "",
-    "TODO: payment/finance command handlers and use-case implementation remain deferred."
+    "Phase 15 logistics+fulfillment contract freeze baseline:",
+    "- logistics resource surface is fixed (slots/windows/route-days/tasks + fulfillment reads)",
+    "- command-style logistics surface is fixed (delivery-task transitions + fulfillment confirmation)",
+    "- Order -> DeliveryTask cardinality is 1:N and order.deliveryStatus remains an aggregate read surface",
+    "- inventory issue side-effect source is confirmed fulfillment execution only",
+    "- route optimization/dispatch automation remains deferred in this phase",
+    "",
+    "TODO: logistics command handlers and workflow orchestration remain deferred."
   ].join("\n"),
-  version: "0.13.0",
+  version: "0.14.0",
   docsPath: "api/docs",
   globalPrefix: "api"
 } as const;
@@ -53,7 +67,8 @@ export const api_openapi_tags = {
   },
   ordersRead: {
     name: "orders-read",
-    description: "Orders endpoints: list/detail and baseline command transitions for status/control overlays"
+    description:
+      "Orders endpoints: list/detail and baseline command transitions for status/control overlays"
   },
   fulfillments: {
     name: "fulfillments",
@@ -84,7 +99,7 @@ export const api_openapi_tags = {
 
 export const api_openapi_extensions = {
   platformContractsPackage: "@sanmarino/types",
-  bootstrapPhase: "phase-14-payments-finance-contract-freeze",
+  bootstrapPhase: "phase-15-logistics-fulfillment-contract-freeze",
   declaredErrorCodes: api_error_codes,
   requestContextHeaders: request_context_headers,
   idempotencyHeaderContract: {
@@ -95,6 +110,11 @@ export const api_openapi_extensions = {
   auditBoundaryNote:
     "Audit context is extracted at API boundary only. Business audit implementation is deferred.",
   paymentsCommandSurface: payments_finance_command_contract,
+  logisticsFulfillmentResourceSurface: logistics_fulfillment_resource_contract,
+  logisticsFulfillmentCommandSurface: logistics_fulfillment_command_contract,
+  logisticsFulfillmentLinkageSurface: logistics_fulfillment_linkage_contract,
+  logisticsFulfillmentBoundaryRules: logistics_fulfillment_boundary_rules_contract,
+  logisticsFulfillmentEventSurface: logistics_fulfillment_event_contract,
   readBoundaryNote:
-    "Read-side endpoints are enabled for core transactional entities. CRM/Orders/Supply contract freezes and Payments Step 1 command contracts are fixed; business workflows remain TODO."
+    "Read-side endpoints are enabled for core transactional entities. CRM/Orders/Supply/Payments contract freezes plus Logistics Step 1 command+event surfaces are fixed; workflow orchestration remains TODO."
 } as const;

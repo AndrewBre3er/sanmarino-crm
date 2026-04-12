@@ -153,11 +153,8 @@ function create_prisma_mock() {
 
 describe("fulfillments service", () => {
   it("lists fulfillments with seller scope and order linkage filter", async () => {
-    const {
-      prismaService,
-      ordersFulfillmentFindMany,
-      ordersFulfillmentCount
-    } = create_prisma_mock();
+    const { prismaService, ordersFulfillmentFindMany, ordersFulfillmentCount } =
+      create_prisma_mock();
 
     ordersFulfillmentFindMany.mockResolvedValue([
       {
@@ -338,6 +335,7 @@ describe("fulfillments service", () => {
         data: expect.objectContaining({
           orderId: "order_1",
           status: "PENDING",
+          createdBy: "warehouse_1",
           fulfillmentType: "DELIVERY"
         })
       })
@@ -449,7 +447,10 @@ describe("fulfillments service", () => {
         })
       })
     );
-    const orderUpdatePayload = ordersOrderUpdate.mock.calls[0]?.[0]?.data as Record<string, unknown>;
+    const orderUpdatePayload = ordersOrderUpdate.mock.calls[0]?.[0]?.data as Record<
+      string,
+      unknown
+    >;
     expect(orderUpdatePayload.paymentControlStatus).toBeUndefined();
     expect(orderUpdatePayload.deliveryStatus).toBeUndefined();
     expect(inventoryInventoryMovementCreateMany).toHaveBeenCalledWith(
@@ -576,7 +577,10 @@ describe("fulfillments service", () => {
         })
       })
     );
-    const orderUpdatePayload = ordersOrderUpdate.mock.calls[0]?.[0]?.data as Record<string, unknown>;
+    const orderUpdatePayload = ordersOrderUpdate.mock.calls[0]?.[0]?.data as Record<
+      string,
+      unknown
+    >;
     expect(orderUpdatePayload.paymentControlStatus).toBeUndefined();
     expect(orderUpdatePayload.deliveryStatus).toBeUndefined();
     expect(inventoryInventoryMovementCreateMany).toHaveBeenCalledOnce();

@@ -46,6 +46,20 @@ export const delivery_task_statuses = [
   "rescheduled"
 ] as const;
 
+export const logistics_slot_statuses = [
+  "open",
+  "held",
+  "booked",
+  "closed"
+] as const;
+
+export const logistics_route_day_statuses = [
+  "planned",
+  "active",
+  "closed",
+  "cancelled"
+] as const;
+
 export const return_request_statuses = [
   "draft",
   "submitted",
@@ -129,6 +143,8 @@ export type OrderDeliveryStatus = (typeof order_delivery_statuses)[number];
 export type OrderFulfillmentType = (typeof order_fulfillment_types)[number];
 export type FulfillmentStatus = (typeof fulfillment_statuses)[number];
 export type DeliveryTaskStatus = (typeof delivery_task_statuses)[number];
+export type LogisticsSlotStatus = (typeof logistics_slot_statuses)[number];
+export type LogisticsRouteDayStatus = (typeof logistics_route_day_statuses)[number];
 export type ReturnRequestStatus = (typeof return_request_statuses)[number];
 export type SupplierRequestStatus = (typeof supplier_request_statuses)[number];
 export type ProductUnit = (typeof product_units)[number];

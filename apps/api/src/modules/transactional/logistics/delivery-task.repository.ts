@@ -13,6 +13,10 @@ import type { DeliveryTaskStatus } from "../shared/status.contract";
 
 export interface LogisticsDeliveryTaskRecord extends PersistenceRecordBase {
   orderId: string;
+  routeDayId?: string | null;
+  deliverySlotId?: string | null;
+  driverId?: string | null;
+  vehicleId?: string | null;
   status: DeliveryTaskStatus;
   sequenceNo?: number | null;
   plannedDate?: string | null;
@@ -21,21 +25,29 @@ export interface LogisticsDeliveryTaskRecord extends PersistenceRecordBase {
   addressText?: string | null;
   recipientName?: string | null;
   recipientPhone?: string | null;
-  createdBy?: string | null;
+  createdBy: string;
 }
 
 export interface LogisticsDeliveryTaskCreateInput {
   orderId: string;
+  routeDayId?: string | null;
+  deliverySlotId?: string | null;
+  driverId?: string | null;
+  vehicleId?: string | null;
   status: DeliveryTaskStatus;
   sequenceNo?: number | null;
   plannedDate?: string | null;
   addressText?: string | null;
   recipientName?: string | null;
   recipientPhone?: string | null;
-  createdBy?: string | null;
+  createdBy: string;
 }
 
 export interface LogisticsDeliveryTaskUpdateInput {
+  routeDayId?: string | null;
+  deliverySlotId?: string | null;
+  driverId?: string | null;
+  vehicleId?: string | null;
   status?: DeliveryTaskStatus;
   sequenceNo?: number | null;
   plannedDate?: string | null;

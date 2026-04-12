@@ -56,7 +56,8 @@ describe("transactional repository skeletons", () => {
     await expect(
       deliveryTaskRepository.create({
         orderId: "order_1",
-        status: "planned"
+        status: "planned",
+        createdBy: "user_1"
       })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
 
