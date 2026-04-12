@@ -31,6 +31,9 @@ const tone_map = new Map<string, StatusBadgeTone>([
   ["pending", "warning"],
   ["completed", "success"],
   ["refunded", "danger"],
+  ["income", "success"],
+  ["expense", "warning"],
+  ["adjustment", "info"],
   ["on_control", "warning"],
   ["problem", "danger"]
 ]);
