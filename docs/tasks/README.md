@@ -16,5 +16,4 @@ Rules:
 - if a task conflicts with canonical docs, stop and report
 
 Current recommended next task:
-- `docs/tasks/002-returns-stage-status-rebuild.md`
-
+- `docs/tasks/004-finance-manual-corrections-baseline.md`
