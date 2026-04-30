@@ -5,11 +5,12 @@
 
 Репозиторий находится не в исходной pre-start точке.
 Фактическое состояние кода уже ушло дальше baseline-этапов `auth skeleton` и `users/roles/permissions`.
+Stage 7 `Returns + Reconciliation + Audit hardening` закрыт как backend baseline после final verification.
 
-Текущая проблема — документационный drift:
-- roadmap и MVP scope требуют синхронизации с revised MVP v1
-- current-task framing отстаёт от фактического состояния repo
-- security doc должен быть выровнен с accepted auth baseline
+Текущая задача — открыть следующий major stage без потери границ:
+- следующий major stage: Stage 8 `KPI / Reporting / Automation layer`
+- Stage 7 deferrable gaps должны идти в целевые этапы, а не переоткрывать backend baseline
+- новый coding slice должен начинаться только из отдельного narrow task-файла
 
 ## Mandatory reading order
 
@@ -37,42 +38,49 @@
 
 ## Current objective
 
-Закрыть `Delta 0 — MVP v1 Realignment Gate`:
-- синхронизировать управляющие docs с revised MVP v1 из `docs/38`
-- убрать устаревший current-task framing
-- закрыть inconsistency по auth baseline в security doc
+Зафиксировать переход после Stage 7:
+- Stage 7 `Returns + Reconciliation + Audit hardening` закрыт как backend baseline
+- deferrable gaps сохранены с target stages
+- следующий major stage — Stage 8 `KPI / Reporting / Automation layer`
+- первая Stage 8 работа должна быть отдельным narrow task на базе accepted docs и repo state
 
 ## What is allowed now
 
 Допустимо:
-- синхронизировать roadmap/mvp/current-task/security документы под `docs/38`
-- фиксировать обнаруженные документационные конфликты в рамках этого sync-gate
-- уточнять implementation framing только после завершения doc-sync relevant packs
+- синхронизировать status/navigation docs после Stage 7 final verification
+- формулировать следующий narrow task для Stage 8
+- фиксировать deferrable gaps без изменения доменных правил
 
 ## What is not allowed now
 
 Запрещено:
-- продолжать coding wave, опираясь на устаревший auth/users-first framing этого файла
-- запускать новый implementation slice до завершения doc-sync relevant packs
+- переоткрывать Stage 7 backend baseline без нового принятого blocker
+- запускать Stage 8 implementation slice без отдельного task-файла
 - придумывать новые доменные решения вне приоритетных docs и `docs/38`
 - ослаблять state machine / idempotency / cash basis / ReturnRequest discipline
 
 ## Current implementation framing after repo progress
 
-1. Завершить `Delta 0` documentation sync по capability-pack waves.
-2. Явно закрыть drift между `docs/16`, `docs/20`, `docs/24`, `docs/26`, `docs/38`.
-3. После закрытия gate сформулировать отдельный следующий coding task на базе синхронизированных docs.
+1. Stage 7 закрыт как backend baseline.
+2. Deferrable gaps:
+   - live reconciliation worker-to-API transport/scheduler -> Stage 8 automation hardening
+   - Telegram/MAX providers and broad notification routing -> MVP integrations / Delta 0 Wave D
+   - reconciliation resolution workflow -> Stage 8 reporting/control
+   - external payment intake/control realignment -> Delta 0 Wave A before MVP release
+   - UI/e2e coverage for returns/reconciliation/corrections -> MVP release hardening
+3. Следующий major stage: Stage 8 `KPI / Reporting / Automation layer`.
+4. Первый следующий шаг: сформулировать narrow Stage 8 status/task file before coding.
 
 Примечание:
 - baseline этапы `auth skeleton` и `users/roles/permissions` больше не считаются "первыми ближайшими шагами" для этого репозитория.
 
 ## Acceptance criteria for current phase
 
-`Delta 0` считается закрытым, если:
-- roadmap и MVP scope синхронизированы с revised MVP v1 из `docs/38`
-- security auth baseline согласован с accepted baseline из `docs/23` и `docs/28`
-- текущий task framing больше не описывает устаревшую pre-start последовательность
-- следующие implementation задачи формулируются только после этого sync-gate
+Текущая status-sync фаза считается закрытой, если:
+- Stage 7 closure status записан в navigation/current-task docs
+- deferrable gaps имеют target stages
+- Stage 8 обозначен как следующий major stage
+- docs не добавляют новых доменных правил
 
 
 ## v8 Architecture Overrides

@@ -45,16 +45,25 @@ Completed major stages:
 - Orders core
 - Payments + Finance core
 - Logistics + Fulfillment
+- Returns + Reconciliation + Audit hardening backend baseline
 
 Current major stage:
-- Returns + Reconciliation + Audit hardening
+- KPI / Reporting / Automation layer
 
 Recently completed commit:
-- `0a7e24d feat(api): add returns reconciliation runtime gate`
+- `d40449c feat(api): add stage 7 closure baseline`
 
 Current planning need:
-- Rebuild the precise status of `Returns + Reconciliation + Audit hardening` after the runtime gate commit.
-- Then choose the next implementation slice from the remaining returns/reconciliation/audit work.
+- Treat Stage 7 as closed as a backend baseline after final verification.
+- Track Stage 7 deferrable gaps in their target stages, without reopening the backend baseline.
+- Define the first narrow Stage 8 task for the `KPI / Reporting / Automation layer`.
+
+Stage 7 deferrable gaps:
+- live reconciliation worker-to-API transport/scheduler: Stage 8 automation hardening
+- Telegram/MAX providers and broad notification routing: MVP integrations / Delta 0 Wave D
+- reconciliation resolution workflow: Stage 8 reporting/control
+- external payment intake/control realignment: Delta 0 Wave A before MVP release
+- UI/e2e coverage for returns/reconciliation/corrections: MVP release hardening
 
 ## Where To Look
 
@@ -92,4 +101,3 @@ Implementation tasks:
 
 Reusable step runner:
 - `.agents/skills/sanmarino-step-runner/SKILL.md`
-

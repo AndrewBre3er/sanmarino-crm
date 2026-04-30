@@ -11,7 +11,7 @@ Each domain has its own source-of-truth boundary.
 ## Current Repository State
 
 Last known clean commit:
-- `0a7e24d feat(api): add returns reconciliation runtime gate`
+- `d40449c feat(api): add stage 7 closure baseline`
 
 Current branch:
 - `codex/auth-skeleton`
@@ -25,23 +25,20 @@ Completed major stages:
 - Orders core
 - Payments + Finance core
 - Logistics + Fulfillment
+- Returns + Reconciliation + Audit hardening backend baseline
 
 Current major stage:
-- Returns + Reconciliation + Audit hardening
+- KPI / Reporting / Automation layer
 
 ## What The Latest Commit Added
 
-The runtime gate commit added and verified the baseline needed for the returns/reconciliation stage:
-- Prisma schema support for `OrdersReturnRequest.realizationAnchorAt`
-- Prisma model/table support for `OrdersReturnRequestItem`
-- reconciliation report schema/runtime surface
-- migration `20260429_phase16_returns_reconciliation_runtime_gate`
-- ReturnRequest command surface
-- Reconciliation module baseline
-- unit tests for return requests and reconciliation
-- docs realignment for revised MVP v1
+The Stage 7 closure baseline completed the backend hardening sequence after:
+- returns reconciliation runtime gate
+- return consequences baseline
+- finance manual corrections baseline
+- stage 7 closure baseline
 
-The commit gate passed with:
+Final verification passed with:
 - `git diff --check`
 - Prisma validation
 - targeted Vitest suites
@@ -52,11 +49,20 @@ The commit gate passed with:
 
 `Logistics + Fulfillment` is complete.
 
-`Returns + Reconciliation + Audit hardening` is open.
-Its entry contracts and runtime gate are complete, but the exact remaining implementation status must be rebuilt before starting the next coding slice.
+`Returns + Reconciliation + Audit hardening` is closed as a backend baseline.
+It is not production-complete notification/provider automation.
 
-The next control task is:
-- `docs/tasks/002-returns-stage-status-rebuild.md`
+Deferrable gaps and target stages:
+- live reconciliation worker-to-API transport/scheduler: Stage 8 automation hardening
+- Telegram/MAX providers and broad notification routing: MVP integrations / Delta 0 Wave D
+- reconciliation resolution workflow: Stage 8 reporting/control
+- external payment intake/control realignment: Delta 0 Wave A before MVP release
+- UI/e2e coverage for returns/reconciliation/corrections: MVP release hardening
+
+The next major stage is:
+- Stage 8: KPI / Reporting / Automation layer
+
+The next control task should define the first narrow Stage 8 slice from accepted docs and repo state.
 
 ## Working Protocol
 
@@ -66,4 +72,3 @@ New windows should use:
 
 The task file defines the scope.
 The skill defines how to execute the step.
-
