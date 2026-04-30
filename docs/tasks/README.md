@@ -16,4 +16,4 @@ Rules:
 - if a task conflicts with canonical docs, stop and report
 
 Current recommended next task:
-- `docs/tasks/004-finance-manual-corrections-baseline.md`
+- `docs/tasks/005-stage7-closure-reconciliation-alerts-admin-override.md`
