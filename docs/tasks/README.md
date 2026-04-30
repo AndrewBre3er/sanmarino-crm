@@ -22,4 +22,4 @@ Stage 7 task sequence status:
 - `docs/tasks/005-stage7-closure-reconciliation-alerts-admin-override.md` completed
 
 Current recommended next task:
-- `docs/tasks/006-stage8-kpi-reporting-automation-entry.md`
+- `docs/tasks/007-stage8a-analytics-read-model-contract-baseline.md`
