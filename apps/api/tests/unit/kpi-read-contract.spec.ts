@@ -4,6 +4,7 @@ import path from "node:path";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { describe, expect, it } from "vitest";
+import { accepted_kpi_metric_keys as shared_accepted_kpi_metric_keys } from "@sanmarino/types";
 import {
   accepted_kpi_metric_keys,
   accepted_kpi_metric_key_values
@@ -34,6 +35,18 @@ describe("KPI read contract", () => {
   it("keeps the accepted KPI metric key list narrow", () => {
     expect(accepted_kpi_metric_keys).toEqual(expected_metric_keys);
     expect(accepted_kpi_metric_key_values).toEqual([...expected_metric_keys]);
+    expect(accepted_kpi_metric_keys).toBe(shared_accepted_kpi_metric_keys);
+  });
+
+  it("uses the shared KPI metric contract instead of a local hard-coded list", () => {
+    const metric_contract_path = path.resolve(
+      process.cwd(),
+      "src/modules/analytics/kpi.metric-keys.ts"
+    );
+    const metric_contract = readFileSync(metric_contract_path, "utf8");
+
+    expect(metric_contract).toContain("@sanmarino/types");
+    expect(metric_contract).not.toContain('"cash_revenue"');
   });
 
   it("rejects unsupported live KPI metric keys", async () => {

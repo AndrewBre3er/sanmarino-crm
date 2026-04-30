@@ -2,6 +2,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  accepted_kpi_metric_keys as shared_accepted_kpi_metric_keys,
+  kpi_live_aggregate_refreshed_event_type,
+  kpi_refresh_job_contract as shared_kpi_refresh_job_contract,
+  kpi_refresh_queue_default_name
+} from "@sanmarino/types";
+import {
   build_daily_reconciliation_command,
   process_reconciliation_job,
   reconciliation_daily_job_contract,
@@ -114,20 +120,26 @@ describe("KPI refresh worker boundary", () => {
     expect(worker_queue_contracts).toContainEqual({
       key: "kpi",
       env_key: "WORKER_KPI_QUEUE",
-      default_name: "analytics.kpi",
+      default_name: kpi_refresh_queue_default_name,
       purpose: "KPI aggregate refresh placeholder"
     });
   });
 
   it("declares a narrow live aggregate refresh job contract on the KPI queue", () => {
-    expect(kpi_refresh_job_contract).toEqual({
-      queueKey: "kpi",
-      jobName: "kpi.live-aggregate.refresh"
-    });
+    expect(kpi_refresh_job_contract).toBe(shared_kpi_refresh_job_contract);
   });
 
   it("keeps the worker KPI refresh metric list limited to accepted keys", () => {
     expect(accepted_kpi_refresh_metric_keys).toEqual(expected_kpi_metric_keys);
+    expect(accepted_kpi_refresh_metric_keys).toBe(shared_accepted_kpi_metric_keys);
+  });
+
+  it("uses the shared KPI contract instead of a local hard-coded metric list", () => {
+    const processor_path = path.resolve(process.cwd(), "src/jobs/kpi-recompute.processor.ts");
+    const processor = readFileSync(processor_path, "utf8");
+
+    expect(processor).toContain("@sanmarino/types");
+    expect(processor).not.toContain('"cash_revenue"');
   });
 
   it("builds a normalized command for an accepted metric refresh payload", () => {
@@ -251,7 +263,7 @@ describe("KPI refresh worker boundary", () => {
       period: "2026-04",
       refreshedAt: "2026-04-30T10:00:05.000Z",
       idempotencyKey: "kpi.refresh.cash_revenue.2026-04",
-      eventType: "kpi.live_aggregate_refreshed"
+      eventType: kpi_live_aggregate_refreshed_event_type
     });
   });
 

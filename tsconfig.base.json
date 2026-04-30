@@ -18,7 +18,6 @@
     "baseUrl": ".",
     "paths": {
       "@sanmarino/config/*": ["packages/config/src/*"],
-      "@sanmarino/types": ["packages/types/src/index.ts"],
       "@sanmarino/ui": ["packages/ui/src/index.ts"]
     }
   },

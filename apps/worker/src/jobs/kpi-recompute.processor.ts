@@ -1,27 +1,16 @@
-export const kpi_refresh_job_contract = {
-  queueKey: "kpi",
-  jobName: "kpi.live-aggregate.refresh"
-} as const;
+import {
+  accepted_kpi_metric_keys,
+  is_accepted_kpi_metric_key,
+  kpi_live_aggregate_refreshed_event_type,
+  kpi_refresh_job_contract as shared_kpi_refresh_job_contract,
+  type AcceptedKpiMetricKey
+} from "@sanmarino/types";
 
-export const accepted_kpi_refresh_metric_keys = [
-  "cash_revenue",
-  "shipped_amount",
-  "gross_profit",
-  "net_profit",
-  "cash_balance",
-  "sales_pipeline_count",
-  "sales_pipeline_amount",
-  "sales_conversion_by_shipment",
-  "cac_paid_channels_first_shipment",
-  "inventory_turnover_ratio_month",
-  "driver_money_expected",
-  "problem_orders_count",
-  "supplier_payables_amount"
-] as const;
+export const kpi_refresh_job_contract = shared_kpi_refresh_job_contract;
 
-export type AcceptedKpiRefreshMetricKey = (typeof accepted_kpi_refresh_metric_keys)[number];
+export const accepted_kpi_refresh_metric_keys = accepted_kpi_metric_keys;
 
-const accepted_kpi_refresh_metric_key_set = new Set<string>(accepted_kpi_refresh_metric_keys);
+export type AcceptedKpiRefreshMetricKey = AcceptedKpiMetricKey;
 
 export interface KpiRefreshJobPayload {
   metricKey?: string;
@@ -44,7 +33,7 @@ export interface KpiRefreshJobRunner {
 }
 
 export interface KpiRefreshJobResult extends KpiRefreshCommand {
-  eventType: "kpi.live_aggregate_refreshed";
+  eventType: typeof kpi_live_aggregate_refreshed_event_type;
 }
 
 export class KpiRefreshValidationError extends Error {
@@ -109,7 +98,7 @@ export async function process_kpi_recompute_job(
       refreshedAt: result?.refreshedAt
         ? normalize_refreshed_at(result.refreshedAt)
         : command.refreshedAt,
-      eventType: "kpi.live_aggregate_refreshed"
+      eventType: kpi_live_aggregate_refreshed_event_type
     };
   } catch (error) {
     throw new KpiRefreshJobError(command, error);
@@ -118,11 +107,11 @@ export async function process_kpi_recompute_job(
 
 function normalize_metric_key(input: unknown): AcceptedKpiRefreshMetricKey {
   const metricKey = normalize_required_string(input, "metricKey");
-  if (!accepted_kpi_refresh_metric_key_set.has(metricKey)) {
+  if (!is_accepted_kpi_metric_key(metricKey)) {
     throw new KpiRefreshValidationError("metricKey is not accepted for KPI refresh");
   }
 
-  return metricKey as AcceptedKpiRefreshMetricKey;
+  return metricKey;
 }
 
 function normalize_required_string(input: unknown, field: string): string {

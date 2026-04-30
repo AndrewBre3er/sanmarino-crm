@@ -9,6 +9,7 @@ export * from "./audit/metadata.js";
 export * from "./idempotency/contracts.js";
 export * from "./events/envelope.js";
 export * from "./events/outbox.js";
+export * from "./analytics/kpi.js";
 
 export * from "./domain-modeling/module-boundaries.js";
 export * from "./domain-modeling/identity.js";
