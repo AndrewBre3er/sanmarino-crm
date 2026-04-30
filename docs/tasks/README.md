@@ -22,4 +22,4 @@ Stage 7 task sequence status:
 - `docs/tasks/005-stage7-closure-reconciliation-alerts-admin-override.md` completed
 
 Current recommended next task:
-- `docs/tasks/009-stage8c-kpi-shared-metric-contract-alignment.md`
+- `docs/tasks/010-stage8d-kpi-refresh-runner-contract-preflight.md`
