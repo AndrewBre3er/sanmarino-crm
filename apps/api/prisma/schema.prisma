@@ -237,14 +237,15 @@ enum RecordStatus {
 }
 
 model UsersDepartment {
-  id        String       @id @default(uuid()) @db.Uuid
-  code      String       @unique @db.VarChar(64)
-  name      String       @db.VarChar(255)
-  status    RecordStatus @default(ACTIVE)
-  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  roles     UsersRole[]
-  users     UsersUser[]
+  id                       String                    @id @default(uuid()) @db.Uuid
+  code                     String                    @unique @db.VarChar(64)
+  name                     String                    @db.VarChar(255)
+  status                   RecordStatus              @default(ACTIVE)
+  createdAt                DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  roles                    UsersRole[]
+  users                    UsersUser[]
+  analyticsDepartmentPlans AnalyticsDepartmentPlan[] @relation("AnalyticsDepartmentPlanDepartment")
 
   @@map("departments")
   @@schema("users")
@@ -336,6 +337,7 @@ model UsersUser {
   outboxRecordsDeleted               SystemOutboxRecord[]         @relation("SystemOutboxRecordDeletedByUser")
   auditEventsActor                   AuditLogRecord[]             @relation("AuditLogRecordActorUser")
   auditEventsDeleted                 AuditLogRecord[]             @relation("AuditLogRecordDeletedByUser")
+  analyticsDepartmentPlansSet        AnalyticsDepartmentPlan[]    @relation("AnalyticsDepartmentPlanSetByUser")
 
   @@map("users")
   @@schema("users")
@@ -1214,6 +1216,61 @@ model FinanceManualCorrection {
   @@schema("finance")
 }
 
+model AnalyticsLiveKpiMetric {
+  id            String   @id @default(uuid()) @db.Uuid
+  metricCode    String   @map("metric_code") @db.VarChar(128)
+  scopeType     String   @map("scope_type") @db.VarChar(64)
+  scopeId       String?  @map("scope_id") @db.Uuid
+  metricValue   Decimal  @map("metric_value") @db.Decimal(18, 4)
+  metricPayload Json?    @map("metric_payload")
+  asOf          DateTime @map("as_of") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([metricCode, scopeType, scopeId])
+  @@index([asOf])
+  @@map("live_kpi_metrics")
+  @@schema("analytics")
+}
+
+model AnalyticsDepartmentPlan {
+  id           String          @id @default(uuid()) @db.Uuid
+  departmentId String          @map("department_id") @db.Uuid
+  department   UsersDepartment @relation("AnalyticsDepartmentPlanDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
+  metricCode   String          @map("metric_code") @db.VarChar(128)
+  periodStart  DateTime        @map("period_start") @db.Date
+  periodEnd    DateTime        @map("period_end") @db.Date
+  planValue    Decimal         @map("plan_value") @db.Decimal(18, 4)
+  setByUserId  String          @map("set_by_user_id") @db.Uuid
+  setByUser    UsersUser       @relation("AnalyticsDepartmentPlanSetByUser", fields: [setByUserId], references: [id], onDelete: Restrict)
+  setAt        DateTime        @map("set_at") @db.Timestamptz(6)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([departmentId, metricCode, periodStart, periodEnd])
+  @@index([metricCode, periodStart, periodEnd])
+  @@map("department_plans")
+  @@schema("analytics")
+}
+
+model AnalyticsSnapshotKpiMetric {
+  id            String   @id @default(uuid()) @db.Uuid
+  metricCode    String   @map("metric_code") @db.VarChar(128)
+  periodType    String   @map("period_type") @db.VarChar(32)
+  periodStart   DateTime @map("period_start") @db.Date
+  periodEnd     DateTime @map("period_end") @db.Date
+  scopeType     String   @map("scope_type") @db.VarChar(64)
+  scopeId       String?  @map("scope_id") @db.Uuid
+  metricValue   Decimal  @map("metric_value") @db.Decimal(18, 4)
+  metricPayload Json?    @map("metric_payload")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([metricCode, periodType, periodStart, periodEnd, scopeType, scopeId])
+  @@map("snapshot_kpi_metrics")
+  @@schema("analytics")
+}
+
 enum ReconciliationReportStatus {
   RUNNING   @map("running")
   COMPLETED @map("completed")
@@ -1223,13 +1280,13 @@ enum ReconciliationReportStatus {
 }
 
 model ReconciliationReport {
-  id         String                   @id @default(uuid()) @db.Uuid
-  reportDate DateTime                 @unique @map("report_date") @db.Date
-  status     ReconciliationReportStatus
-  summary    Json
-  issuesCount Int                     @default(0) @map("issues_count")
-  createdAt  DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id          String                     @id @default(uuid()) @db.Uuid
+  reportDate  DateTime                   @unique @map("report_date") @db.Date
+  status      ReconciliationReportStatus
+  summary     Json
+  issuesCount Int                        @default(0) @map("issues_count")
+  createdAt   DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([status, reportDate])
   @@map("reports")

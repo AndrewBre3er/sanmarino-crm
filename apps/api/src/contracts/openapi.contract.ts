@@ -86,6 +86,10 @@ export const api_openapi_tags = {
     name: "returns-read",
     description: "Read-only return request endpoints"
   },
+  kpiAnalytics: {
+    name: "kpi-analytics",
+    description: "Read-only KPI/analytics endpoints backed by accepted analytics read models"
+  },
   supply: {
     name: "supply",
     description:

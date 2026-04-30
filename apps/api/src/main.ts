@@ -61,6 +61,7 @@ async function bootstrap(): Promise<void> {
     .addTag(api_openapi_tags.paymentsRead.name, api_openapi_tags.paymentsRead.description)
     .addTag(api_openapi_tags.logisticsRead.name, api_openapi_tags.logisticsRead.description)
     .addTag(api_openapi_tags.returnsRead.name, api_openapi_tags.returnsRead.description)
+    .addTag(api_openapi_tags.kpiAnalytics.name, api_openapi_tags.kpiAnalytics.description)
     .addTag(api_openapi_tags.supply.name, api_openapi_tags.supply.description)
     .addTag(api_openapi_tags.auth.name, api_openapi_tags.auth.description)
     .addExtension(

@@ -153,7 +153,22 @@ describe("prisma schema foundation (infra + users + CRM core + orders + supply i
     expect(schema).toContain('@map("reports")');
     expect(schema).toContain('@@schema("reconciliation")');
     expect(schema).toContain('@map("created_by") @db.Uuid');
-    expect(schema).not.toContain("model AnalyticsLiveKpiMetric");
+    expect(schema).toContain("model AnalyticsLiveKpiMetric");
+    expect(schema).toContain("model AnalyticsSnapshotKpiMetric");
+    expect(schema).toContain("model AnalyticsDepartmentPlan");
+    expect(schema).toContain('@map("live_kpi_metrics")');
+    expect(schema).toContain('@map("snapshot_kpi_metrics")');
+    expect(schema).toContain('@map("department_plans")');
+    expect(schema).toContain('@@schema("analytics")');
+    expect(schema).toContain("@@unique([metricCode, scopeType, scopeId])");
+    expect(schema).toContain("@@index([asOf])");
+    expect(schema).toContain("@@unique([departmentId, metricCode, periodStart, periodEnd])");
+    expect(schema).toContain("@@index([metricCode, periodStart, periodEnd])");
+    expect(schema).toContain(
+      "@@unique([metricCode, periodType, periodStart, periodEnd, scopeType, scopeId])"
+    );
+    expect(schema).toContain('metricCode    String   @map("metric_code") @db.VarChar(128)');
+    expect(schema).not.toContain("enum KpiMetric");
   });
 
   it("keeps TODO markers for deferred business implementation around payment+finance flow", () => {
