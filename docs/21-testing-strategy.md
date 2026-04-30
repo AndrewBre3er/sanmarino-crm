@@ -53,13 +53,23 @@
 - full reserve -> `ReadyForShipment`
 - Order -> Fulfillment
 - Payment -> Finance cash basis
+- Payment reject external fact -> terminal `rejected` without cash/finance income side effects
 - Shipped but unpaid -> `OnControl`
 - next business day unpaid -> `Problem`
 - ReturnRequest -> refund / return flow -> quarantine
 - ReturnRequest status flow: `created -> confirmed -> processed -> closed`
-- ReturnRequest older than `14` days after realization requires `ceo` approval on `confirmed`
+- ReturnRequest older than `14` days from canonical realization anchor requires `ceo` approval on `confirmed`
+- ReturnRequest 14-day anchor uses `MIN(fulfillments.fulfilled_at)` across returned items (via fulfillment linkage), not order-level shipment timestamps
 - receipt flow keeps `supplier_id` / optional `supplier_request_id` linkage
 - receipt items enforce explicit UOM from strict v1 list
+- low-stock alert generation and acknowledgement flow
+- stale reservation alert generation and resolution flow
+- receipt discrepancy lifecycle and escalation flow
+- client dedup/merge workflow with audit-safe traceability
+- manual correction workflow (`draft -> pending_approval -> approved/rejected -> applied`) with `0..1` final finance entry
+- KPI plan/fact separation (manager-entered plans vs derived facts)
+- ATS/Avito inbound idempotency and duplicate suppression before domain side effects
+- Telegram/MAX outbound routing and permission-safe recipient filtering
 - role checks on API
 - audit logging критичных действий
 
@@ -70,11 +80,18 @@
 - permission-denied responses
 - idempotency behavior
 - field visibility rules
+- `base purchase price` must be hidden from `seller`/`warehouse`/`logistics`
 - strict UOM validation (`шт`, `кв.м`, `п.м`, `услуга`)
 - supplier request source-line linkage contracts
 - supplier request status list and role-limited action contracts
 - supplier request attachment ACL contracts
 - return request status list contracts (`created`, `confirmed`, `processed`, `closed`)
+- payment rejection contract (`POST /payments/{paymentId}/reject-external-fact`) -> terminal `rejected` + no cash/revenue side effects
+- no public CRM-side payment creation contracts
+- manual correction status/transition contracts and `0..1` applied finance entry cardinality
+- KPI plan/fact read contracts keep KPI as derived layer only
+- integration inbound contracts for `ATS`/`Avito` remain idempotent
+- notification outbound contracts for `Telegram`/`MAX` preserve permission-safe routing
 
 ### 5. E2E tests
 Проверяют через интерфейс:
@@ -86,12 +103,17 @@
 - supplier request statuses and role-limited actions
 - auto-created order
 - сценарий частичной доставки с несколькими delivery task
-- регистрацию оплаты
+- регистрацию внешнего payment fact и confirm/reject control сценарии
 - складское исполнение
 - логистическое исполнение
 - контроль денег от водителя
 - возврат по `ReturnRequest` с попаданием в quarantine
 - возврат старше `14` дней с обязательным `ceo` подтверждением
+- mixed partial-delivery возврат: anchor берётся по минимальному `fulfillments.fulfilled_at` среди возвращаемых позиций
+- client dedup/merge с сохранением linked deals/orders и audit trail
+- purchase-price скрыт в UI/API для запрещённых ролей
+- manual correction approval/apply flow
+- role dashboards + saved filters + role notifications
 - ограничения разных ролей
 
 ### 6. Manual smoke tests
@@ -112,9 +134,13 @@
 - reserve rules
 - fulfillment close rules
 - payment registration
+- payment rejection terminal behavior (no cash-in / no finance income)
 - refund rules
 - cash basis recognition
 - return flow through `ReturnRequest`
+- manual correction approval/apply invariants
+- purchase-price field-level visibility invariants
+- KPI plan/fact separation (KPI not source of truth)
 - audit logging
 - idempotency critical mutations
 
@@ -189,6 +215,7 @@
 - перевод supplier request в `stocked` ролью вне `warehouse`
 - доступ к supplier request attachment ролью вне `warehouse`/`finance`/`ceo`
 - `ReturnRequest.confirmed` без `ceo` при возрасте возврата более `14` дней
+- расчёт 14-day CEO-gate от `orders.orders.shipped_at` / `orders.orders.partially_shipped_at` вместо канонического fulfillment-anchor
 
 ## Concurrency and idempotency
 
@@ -197,6 +224,21 @@
 - параллельные изменения статуса
 - race между payment и refund
 - race между reserve release и fulfillment
+- race между duplicate ATS/Avito inbound events и первичной обработкой
+- race между manual correction approval и apply
+
+## Delta 0 supporting-doc coverage additions
+
+Обязательные regression-проверки этой wave:
+- payment rejection остаётся terminal (`rejected`) и не создаёт cash/revenue side effects
+- CRM-side payment creation не появляется ни в API, ни в UI сценариях
+- purchase price не утекает в API/UI для `seller`, `warehouse`, `logistics`
+- client dedup/merge сохраняет audit trail и ссылки на связанные сущности
+- manual correction workflow не допускает apply без approval и не нарушает `0..1` applied entry
+- KPI dashboards используют plan/fact модель и не становятся источником истины
+- ATS/Avito inbound обработка идемпотентна
+- Telegram/MAX outbound routing подчинён permission boundaries
+- warehouse alerts/discrepancy flow доступны и трассируются audit-событиями
 
 ## CI quality gate
 

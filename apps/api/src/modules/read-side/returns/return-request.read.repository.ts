@@ -25,7 +25,9 @@ export interface OrdersReturnRequestReadModel {
   reason: string;
   requestedRefundAmount: string | null;
   approvedRefundAmount: string | null;
+  realizationAnchorAt: string | null;
   confirmedAt: string | null;
+  requiresCeoApproval: boolean;
   ceoApprovedAt: string | null;
   processedAt: string | null;
   closedAt: string | null;
@@ -42,10 +44,7 @@ const return_request_status_to_prisma: Record<string, PrismaReturnRequestStatus>
   created: "CREATED",
   confirmed: "CONFIRMED",
   processed: "PROCESSED",
-  closed: "CLOSED",
-  draft: "CREATED",
-  submitted: "CREATED",
-  approved: "CONFIRMED"
+  closed: "CLOSED"
 };
 
 function map_read_statuses_to_prisma(statuses: readonly string[]): PrismaReturnRequestStatus[] {
@@ -74,7 +73,9 @@ function map_return_request_read_model(record: OrdersReturnRequest): OrdersRetur
     reason: record.reason,
     requestedRefundAmount: to_decimal_string(record.requestedRefundAmount),
     approvedRefundAmount: to_decimal_string(record.approvedRefundAmount),
+    realizationAnchorAt: to_iso_datetime(record.realizationAnchorAt),
     confirmedAt: to_iso_datetime(record.confirmedAt),
+    requiresCeoApproval: record.requiresCeoApproval,
     ceoApprovedAt: to_iso_datetime(record.ceoApprovedAt),
     processedAt: to_iso_datetime(record.processedAt),
     closedAt: to_iso_datetime(record.closedAt),

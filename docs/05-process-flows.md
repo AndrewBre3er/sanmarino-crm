@@ -21,10 +21,14 @@
 
 Внутри `Deal` менеджер:
 - дополняет данные клиента
+- фиксирует address и linked client context
+- при необходимости инициирует dedup/merge клиента через явный workflow
 - указывает ответственного менеджера
 - добавляет `монтажника` / `дизайнера`, если есть
 - заполняет товарный состав
 - указывает единицы измерения, количество, цену и итоговую сумму
+- ведёт follow-up, next contact date и reminders
+- фиксирует communication history, lost reason и stuck-deal markers
 - выбирает доставку или самовывоз
 - видит онлайн-остатки
 
@@ -46,10 +50,17 @@
 - durable reservation не должен жить без `Order`
 - если пользователь инициирует резерв из `Deal`, система должна создавать `Order` и `Reservation` атомарно
 - до этого допускаются только availability check и short-lived soft lock / pre-reserve
+- в `Deal` должен быть виден supply summary: partial coverage, deficits, ETA и linked supplier request context
 
 ### Шаг 5. Supplier Request
 Если товара не хватает, создаётся `SupplierRequest`.
 Заявку оформляет менеджер (`seller`).
+
+Контур product-supplier matrix:
+- один product может быть связан с несколькими supplier
+- используется supplier priority
+- используется base purchase price
+- base purchase price скрывается от `seller`, `warehouse`, `logistics`
 
 Список и статус supplier request видят все роли.
 Действия по заявке ограничены ролями:
@@ -152,23 +163,98 @@
 
 ---
 
-## 8. Возврат
+## 8. Warehouse и Logistics operational alerts
+
+Обязательные operational alerts:
+- low-stock alert
+- stale reservation alert
+- receipt discrepancy alert
+
+Алерты должны:
+- быть ролевыми (warehouse/logistics/finance/ceo по контексту)
+- вести в релевантную карточку/журнал
+- не подменять первичный доменный факт
+
+---
+
+## 9. External payment intake/control
+
+Поток внешнего payment факта:
+1. в систему поступает внешний подтверждаемый payment fact (intake)
+2. факт связывается с order/deal контекстом
+3. finance/уполномоченная роль выполняет контроль:
+   - `confirm-external-fact` -> `completed`
+   - `reject-external-fact` -> `rejected` (terminal для этого факта)
+4. только `completed` создаёт cash/finance последствия по cash basis
+5. `rejected` не создаёт `cash_in` и не создаёт `finance income`
+
+CRM не инициирует создание оплаты, checkout или payment-link flow.
+
+---
+
+## 10. Возврат
 
 Поток:
 1. создаётся `ReturnRequest`
 2. статус `created` (UI: `Оформлена`) виден всем ролям
 3. подтверждение переводит заявку в `confirmed` (UI: `Подтверждена`)
-4. если с момента реализации прошло более `14` дней, подтверждение возврата требует согласования `ceo`
-5. `TBD`: точный технический якорь "момента реализации" (`shipped_at` или другой canonical execution timestamp) фиксируется отдельно
-6. фиксируются позиции, количество, причина
-7. принимается решение
-8. создаются последствия:
+4. если прошло более `14` дней от канонического якоря реализации, подтверждение возврата требует согласования `ceo`
+5. канонический якорь реализации для этого правила: `MIN(orders.fulfillments.fulfilled_at)` по позициям `return_request_items` (через `orders.fulfillment_items`), только из подтверждённых execution-фактов
+6. неканонично для этого правила: `orders.orders.shipped_at`, `orders.orders.partially_shipped_at`, а также timestamp планирования/маршрута delivery task
+7. фиксируются позиции, количество, причина
+8. принимается решение
+9. создаются последствия:
    - возврат денег
    - возврат товара
    - списание
-9. обработка последствий переводит в `processed` (UI: `Обработана`)
-10. возвращённый товар по умолчанию попадает в `quarantine`
-11. только после дефектовки товар может быть переведён в `available`
+10. обработка последствий переводит в `processed` (UI: `Обработана`)
+11. возвращённый товар по умолчанию попадает в `quarantine`
+12. только после дефектовки товар может быть переведён в `available`
 12. финальное закрытие переводит в `closed` (UI: `Закрыта`)
 
 Прямой возврат товара сразу в доступный остаток запрещён.
+
+---
+
+## 11. Finance control and corrections
+
+Дополнительно к базовым потокам:
+- supplier payables ведутся как отдельный контур контроля
+- mismatch reports фиксируют междоменные невязки
+- manual correction проходит approval workflow:
+  - `draft`
+  - `pending_approval`
+  - `approved` / `rejected`
+  - `applied`
+- одна correction даёт максимум одну итоговую `finance_entry` (`0..1`)
+
+---
+
+## 12. KPI plan/fact and workspace productivity
+
+KPI контур:
+- manager-entered department plans
+- factual KPI только из source domains
+- KPI не является источником истины
+
+Workspace productivity baseline:
+- role-specific home dashboards
+- saved filters
+- role notifications
+
+---
+
+## 13. Integrations and notifications
+
+Inbound:
+- `ATS` inbound events
+- `Avito` inbound events
+
+Outbound:
+- `Telegram` notifications
+- `MAX` notifications
+
+Правила:
+- inbound обработка идемпотентна и валидируется на сервере
+- outbound routing остаётся permission-safe
+- notification flow не должен обходить доменные ограничения и аудит

@@ -168,11 +168,15 @@ API должно быть версионируемым.
 ### 4.1 Где обязательна
 
 `Idempotency-Key` обязателен для критических мутаций минимум в операциях:
-- создание оплаты
+- intake внешнего payment факта
+- подтверждение внешнего payment факта
 - проведение возврата денег
 - materialization `Order + Reservation` из `Deal`
 - проведение складского прихода
 - проведение складского расхода
+- фиксация inbound integration событий (`ATS`, `Avito`)
+- отправка критичных outbound уведомлений (`Telegram`, `MAX`)
+- approval/apply операций manual finance correction
 - подтверждение исполнения
 - критические переходы состояний
 
@@ -269,7 +273,12 @@ API не должно разрешать:
 - file attachment `SupplierRequest` видят только `warehouse`, `finance`, `ceo`
 - `SupplierRequest` использует статусы `formed`, `confirmed_by_supplier`, `paid`, `stocked` (UI labels: `Сформирована`, `Подтверждена поставщиком`, `Оплачено`, `Оприходовано`)
 - `ReturnRequest` использует статусы `created`, `confirmed`, `processed`, `closed` (UI labels: `Оформлена`, `Подтверждена`, `Обработана`, `Закрыта`)
-- `ReturnRequest.confirmed` требует согласования `ceo`, если прошло более `14` дней после реализации
+- `ReturnRequest.confirmed` требует согласования `ceo`, если прошло более `14` дней от канонического realization anchor: `MIN(orders.fulfillments.fulfilled_at)` по позициям этого возврата
+- payment flow в v1 фиксируется как external fact intake/control; CRM-side payment creation запрещено
+- product sourcing использует `Product -> multiple Supplier` с `supplierPriority` и `basePurchasePrice`
+- `basePurchasePrice` является sensitive field и не должен отдаваться ролям `seller`, `warehouse`, `logistics`
+- CRM productivity в v1 включает `follow-up`, `nextContactAt`, reminders, `lostReason`, communication history, stuck deals
+- client master в v1 включает address, linked deals/orders traceability, dedup/merge workflow, installer/designer referral context
 - в order-commercial flow v1 единицы измерения ограничены списком `шт`, `кв.м`, `п.м`, `услуга`
 
 ---
@@ -334,6 +343,19 @@ Command endpoints для lead:
 ### `POST /clients`
 Создать client.
 
+Request (minimal v1 surface):
+```json
+{
+  "name": "...",
+  "phone": "...",
+  "email": "...",
+  "addressText": "...",
+  "addressComment": "...",
+  "installerReferralComment": "...",
+  "designerReferralComment": "..."
+}
+```
+
 ### `GET /clients/{clientId}`
 Получить client.
 
@@ -342,6 +364,14 @@ Command endpoints для lead:
 
 ### `PATCH /clients/{clientId}`
 Изменить client.
+
+Дополнительно для dedup/merge workflow:
+- `GET /clients/dedup-candidates`
+- `POST /clients/{clientId}/merge`
+
+Правила:
+- merge выполняется только через явную команду с указанием `sourceClientId` и `targetClientId`
+- merge должен сохранять трассировку источников в audit и в связанной CRM-истории
 
 ---
 
@@ -398,10 +428,16 @@ Response содержит `status = InProgress` по умолчанию.
 - client participants (`монтажник` / `дизайнер`)
 - linked supplier requests
 - supply coverage summary
+- `nextContactAt`
+- `lostReason`
+- stuck-deal markers
 
 Command endpoints для deal:
 - `POST /deals/{dealId}/cancel`
 - `POST /deals/{dealId}/supplier-requests`
+- `POST /deals/{dealId}/follow-ups`
+- `POST /deals/{dealId}/mark-lost`
+- `POST /deals/{dealId}/mark-stuck`
 
 Правила:
 - отдельный invoice endpoint в v1 отсутствует; термин "счёт" не является отдельным API-ресурсом
@@ -414,11 +450,59 @@ Command endpoints для deal:
     "id": "deal_...",
     "status": "InProgress",
     "clientId": "...",
+    "nextContactAt": "...",
+    "lostReason": null,
+    "supplySummary": {
+      "coverageStatus": "partial",
+      "deficitQty": 2,
+      "eta": "2026-04-10",
+      "linkedSupplierRequestIds": ["sup_req_1"]
+    },
     "responsibleUserId": "...",
     "updatedAt": "..."
   }
 }
 ```
+
+---
+
+## 7.1.5 Deal productivity and communication
+
+### `GET /deals/{dealId}/supply-summary`
+Получить сводку обеспечения сделки.
+
+Минимальные поля ответа:
+- `coverageStatus` (`none` / `partial` / `full`)
+- `coveredQty`
+- `deficitQty`
+- `eta`
+- `linkedSupplierRequests`
+
+Cardinality rule:
+- endpoint возвращает один derived summary object на `deal` (`0..1` по наличию), а не список summary-строк
+
+### `POST /deals/{dealId}/follow-ups`
+Создать/обновить follow-up для сделки.
+
+Минимальные поля request:
+- `nextContactAt`
+- `reminderAt` (optional)
+- `comment` (optional)
+
+### `GET /deals/{dealId}/follow-ups`
+Получить follow-up историю по сделке.
+
+### `POST /deals/{dealId}/communications`
+Зафиксировать коммуникацию.
+
+Минимальные поля request:
+- `channel`
+- `direction`
+- `summary`
+- `occurredAt`
+
+### `GET /deals/{dealId}/communications`
+Получить историю коммуникаций.
 
 ---
 
@@ -572,10 +656,12 @@ Request:
 - technical status codes: `created`, `confirmed`, `processed`, `closed`
 - UI labels: `Оформлена`, `Подтверждена`, `Обработана`, `Закрыта`
 - список и статус return request доступны всем ролям
-- `confirmed` требует согласования `ceo`, если прошло более `14` дней после реализации
-- `TBD`: технический якорь "после реализации" фиксируется как отдельный timestamp contract (`shipped_at` или иной execution timestamp)
+- `confirmed` требует согласования `ceo`, если `confirmedAt - realizationAnchorAt > 14 days`
+- `realizationAnchorAt` вычисляется как `MIN(orders.fulfillments.fulfilled_at)` по возвращаемым позициям (`return_request_items` через linkage к `orders.fulfillment_items`), только из подтверждённых execution-фактов
+- неканонично для этого правила: `orders.orders.shipped_at`, `orders.orders.partially_shipped_at`, а также delivery-task planning/route timestamps
 - `processed` не означает автоматическое `closed`
 - `closed` возможно только после завершения последствий в нужных доменах
+- переходы `confirm` / `process` / `close` обязаны логироваться в `audit` с actor context
 
 ---
 
@@ -586,6 +672,22 @@ Request:
 - `GET /products/{productId}`
 - `GET /products`
 - `PATCH /products/{productId}`
+
+## 7.3.1a Product suppliers matrix
+- `POST /products/{productId}/suppliers`
+- `GET /products/{productId}/suppliers`
+- `PATCH /products/{productId}/suppliers/{productSupplierId}`
+
+Минимальные поля matrix record:
+- `supplierId`
+- `supplierPriority`
+- `basePurchasePrice`
+- `isActive`
+
+Правила:
+- один product может быть связан с несколькими supplier
+- `supplierPriority` определяет порядок предпочтения для sourcing
+- `basePurchasePrice` является sensitive field и скрывается для ролей `seller`, `warehouse`, `logistics`
 
 ---
 
@@ -781,8 +883,14 @@ Request:
 
 ## 7.4.1 Payments
 
-### `POST /payments`
-Создать payment.
+Technical status codes for payment fact:
+- `pending`
+- `completed`
+- `refunded`
+- `rejected`
+
+### `POST /payments/external-facts/intake`
+Принять внешний payment факт в контур контроля.
 
 Request:
 ```json
@@ -790,6 +898,8 @@ Request:
   "orderId": "...",
   "amount": "2000.00",
   "paymentMethod": "cash",
+  "externalSource": "bank",
+  "externalEventId": "...",
   "externalRef": "..."
 }
 ```
@@ -806,6 +916,8 @@ Response example:
     "status": "Pending",
     "amount": "2000.00",
     "paymentMethod": "cash",
+    "externalSource": "bank",
+    "externalEventId": "...",
     "createdAt": "...",
     "updatedAt": "..."
   }
@@ -818,8 +930,8 @@ Response example:
 ### `GET /payments`
 Список payments.
 
-### `POST /payments/{paymentId}/complete`
-Подтвердить оплату.
+### `POST /payments/{paymentId}/confirm-external-fact`
+Подтвердить внешний payment факт.
 
 Эффекты:
 - перевод `payment` в `Completed`
@@ -828,6 +940,20 @@ Response example:
 
 Требования:
 - `Idempotency-Key`
+
+### `POST /payments/{paymentId}/reject-external-fact`
+Отклонить внешний payment факт, если он не прошёл контроль.
+
+Результат:
+- `payment.status` переходит в `rejected` (terminal result для данного intake-факта)
+- `cash operation` не создаётся
+- `finance income entry` не создаётся
+
+Правила:
+- `externalSource` означает платёжный внешний канал/провайдера (`bank`, `acquiring`, `cash_register`, `manual_import`, `other`)
+- `ATS` и `Avito` не используются как `externalSource` в payment intake; они относятся к inbound integration событиям
+- CRM не создаёт hosted checkout / payment-link flow в v1
+- CRM не инициирует эквайринг; допускается только intake/control уже существующего внешнего денежного факта
 
 ---
 
@@ -975,6 +1101,28 @@ Request:
 - `GET /marketing-expenses`
 - `PATCH /marketing-expenses/{marketingExpenseId}`
 
+## 7.6.4 Manual finance corrections
+- `POST /finance-corrections`
+- `GET /finance-corrections`
+- `GET /finance-corrections/{correctionId}`
+- `POST /finance-corrections/{correctionId}/submit-for-approval`
+- `POST /finance-corrections/{correctionId}/approve`
+- `POST /finance-corrections/{correctionId}/reject`
+- `POST /finance-corrections/{correctionId}/apply`
+
+Technical status codes:
+- `draft`
+- `pending_approval`
+- `approved`
+- `rejected`
+- `applied`
+
+Правила:
+- корректировка не может обходить источник истины доменных фактов
+- применение корректировки допускается только после approval
+- `apply` создаёт не более одной итоговой `finance_entry` для одной correction (`0..1`)
+- все переходы correction workflow должны логироваться в audit
+
 ---
 
 ## 7.7 KPI / Analytics API
@@ -997,6 +1145,22 @@ Request:
 - `periodType`
 - `periodStart`
 - `periodEnd`
+
+## 7.7.3 Department plans
+- `POST /kpi/department-plans`
+- `GET /kpi/department-plans`
+- `PATCH /kpi/department-plans/{planId}`
+
+Минимальные поля plan:
+- `departmentId`
+- `metricKey`
+- `periodStart`
+- `periodEnd`
+- `planValue`
+
+Правила:
+- план вводится менеджером вручную
+- плановые значения не подменяют factual KPI
 
 Правило:
 KPI — только read-поверхность для пользователей и систем. KPI не должен использоваться как первичный мутирующий контур бизнес-фактов.
@@ -1072,6 +1236,51 @@ RBAC-поверхность должна контролировать:
 
 Этот endpoint должен быть ограничен по доступу и обычно использоваться системно или администраторами.
 
+### Mandatory v1 reconciliation pairs (stage-entry baseline)
+- `orders_payments`: `Orders ↔ Payments`; сверка суммы/денежного статуса заказа с подтверждёнными внешними payment facts.
+- `orders_driver_money`: `Orders ↔ Driver money control`; сверка доставленных заказов с контуром контроля денег водителя.
+- `orders_inventory`: `Orders ↔ Inventory`; сверка исполненных/отгруженных позиций заказа с `inventory.issue` и связанными reservation.
+- `inventory_finance`: `Inventory ↔ Finance`; сверка стоимостно-значимых складских фактов с финансовыми расходами/корректировками.
+- `logistics_orders`: `Logistics ↔ Orders`; сверка delivery-task фактов с агрегированным `order.deliveryStatus`.
+
+Для каждого mismatch report запись должна содержать:
+- `pair`
+- `leftEntityRef`
+- `rightEntityRef`
+- `actualDifference`
+- `recommendedAction`
+
+---
+
+## 7.11 Integrations and notifications API
+
+### Inbound integrations
+- `POST /integrations/ats/events`
+- `POST /integrations/avito/events`
+
+Минимальные поля inbound request:
+- `externalEventId`
+- `occurredAt`
+- `payload`
+
+Правила:
+- inbound события должны проходить server-side validation
+- обработка inbound событий должна быть идемпотентной
+- inbound integration endpoint'ы не должны обходить доменные permission и state-machine правила
+
+### Outbound notifications
+- `POST /notifications/telegram`
+- `POST /notifications/max`
+
+Минимальные поля outbound request:
+- `eventType`
+- `targetRef`
+- `payload`
+
+Правила:
+- outbound уведомления должны формироваться из доменного факта, а не из произвольного UI-ввода
+- для критичных уведомлений обязателен audit trace по факту отправки/ошибки
+
 ---
 
 ## 8. Правила связности между endpoint'ами
@@ -1093,7 +1302,7 @@ Materialized `Order` из `Deal` может открывать путь к durab
 
 ## 8.3 Payment -> Finance
 
-Подтверждение оплаты должно создавать последствия в finance по `cashBasis`.
+Подтверждение внешнего payment факта должно создавать последствия в finance по `cashBasis`.
 
 ---
 
@@ -1106,6 +1315,27 @@ Materialized `Order` из `Deal` может открывать путь к durab
 ## 8.5 ReturnRequest -> Refund / Inventory / Finance
 
 Все возвратные последствия должны опираться на `ReturnRequest`.
+
+---
+
+## 8.6 Product -> Supplier matrix
+
+`Product` должен поддерживать несколько supplier-связей с приоритетом и базовой закупочной ценой.
+`basePurchasePrice` подчиняется field-level visibility restrictions.
+
+---
+
+## 8.7 KPI Plan -> KPI Fact
+
+`department plan` остаётся отдельным ручным слоем.
+`kpi live/snapshot fact` остаётся производным от доменных источников истины.
+
+---
+
+## 8.8 Integrations -> CRM/Notifications
+
+`ATS`/`Avito` inbound события должны входить в CRM только через валидируемые idempotent endpoints.
+`Telegram`/`MAX` outbound уведомления должны исходить из доменных фактов и оставлять trace.
 
 ---
 
@@ -1146,6 +1376,7 @@ API должно учитывать RBAC на уровне:
 - `logistics` видит логистические сущности
 - `warehouse` видит складские сущности
 - `ceo` видит сквозную картину
+- `basePurchasePrice` не должен возвращаться в API-ответах для `seller`, `warehouse`, `logistics`
 
 ---
 
@@ -1154,13 +1385,14 @@ API должно учитывать RBAC на уровне:
 Следующие действия нельзя сводить к произвольному изменению поля через `PATCH`:
 - перевод order между `assembling` / `ready_for_partial_shipment` / `ready_for_shipment` / `partially_shipped` / `shipped`
 - резервирование
-- проведение оплаты
+- intake/confirm/reject внешнего payment факта
 - возврат денег
 - проведение складского прихода
 - проведение складского расхода
 - подтверждение исполнения
 - перевод return request по стадиям
 - критические логистические переходы
+- approval/apply manual finance correction
 - admin override статусов
 
 Для них должны быть отдельные command endpoint'ы.
@@ -1173,10 +1405,10 @@ API должно учитывать RBAC на уровне:
 - точный auth механизм
 - точный OpenAPI-формат
 - форматы enum serialization
-- webhooks / event contracts
+- detailed webhook/signature policy for adapters
 - пакетные bulk-операции
 - generic attach/file API вне `SupplierRequest`-контракта
-- адресная модель клиента и доставки
+- детальная нормализация адресной модели клиента и доставки
 - налоговые поля и фискальные интеграции
 - public API vs internal API split
 - async process contracts
@@ -1189,10 +1421,12 @@ API должно учитывать RBAC на уровне:
 - API должно быть доменным, а не монолитным набором случайных методов
 - status transitions должны быть command-based
 - критические мутации должны поддерживать `Idempotency-Key`
+- payment-контур v1 должен оставаться intake/control внешнего факта без CRM-side payment creation
 - доход по продаже должен появляться только из денежного факта
 - расход товара по продаже должен появляться только из факта исполнения
 - возвраты должны идти только через `ReturnRequest`
 - KPI должен оставаться производным read-layer
+- KPI plan/fact должен оставаться разделённым: manager-set plans и domain-derived facts
 - audit и reconciliation должны иметь собственную API-поверхность чтения
 
 
@@ -1205,4 +1439,5 @@ API должно учитывать RBAC на уровне:
 - auto order / reservation flow обязан явно обрабатывать `OutOfStockError` и логистический конфликт.
 - Один заказ может иметь несколько delivery task.
 - Возврат товара должен вести в `quarantine`.
+- payment v1 не должен возвращаться к CRM-side creation / checkout orchestration.
 - `GET /kpi/live` должен читать агрегаты, а не запускать тяжёлые runtime JOIN.

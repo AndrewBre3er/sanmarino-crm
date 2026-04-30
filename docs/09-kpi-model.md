@@ -11,6 +11,22 @@ Live KPI не должны строиться тяжёлыми runtime JOIN по
 - отгрузочные показатели
 - контрольные показатели по деньгам в пути
 
+Дополнение revised MVP v1:
+- планы подразделений вводятся менеджером вручную как `plan`-слой
+- факт (`fact`) рассчитывается только из доменных source-of-truth контуров
+- KPI не может выступать источником истины для изменения CRM/Orders/Inventory/Payments/Finance
+
+### 1.1 Plan/Fact contract
+
+Обязательная модель:
+- `DepartmentPlan` (manual, manager-entered)
+- `KPI facts` (derived, immutable by dashboard editing)
+- `KPI PlanFact View` (read-model сравнения плана и факта)
+
+Запрещено:
+- подменять факт ручным KPI-редактированием
+- проводить доменные мутации через KPI-экран
+
 ---
 
 ## 2. CEO / Executive KPI
@@ -39,6 +55,7 @@ Live KPI не должны строиться тяжёлыми runtime JOIN по
 
 Правило:
 - считаются только подтверждённые поступления денег
+- `payment.rejected` и неподтверждённые факты не признаются денежной выручкой
 - период по умолчанию: текущий месяц
 - должен поддерживаться переключатель периодов
 
@@ -168,6 +185,11 @@ Live KPI не должны строиться тяжёлыми runtime JOIN по
 - shipped amount in owned deals
 - money received in owned deals
 - supplier coverage backlog in owned deals
+- overdue follow-up count
+- deals without next contact date
+- stuck deals count
+- lost reasons distribution
+- client dedup/merge queue count
 
 ---
 
@@ -218,6 +240,8 @@ Live KPI не должны строиться тяжёлыми runtime JOIN по
 - stale reservations
 - out-of-stock attempts
 - received with discrepancy count
+- low-stock alert count
+- supply deficit amount and ETA risk
 
 ---
 
@@ -241,3 +265,38 @@ Live KPI не должны строиться тяжёлыми runtime JOIN по
 - прямые тяжёлые JOIN между `CRM`, `Orders`, `Payments`, `Finance`, `Inventory` и `Logistics` для пользовательских виджетов запрещены
 
 KPI остаётся read-layer и не может быть первичным бизнес-контуром.
+
+## 8. Workspace and integration control metrics (v1)
+
+### 8.1 Deal supply visibility metrics
+Источники:
+- CRM + Orders supply summary read-model
+
+Примеры:
+- deals with partial coverage
+- deficits amount by manager
+- ETA breach risk
+- linked supplier request backlog
+
+### 8.2 Finance control metrics
+Источники:
+- Payments + Finance + Reconciliation
+
+Примеры:
+- external payment intake pending/rejected ratio
+- supplier payables aging
+- mismatch reports open/closed
+- manual correction lifecycle throughput (`draft/pending_approval/approved/rejected/applied`)
+
+### 8.3 Integration and notification health metrics
+Источники:
+- Integration inbound logs
+- Notification dispatch logs
+
+Примеры:
+- ATS inbound idempotency duplicates prevented
+- Avito inbound processing latency
+- Telegram routing success/fail ratio
+- MAX routing success/fail ratio
+
+KPI этих контуров служит мониторингу и приоритизации действий, но не заменяет первичные доменные факты и журналы аудита.

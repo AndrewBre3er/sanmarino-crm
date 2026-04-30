@@ -62,6 +62,62 @@
 - без Returns/Reconciliation система остаётся уязвимой к расхождениям
 - KPI строятся только после появления первичных фактов
 
+## 2.1 Delta 0 — MVP v1 Realignment Gate
+
+Перед продолжением реализации по этапам ниже требуется bounded realignment документации под `docs/38-mvp-v1-functional-realignment.md`.
+
+Важно:
+- это не полный redesign дорожной карты
+- major stages `0-8` сохраняются
+- меняются только границы и приоритеты capability-pack состава внутри MVP v1
+
+Цели Delta 0:
+- синхронизировать roadmap и MVP scope с revised MVP v1
+- убрать drift в текущем task framing
+- закрыть inconsistency по auth baseline между security и accepted tech baseline
+- зафиксировать anti-scope, чтобы realignment не расползался
+
+Граница Delta 0:
+- документный sync-gate перед следующим coding wave
+- без переизобретения source-of-truth дисциплины и доменных инвариантов
+
+## 2.2 Delta 0 Capability-Pack Sync Waves
+
+### Wave A. CRM productivity + client master
+- follow-up / next contact / reminders / lost reasons / communication history / stuck deals
+- client card расширения: address, dedup/merge, referral context для installer/designer
+
+### Wave B. Product-supplier matrix + supply visibility
+- product -> multiple suppliers
+- supplier priority + base purchase price
+- field-level visibility rule для purchase price
+- deal supply UX: partial coverage, deficits, ETA, linked supplier request
+- warehouse alert baseline: low-stock, stale reservation, discrepancy on receipt
+
+### Wave C. External payments + finance control
+- внешний payment fact intake/control вместо CRM-side payment creation
+- money-control flow (`OnControl` / `Problem`) и driver-money control
+- finance corrections с approval workflow
+
+### Wave D. KPI plan/fact + reporting
+- department plan/fact baseline
+- manager-set plans
+- KPI остаётся read-layer и не становится source of truth
+
+### Wave E. Notifications + integrations
+- role dashboards / saved filters / role notifications
+- ATS + Avito inbound events
+- Telegram + MAX outbound notifications
+
+## 2.3 Delta 0 Guardrails (Not a Redesign)
+
+Во время Delta 0 запрещено:
+- ломать major roadmap stage order
+- ослаблять state machine / idempotency / cash basis / ReturnRequest discipline
+- возвращать тяжёлые runtime KPI JOIN как источник истины
+- возвращать в scope CRM-side payment creation
+- расширять scope за пределы capability packs, зафиксированных в `docs/38`
+
 ---
 
 ## 3. Этап 0. Project Foundation

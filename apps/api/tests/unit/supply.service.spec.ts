@@ -1084,7 +1084,7 @@ describe("supply service", () => {
           {
             productId: "00000000-0000-0000-0000-000000000012",
             quantity: 2,
-            expiresAt: "2026-04-15T10:00:00.000Z"
+            expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
           }
         ]
       },
@@ -1140,7 +1140,7 @@ describe("supply service", () => {
           {
             productId: "00000000-0000-0000-0000-000000000012",
             quantity: 2,
-            expiresAt: "2026-04-15T10:00:00.000Z"
+            expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
           }
         ]
       },
@@ -1297,7 +1297,7 @@ describe("supply service", () => {
           {
             productId: "00000000-0000-0000-0000-000000000012",
             quantity: 2,
-            expiresAt: "2026-04-15T10:00:00.000Z"
+            expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
           }
         ]
       },

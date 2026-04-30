@@ -92,12 +92,19 @@ Rules:
 - cancelled lead never becomes a `Deal`
 - `Deal` is the manager's commercial order stage
 - standalone `Invoice` table is out of current v1 scope (not a pre-coding gate)
+- CRM productivity surface includes follow-up, next contact date, lost reason and communication history
+- client master surface includes address and dedup/merge workflow
 - durable reservation cannot exist without `Order`
 - if reserve is initiated from `Deal`, the system must create `Order` and `Reservation` atomically
 - `Order` starts as `assembling`
 - order control flags `on_control` and `problem` are stored separately from main order status
 - `ClientParticipant` (`installer` / `designer`) is a separate relational structure
 - `Supplier` / `SupplierRequest` are mandatory supply-side entities for v1 planning
+- one product can be linked to multiple suppliers with priority and base purchase price
+- `SupplierRequest` lifecycle is `formed -> confirmed_by_supplier -> paid -> stocked`
+- `ReturnRequest` lifecycle is `created -> confirmed -> processed -> closed`
+- payment model for v1 is external fact intake/control without CRM-side payment creation
+- KPI plans are manager-entered and must stay separate from factual KPI aggregates
 - v1 UOM list is fixed as `шт`, `кв.м`, `п.м`, `услуга`
 
 ---
@@ -113,6 +120,8 @@ Minimum enum set for v1 bootstrap:
 ### 2.2 CRM enums
 - `lead_status`: `new`, `in_processing`, `cancelled`
 - `deal_status`: `in_progress`, `converted_to_order`, `cancelled`
+- `deal_follow_up_status`: `open`, `done`, `cancelled`
+- `client_merge_case_status`: `open`, `merged`, `rejected`
 
 ### 2.3 Order enums
 - `order_status`: `assembling`, `ready_for_partial_shipment`, `ready_for_shipment`, `partially_shipped`, `shipped`
@@ -133,9 +142,10 @@ Minimum enum set for v1 bootstrap:
 - `inventory_bucket`: `on_hand`, `reserved`, `available`, `quarantine`
 
 ### 2.5 Payments enums
-- `payment_status`: `pending`, `completed`, `refunded`
+- `payment_status`: `pending`, `completed`, `refunded`, `rejected`
 - `payment_method`: `cash`, `bank_transfer`, `card`, `sbp`, `other`
 - `cash_operation_type`: `cash_in`, `cash_out`, `refund`
+- `payment_source_type`: `external_fact`
 
 ### 2.6 Logistics enums
 - `delivery_task_status`: `planned`, `assigned`, `in_transit`, `delivered`, `failed`, `rescheduled`
@@ -145,10 +155,13 @@ Minimum enum set for v1 bootstrap:
 ### 2.7 Finance enums
 - `finance_entry_type`: `income`, `expense`, `adjustment`
 - `expense_type`: `operational`, `marketing`, `procurement`, `logistics`, `other`
+- `finance_correction_status`: `draft`, `pending_approval`, `approved`, `rejected`, `applied`
 
 ### 2.8 System enums
 - `idempotency_status`: `started`, `completed`, `failed`
 - `outbox_status`: `pending`, `processing`, `processed`, `failed`, `dead_letter`
+- `integration_inbox_status`: `received`, `processed`, `rejected`
+- `notification_dispatch_status`: `queued`, `sent`, `failed`
 
 ---
 
@@ -235,13 +248,17 @@ Columns:
 ### 3.2.1 `crm.clients`
 Columns:
 - `id`
-- `client_type varchar(32) not null`  
+- `client_type varchar(32) not null`
   `TBD`: exact enum if legal entity vs individual is fixed later.
 - `name varchar(255) not null`
 - `legal_name varchar(255) null`
 - `phone varchar(64) null`
 - `email varchar(320) null`
 - `tax_id varchar(64) null`
+- `address_text text null`
+- `address_comment text null`
+- `installer_referral_comment text null`
+- `designer_referral_comment text null`
 - `notes text null`
 - `created_at`
 - `updated_at`
@@ -314,6 +331,10 @@ Columns:
 - `delivery_mode varchar(32) null`
 - `notes text null`
 - `expected_value numeric(14,2) null`
+- `next_contact_at timestamptz null`
+- `lost_reason_code varchar(64) null`
+- `stuck_reason_code varchar(64) null`
+- `is_stuck boolean not null default false`
 - `created_at`
 - `updated_at`
 - `deleted_at timestamptz null`
@@ -324,7 +345,59 @@ Indexes:
 - index on `(client_id)`
 - index on `(status)`
 - index on `(responsible_user_id)`
+- index on `(next_contact_at)`
+- index on `(is_stuck, status)`
 - partial index on `(deleted_at)` where `deleted_at is null`
+
+### 3.2.5 `crm.deal_follow_ups`
+Columns:
+- `id`
+- `deal_id uuid not null references crm.deals(id)`
+- `owner_user_id uuid not null references users.users(id)`
+- `next_contact_at timestamptz not null`
+- `reminder_at timestamptz null`
+- `status deal_follow_up_status not null default 'open'`
+- `comment text null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(deal_id, status)`
+- index on `(owner_user_id, next_contact_at)`
+
+### 3.2.6 `crm.deal_communications`
+Columns:
+- `id`
+- `deal_id uuid not null references crm.deals(id)`
+- `client_id uuid not null references crm.clients(id)`
+- `channel varchar(32) not null`
+- `direction varchar(16) not null`
+- `summary text not null`
+- `occurred_at timestamptz not null`
+- `author_user_id uuid not null references users.users(id)`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(deal_id, occurred_at)`
+- index on `(client_id, occurred_at)`
+
+### 3.2.7 `crm.client_merge_cases`
+Columns:
+- `id`
+- `primary_client_id uuid not null references crm.clients(id)`
+- `candidate_client_id uuid not null references crm.clients(id)`
+- `status client_merge_case_status not null default 'open'`
+- `reason text null`
+- `reviewed_by_user_id uuid null references users.users(id)`
+- `reviewed_at timestamptz null`
+- `merged_at timestamptz null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(primary_client_id, status)`
+- index on `(candidate_client_id, status)`
 
 ---
 
@@ -398,6 +471,33 @@ Indexes:
 - unique `(order_id, line_no)`
 - index on `(product_id)`
 
+### 3.3.2a `orders.deal_supply_summaries`
+Purpose:
+- read-model for deal supply UX (partial coverage/deficits/ETA/linked supplier requests)
+
+Columns:
+- `id`
+- `deal_id uuid not null references crm.deals(id)`
+- `coverage_status varchar(32) not null`
+  Allowed values for v1: `none`, `partial`, `full`.
+- `covered_qty numeric(14,3) not null default 0`
+- `deficit_qty numeric(14,3) not null default 0`
+- `eta_from date null`
+- `eta_to date null`
+- `linked_supplier_request_count integer not null default 0`
+- `payload jsonb null`
+- `updated_at timestamptz not null default now()`
+- `created_at timestamptz not null default now()`
+
+Rules:
+- table is a derived summary and not a source-of-truth for stock/supply mutations
+- summary must be refreshed from reservations, supplier requests, and receipts
+- summary table keeps at most one row per `deal` and may be absent until first projection refresh (`0..1` presence)
+
+Indexes:
+- unique `(deal_id)`
+- index on `(coverage_status, updated_at)`
+
 ### 3.3.3 `orders.fulfillments`
 Columns:
 - `id`
@@ -442,6 +542,7 @@ Columns:
 - `reason text not null`
 - `requested_refund_amount numeric(14,2) null`
 - `approved_refund_amount numeric(14,2) null`
+- `realization_anchor_at timestamptz null`
 - `confirmed_at timestamptz null`
 - `requires_ceo_approval boolean not null default false`
 - `ceo_approved_by uuid null references users.users(id)`
@@ -454,6 +555,12 @@ Columns:
 - `deleted_by uuid null references users.users(id)`
 - `delete_reason text null`
 
+Rules:
+- lifecycle must stay `created -> confirmed -> processed -> closed`
+- `realization_anchor_at` is the canonical anchor for 14-day gating and must be set from `MIN(orders.fulfillments.fulfilled_at)` for returned items (via `orders.fulfillment_items` linkage), using only confirmed execution facts
+- `confirmed` for returns older than `14` days uses `confirmed_at - realization_anchor_at > 14 days` and requires `requires_ceo_approval = true` plus populated `ceo_approved_by` / `ceo_approved_at`
+- non-canonical anchors for this rule are forbidden: `orders.orders.shipped_at`, `orders.orders.partially_shipped_at`, and logistics planning/route timestamps
+
 Indexes:
 - index on `(order_id)`
 - index on `(status)`
@@ -465,7 +572,7 @@ Columns:
 - `return_request_id uuid not null references orders.return_requests(id)`
 - `order_item_id uuid not null references orders.order_items(id)`
 - `qty numeric(14,3) not null`
-- `resolution varchar(64) not null`  
+- `resolution varchar(64) not null`
   Suggested values: `return_to_quarantine`, `writeoff`, `refund_only`. Exact enum may be stabilized later.
 - `created_at`
 - `updated_at`
@@ -527,6 +634,28 @@ Columns:
 - `source_line_context jsonb null`
 - `created_at`
 - `updated_at`
+
+### 3.4.0c `inventory.product_suppliers`
+Columns:
+- `id`
+- `product_id uuid not null references inventory.products(id)`
+- `supplier_id uuid not null references inventory.suppliers(id)`
+- `supplier_priority integer not null`
+- `base_purchase_price numeric(14,2) not null`
+- `currency currency_code not null default 'RUB'`
+- `is_active boolean not null default true`
+- `created_at`
+- `updated_at`
+
+Rules:
+- one product can be linked to multiple suppliers
+- `supplier_priority` controls preferred sourcing order (lower value = higher priority)
+- `base_purchase_price` is a sensitive field and must be hidden from `seller`, `warehouse`, `logistics` at API level
+
+Indexes:
+- unique `(product_id, supplier_id)`
+- unique `(product_id, supplier_priority)` where `is_active = true`
+- index on `(supplier_id, is_active)`
 
 ### 3.4.1 `inventory.products`
 Columns:
@@ -704,22 +833,39 @@ Columns:
 - `payment_number varchar(64) unique not null`
 - `order_id uuid not null references orders.orders(id)`
 - `status payment_status not null`
+- `source_type payment_source_type not null default 'external_fact'`
+- `external_source varchar(64) not null`
+  Expected v1 values: `bank`, `acquiring`, `cash_register`, `manual_import`, `other`.
+- `external_event_id varchar(128) not null`
 - `payment_method payment_method not null`
 - `amount numeric(14,2) not null`
 - `refunded_amount numeric(14,2) not null default 0`
-- `received_at timestamptz null`
+- `intaked_at timestamptz not null`
+- `confirmed_by uuid null references users.users(id)`
+- `confirmed_at timestamptz null`
+- `rejected_at timestamptz null`
 - `external_reference varchar(255) null`
-- `created_by uuid not null references users.users(id)`
+- `created_by uuid null references users.users(id)`
 - `created_at`
 - `updated_at`
 - `deleted_at timestamptz null`
 - `deleted_by uuid null references users.users(id)`
 - `delete_reason text null`
 
+Rules:
+- table stores intake/control of external payment facts
+- `external_source` stores payment-provider/source semantics and must not use lead-integration sources (`ats`, `avito`)
+- rejection flow must set `status = rejected` and fill `rejected_at`
+- rejected payment fact must not create cash-in or finance income records
+- CRM-side hosted checkout/payment-link creation is out of scope for v1
+- income recognition in finance must be linked to `status = completed` confirmation
+
 Indexes:
 - unique `(payment_number)`
+- unique `(external_source, external_event_id)`
 - index on `(order_id)`
 - index on `(status)`
+- index on `(source_type, intaked_at)`
 - partial index on `(deleted_at)` where `deleted_at is null`
 
 ### 3.5.2 `payments.cash_operations`
@@ -921,6 +1067,32 @@ Indexes:
 - index on `(source)`
 - index on `(occurred_at)`
 
+### 3.7.4 `finance.manual_corrections`
+Columns:
+- `id`
+- `status finance_correction_status not null default 'draft'`
+- `reason text not null`
+- `requested_by_user_id uuid not null references users.users(id)`
+- `approved_by_user_id uuid null references users.users(id)`
+- `approved_at timestamptz null`
+- `rejected_at timestamptz null`
+- `applied_at timestamptz null`
+- `applied_entry_id uuid null references finance.finance_entries(id)`
+- `payload jsonb not null`
+- `created_at`
+- `updated_at`
+
+Rules:
+- correction must not overwrite source-of-truth domain facts
+- apply step is allowed only after `approved`
+- one correction may reference at most one final finance entry via `applied_entry_id` (`0..1`)
+- lifecycle transitions must be auditable
+
+Indexes:
+- index on `(status, created_at)`
+- index on `(requested_by_user_id, status)`
+- unique `(applied_entry_id)` where `applied_entry_id is not null`
+
 ---
 
 ## 3.8 `analytics`
@@ -943,6 +1115,30 @@ Columns:
 Indexes:
 - unique `(metric_code, scope_type, scope_id)`
 - index on `(as_of)`
+
+### 3.8.1a `analytics.department_plans`
+Purpose:
+- manager-entered department plans for KPI plan/fact view
+
+Columns:
+- `id`
+- `department_id uuid not null references users.departments(id)`
+- `metric_code varchar(128) not null`
+- `period_start date not null`
+- `period_end date not null`
+- `plan_value numeric(18,4) not null`
+- `set_by_user_id uuid not null references users.users(id)`
+- `set_at timestamptz not null`
+- `created_at`
+- `updated_at`
+
+Rules:
+- plan records are manual inputs and must stay separated from factual KPI aggregates
+- KPI factual metrics remain derived from source domains and are stored in live/snapshot tables
+
+Indexes:
+- unique `(department_id, metric_code, period_start, period_end)`
+- index on `(metric_code, period_start, period_end)`
 
 ### 3.8.2 `analytics.snapshot_kpi_metrics`
 Columns:
@@ -1046,7 +1242,50 @@ Indexes:
 - index on `(aggregate_type, aggregate_id)`
 - index on `(event_type)`
 
-### 3.11.3 `system.settings`
+### 3.11.3 `system.integration_inbox_events`
+Purpose:
+- durable inbox for inbound integration events (`ATS`, `Avito`)
+
+Columns:
+- `id`
+- `source_system varchar(32) not null`
+  Allowed v1 values: `ats`, `avito`.
+- `external_event_id varchar(128) not null`
+- `payload jsonb not null`
+- `status integration_inbox_status not null default 'received'`
+- `received_at timestamptz not null`
+- `processed_at timestamptz null`
+- `rejected_reason text null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- unique `(source_system, external_event_id)`
+- index on `(status, received_at)`
+
+### 3.11.4 `system.notification_dispatches`
+Purpose:
+- outbound dispatch log for `Telegram` and `MAX` notifications
+
+Columns:
+- `id`
+- `channel varchar(32) not null`
+  Allowed v1 values: `telegram`, `max`.
+- `event_type varchar(128) not null`
+- `target_ref varchar(255) not null`
+- `payload jsonb not null`
+- `status notification_dispatch_status not null default 'queued'`
+- `queued_at timestamptz not null`
+- `sent_at timestamptz null`
+- `error_message text null`
+- `created_at`
+- `updated_at`
+
+Indexes:
+- index on `(channel, status, queued_at)`
+- index on `(event_type, target_ref)`
+
+### 3.11.5 `system.settings`
 Purpose:
 - controlled runtime/business settings that are safe to store in DB
 
@@ -1066,12 +1305,18 @@ Columns:
 - `crm.leads 1 -> 0..1 crm.deals` (nullable because deals may also be created manually)
 - `crm.clients 1 -> n crm.contacts`
 - `crm.clients 1 -> n crm.client_participants`
+- `crm.deals 1 -> n crm.deal_follow_ups`
+- `crm.deals 1 -> n crm.deal_communications`
+- `crm.clients 1 -> n crm.client_merge_cases`
 - `crm.deals 1 -> n orders.orders`
+- `crm.deals 1 -> 0..1 orders.deal_supply_summaries`
 - `orders.orders 1 -> n orders.order_items`
 
 ### 4.2 Inventory and order chain
 - `inventory.suppliers 1 -> n inventory.supplier_requests`
 - `inventory.supplier_requests 1 -> n inventory.supplier_request_items`
+- `inventory.products 1 -> n inventory.product_suppliers`
+- `inventory.suppliers 1 -> n inventory.product_suppliers`
 - `inventory.supplier_requests 1 -> n inventory.purchase_receipts` (optional linkage via `supplier_request_id`)
 - `orders.orders 1 -> n inventory.reservations`
 - `orders.orders 1 -> n inventory.stock_locks`
@@ -1093,6 +1338,12 @@ Columns:
 - `orders.orders 1 -> n payments.payments`
 - `payments.payments 1 -> n payments.cash_operations`
 - `payments.payments 1 -> n finance.finance_entries`
+- `finance.manual_corrections 1 -> 0..1 finance.finance_entries`
+
+### 4.6 KPI and integration chain
+- `users.departments 1 -> n analytics.department_plans`
+- `system.integration_inbox_events` links to CRM/Order entities via correlation references
+- `system.notification_dispatches` links to domain facts via `event_type + target_ref`
 
 ---
 
@@ -1118,6 +1369,18 @@ Columns:
 - no physical delete for soft-protected tables in application logic
 - migrations may only use physical delete when restructuring data with explicit approval and data preservation plan
 
+### 5.6 External payment intake/control
+- `payments.payments` rows in v1 represent external payment facts under control, not CRM-initiated checkout transactions
+- income entries must be tied to confirmed external payment facts
+
+### 5.7 Purchase price field-level restriction
+- `inventory.product_suppliers.base_purchase_price` is sensitive and must be filtered by API permission layer
+- roles `seller`, `warehouse`, `logistics` must not receive this field
+
+### 5.8 KPI plan/fact separation
+- `analytics.department_plans` stores manual manager plans only
+- factual KPI values remain in `analytics.live_kpi_metrics` / `analytics.snapshot_kpi_metrics` and are derived from source domains
+
 ---
 
 ## 6. Index priorities for bootstrap
@@ -1133,13 +1396,20 @@ The first migration must include at minimum:
 
 High-priority indexes:
 - `orders.orders(status, delivery_status)`
+- `crm.deals(next_contact_at, is_stuck)`
+- `crm.deal_follow_ups(owner_user_id, next_contact_at)`
 - `inventory.stock_balances(warehouse_id, product_id)`
+- `inventory.product_suppliers(product_id, supplier_priority)`
 - `inventory.stock_locks(expires_at, status)`
 - `inventory.reservations(order_id, status)`
 - `payments.payments(order_id, status)`
+- `payments.payments(external_source, external_event_id)`
 - `logistics.delivery_tasks(order_id, status)`
 - `analytics.live_kpi_metrics(metric_code, scope_type, scope_id)`
+- `analytics.department_plans(department_id, metric_code, period_start, period_end)`
 - `system.outbox_events(status, next_attempt_at)`
+- `system.integration_inbox_events(status, received_at)`
+- `system.notification_dispatches(channel, status, queued_at)`
 
 ---
 
@@ -1149,17 +1419,17 @@ Recommended migration order:
 1. create PostgreSQL schemas
 2. create common enums
 3. create `users.*`
-4. create `crm.*`
-5. create `inventory.products`, `inventory.warehouses`, `inventory.stock_balances`
-6. create `orders.*`
+4. create `crm.*` including follow-up/communication/merge workflow tables
+5. create `inventory.products`, `inventory.suppliers`, `inventory.product_suppliers`, `inventory.warehouses`, `inventory.stock_balances`
+6. create `orders.*` including `deal_supply_summaries`
 7. create `inventory.stock_locks`, `inventory.reservations`, `inventory.purchase_receipts*`, `inventory.inventory_movements`
 8. create `payments.*`
 9. create `logistics.*`
-10. create `finance.*`
-11. create `analytics.*`
+10. create `finance.*` including manual correction workflow tables
+11. create `analytics.*` including department plans
 12. create `audit.*`
 13. create `reconciliation.*`
-14. create `system.*`
+14. create `system.*` including integration inbox and notification dispatch tables
 15. create secondary indexes
 16. seed minimal roles/permissions/settings if approved
 
@@ -1172,6 +1442,7 @@ Codex must not invent during bootstrap:
 - extra order statuses not present in accepted state machine docs
 - direct `1 order = 1 delivery task` shortcuts
 - hard delete flows for protected entities
+- CRM-side checkout / payment-link creation tables
 - KPI widgets powered by runtime cross-domain joins as the source-of-truth layer
 - replacing short-lived `stock_locks` with durable `reservations`
 

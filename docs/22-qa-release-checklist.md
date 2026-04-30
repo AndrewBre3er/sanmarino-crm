@@ -54,6 +54,11 @@
 - refund only via `ReturnRequest`
 - state machine restrictions
 - idempotency critical mutations
+- external payment intake/control (confirm/reject) без CRM-side payment creation
+- `payment.rejected` не создаёт `cash operation` и `finance income`
+- manual correction approval/apply workflow соблюдён
+- KPI остаётся derived и не используется как source of truth
+- `base purchase price` не доступен `seller`/`warehouse`/`logistics`
 
 ## Manual smoke-check
 
@@ -68,8 +73,12 @@
 - базовый сценарий заказа
 
 ### Payment / finance
-- регистрация оплаты
+- регистрация внешнего payment fact
+- confirm/reject external payment fact
+- отклонённый payment fact не создаёт cash/revenue side effects
 - корректное отражение дохода по cash basis
+- manual correction: submit -> approve/reject -> apply
+- supplier payables и mismatch reports доступны finance/ceo контуру
 
 ### Inventory / fulfillment
 - резерв появляется только после подтверждения
@@ -78,12 +87,19 @@
 
 ### Return
 - возврат идёт только через `ReturnRequest`
+- нет обходного сценария возврата денег/товара вне `ReturnRequest`
 
 ### Audit
 - критичное действие попадает в журнал
 
 ### Permissions
 - роль не видит чужой раздел и запрещённые действия
+- `base purchase price` не отображается ролям `seller`/`warehouse`/`logistics`
+- notification routing не отправляет закрытые данные в нерелевантные роли/каналы
+
+### KPI / reporting
+- manager-entered department plans отображаются отдельно от factual KPI
+- factual KPI берётся из доменных источников, а не из ручного KPI ввода
 
 ## UI / UX gate
 
@@ -92,6 +108,9 @@
 - workspace видны только нужным ролям
 - скрытые поля реально скрыты
 - ошибки видны явно, без silent failure
+- role home поддерживает saved filters и role notifications
+- CRM productivity surface присутствует (follow-up, next contact, reminders, lost reason, communication history, stuck deals)
+- deal supply summary показывает partial coverage/deficits/ETA/linked supplier request context
 
 ## Environment gate
 
@@ -129,3 +148,7 @@
 - `Order.deliveryStatus` корректно агрегируется
 - физический `DELETE` недоступен для `Order`, `Deal`, `Payment`, `ReturnRequest`
 - live KPI endpoint'ы читают агрегаты
+- не появился CRM-side payment creation flow
+- не появился bypass возврата вне `ReturnRequest`
+- не произошла утечка `base purchase price` в UI/API для запрещённых ролей
+- KPI слой не используется как источник истины для доменных мутаций

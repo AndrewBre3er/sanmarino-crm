@@ -3,8 +3,13 @@
 
 ## Context
 
-Проект находится в pre-start фазе.
-Документация по логике, ролям, безопасности, тестированию и UI/UX уже подготовлена.
+Репозиторий находится не в исходной pre-start точке.
+Фактическое состояние кода уже ушло дальше baseline-этапов `auth skeleton` и `users/roles/permissions`.
+
+Текущая проблема — документационный drift:
+- roadmap и MVP scope требуют синхронизации с revised MVP v1
+- current-task framing отстаёт от фактического состояния repo
+- security doc должен быть выровнен с accepted auth baseline
 
 ## Mandatory reading order
 
@@ -27,50 +32,47 @@
    - `23-tech-baseline-and-decision-log.md`
    - `24-mvp-scope-v1.md`
    - `25-development-standards.md`
+   - `38-mvp-v1-functional-realignment.md`
    - `37-order-flow-pre-coding-requirements.md` (mandatory before coding extended order-commercial features)
 
 ## Current objective
 
-Подготовить проект к безопасному старту разработки в выбранном стеке без нарушения доменной логики.
+Закрыть `Delta 0 — MVP v1 Realignment Gate`:
+- синхронизировать управляющие docs с revised MVP v1 из `docs/38`
+- убрать устаревший current-task framing
+- закрыть inconsistency по auth baseline в security doc
 
 ## What is allowed now
 
 Допустимо:
-- уточнять структуру репозитория
-- добавлять безопасные каркасы каталогов и файлов
-- подготавливать абстрактные интерфейсы
-- подготавливать README / setup / bootstrap документы
-- делать стек-специфичный старт только после утверждения tech baseline
+- синхронизировать roadmap/mvp/current-task/security документы под `docs/38`
+- фиксировать обнаруженные документационные конфликты в рамках этого sync-gate
+- уточнять implementation framing только после завершения doc-sync relevant packs
 
 ## What is not allowed now
 
 Запрещено:
-- придумывать технологический стек без подтверждения
-- смешивать несколько стеков в одном решении
-- добавлять новые статусы, переходы и финансовые правила
-- реализовывать installer/designer, supplier request и strict UOM без предварительного обновления канонических docs по `37-order-flow-pre-coding-requirements.md`
-- реализовывать доступы только на frontend
-- реализовывать accrual вместо cash basis
-- делать durable reservation на стадии draft вместо short-lived soft lock
-- делать refund без `ReturnRequest`
+- продолжать coding wave, опираясь на устаревший auth/users-first framing этого файла
+- запускать новый implementation slice до завершения doc-sync relevant packs
+- придумывать новые доменные решения вне приоритетных docs и `docs/38`
+- ослаблять state machine / idempotency / cash basis / ReturnRequest discipline
 
-## First coding step after stack approval
+## Current implementation framing after repo progress
 
-1. bootstrap проекта под выбранный стек
-2. format/lint/typecheck/test scaffolding
-3. app shell
-4. auth skeleton
-5. users/roles/permissions module
-6. domain skeleton for core modules
+1. Завершить `Delta 0` documentation sync по capability-pack waves.
+2. Явно закрыть drift между `docs/16`, `docs/20`, `docs/24`, `docs/26`, `docs/38`.
+3. После закрытия gate сформулировать отдельный следующий coding task на базе синхронизированных docs.
+
+Примечание:
+- baseline этапы `auth skeleton` и `users/roles/permissions` больше не считаются "первыми ближайшими шагами" для этого репозитория.
 
 ## Acceptance criteria for current phase
 
-Pre-start фаза закрыта, если:
-- стек утверждён
-- MVP v1 утверждён
-- security/testing baseline утверждён
-- структура репозитория готова
-- Codex получает однозначный стартовый контекст
+`Delta 0` считается закрытым, если:
+- roadmap и MVP scope синхронизированы с revised MVP v1 из `docs/38`
+- security auth baseline согласован с accepted baseline из `docs/23` и `docs/28`
+- текущий task framing больше не описывает устаревшую pre-start последовательность
+- следующие implementation задачи формулируются только после этого sync-gate
 
 
 ## v8 Architecture Overrides

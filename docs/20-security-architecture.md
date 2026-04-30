@@ -39,6 +39,8 @@
 - неаудируемые административные изменения
 - brute force login
 - небезопасный deploy на VPS
+- подмена внешнего payment/integration payload без серверной валидации
+- обход permission/audit через прямую запись фактов из adapter слоя
 
 ## Authentication
 
@@ -49,7 +51,11 @@
 - Нужны rate limit и временная блокировка при brute force.
 - При смене пароля должна быть возможность отзыва активных сессий.
 
-Конкретная auth-модель: `TBD`.
+Принятый auth baseline (aligned with `docs/23` and `docs/28`):
+- custom auth module in API
+- `httpOnly` cookies для session transport
+- refresh token rotation
+- `TOTP` MFA для привилегированных ролей (`ceo`, `admin`, `finance`, production-access roles)
 
 ## Authorization
 
@@ -83,12 +89,21 @@
 Для следующих операций обязательны permission check, audit log, business validation и, где нужно, idempotency:
 - регистрация оплаты
 - возврат денег
+- intake/control внешнего payment факта
 - release reserve
 - закрытие fulfillment
 - изменение цены после подтверждения
 - отмена подтверждённого заказа
 - изменение ролей и прав
 - admin override статуса
+
+## Security rules for external adapters
+
+Для внешних payment/integration adapters (`ATS`, `Avito`, Telegram, MAX и др.) обязательно:
+- server-side validation входящих/исходящих данных
+- прохождение через permission boundaries там, где операция влияет на защищённые сущности
+- audit trail для критичных мутаций и подтверждений
+- запрет прямой записи фактов в транзакционные таблицы в обход доменных правил API
 
 ## Защита state machine
 
@@ -105,7 +120,9 @@ Backend обязан:
 - резерв на стадии draft
 - списание по факту одного только подтверждения заказа
 - признание дохода не по cash basis
+- CRM-side создание платежного факта, если для MVP активна модель external payment intake/control
 - возврат без `ReturnRequest`
+- принятие внешнего payment/integration факта без серверной валидации и audit контекста
 - повторную обработку критичных запросов без идемпотентности
 
 ## Audit log
@@ -168,10 +185,10 @@ Backend обязан:
 
 ## Что ещё нужно утвердить
 
-- auth model
 - MFA implementation
 - session model
 - secret management mechanism
+- integration adapter authentication details
 - monitoring stack
 - backup toolchain
 

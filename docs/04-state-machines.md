@@ -136,6 +136,7 @@
 
 Правило:
 - список и статус return request видят все роли
-- если с момента реализации прошло более `14` дней, подтверждение возврата требует согласования `ceo`
-- `TBD`: точный технический якорь "момента реализации" (`shipped_at` или другой canonical execution timestamp) фиксируется в API/DB contract
+- если с канонического момента реализации прошло более `14` дней, подтверждение возврата требует согласования `ceo`
+- канонический якорь "момента реализации" для этого правила: `MIN(orders.fulfillments.fulfilled_at)` по позициям `return_request_items` (через linkage к `orders.fulfillment_items`), только из подтверждённых execution-фактов
+- неканонично для 14-day правила: `orders.orders.shipped_at`, `orders.orders.partially_shipped_at`, любые плановые/маршрутные timestamp из `logistics.delivery_tasks`
 - возврат не считается завершённым, пока не закрыты его последствия в нужных доменах

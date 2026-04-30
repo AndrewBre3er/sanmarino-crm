@@ -69,6 +69,7 @@ UI labels (русские названия):
 - `seller` видит статус оплаты заказа, но не полный финансовый журнал компании
 - `logistics` видит состав доставки и адрес, но не видит финансовые статьи
 - `warehouse` видит резерв и фактический расход, но не видит маркетинговый источник лида
+- `seller` / `warehouse` / `logistics` не видят `base purchase price` в product-supplier matrix
 
 ---
 
@@ -86,6 +87,8 @@ UI labels (русские названия):
 - Orders
 - Clients
 - Supplier Requests (mandatory MVP screen)
+- Return Requests (status visibility)
+- Follow-up Queue
 - My KPI
 
 #### Не видит разделы
@@ -104,12 +107,14 @@ UI labels (русские названия):
 - статус доставки
 - возвраты по своему заказу
 - timeline по своему заказу
+- deal supply summary: partial coverage, deficits, ETA, linked supplier request context
 
 #### Не видит в карточке order
 - средневзвешенную себестоимость
 - скрытую маржу компании
 - закрытые финансовые статьи
 - системную сверку по кассе
+- `base purchase price` из product-supplier matrix
 
 #### Может делать
 - создавать lead
@@ -118,6 +123,9 @@ UI labels (русские названия):
 - оформлять supplier request
 - запускать коммерческий сценарий обеспечения товара
 - оставлять комментарии и follow-up
+- ставить next contact date и reminders
+- фиксировать lost reason и communication history
+- инициировать dedup/merge workflow для client card
 - инициировать запрос на возврат
 
 #### Не может делать
@@ -137,6 +145,8 @@ UI labels (русские названия):
 #### Видит разделы
 - Home
 - Payments
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Refunds
 - Expenses
 - Reconciliation
@@ -156,18 +166,24 @@ UI labels (русские названия):
 - деньги у водителей
 - сверку по доменам
 - проблемные финансовые операции
+- external payment intake/control queue (pending/completed/rejected)
+- mismatch reports
+- manual correction workflow queue
 
 #### Видит ограниченно
 - карточку order только в части финансового контекста
 - deal только в части привязки оплаты
 
 #### Может делать
-- регистрировать оплату
+- регистрировать внешний payment fact intake/linkage в рамках доступных каналов
+- подтверждать или отклонять external payment fact (`completed` / `rejected`)
 - подтверждать или отклонять проведение
 - оформлять возврат денег в рамках процесса
 - вести расходы
 - прикреплять файл к supplier request
 - переводить supplier request в `paid` (UI: `Оплачено`) после фактической оплаты
+- создавать/отправлять на согласование manual corrections
+- применять approved manual corrections
 - запускать и закрывать сверку
 
 #### Не может делать
@@ -187,6 +203,8 @@ UI labels (русские названия):
 - Home
 - Delivery Calendar
 - Tasks
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Drivers
 - Route Days
 - Incidents
@@ -200,22 +218,26 @@ UI labels (русские названия):
 #### Видит
 - delivery tasks
 - слоты
+- route day
 - адреса
 - контакты доставки
 - статус заказа в части готовности к отгрузке
 - заказы `OnControl` / `Problem`
 - причины срывов
+- контекст денег от водителя (без доступа к полному финансовому журналу)
 
 #### Не видит
 - закрытые финансовые данные
 - маркетинговый источник
 - управленческую маржу
+- `base purchase price`
 
 #### Может делать
 - назначать задачу на слот
 - менять водителя
 - переносить доставку в рамках правил
 - фиксировать исход доставки
+- фиксировать partial delivery исход по своим delivery task
 - регистрировать проблему доставки
 - быть ответственным за проблемный заказ при просроченных деньгах от водителя
 
@@ -237,6 +259,7 @@ UI labels (русские названия):
 - Stock
 - Reservations
 - Supplier Requests (mandatory MVP screen)
+- Return Requests (status visibility)
 - Movements
 - Receipts
 - Product Matrix
@@ -257,6 +280,9 @@ UI labels (русские названия):
 - расходы
 - возвраты на склад
 - списания
+- low-stock alerts
+- stale reservation alerts
+- receipt discrepancy cases
 
 #### Видит ограниченно
 - order только в части товарного состава и статуса готовности к сборке/отгрузке
@@ -265,6 +291,7 @@ UI labels (русские названия):
 - маркетинговые данные
 - полную финансовую отчётность
 - управленческие KPI вне склада
+- `base purchase price`
 
 #### Может делать
 - создавать и подтверждать складские движения в рамках процесса
@@ -273,6 +300,7 @@ UI labels (русские названия):
 - переводить supplier request в `stocked` (UI: `Оприходовано`) после фактического прихода товара
 - фиксировать возврат на склад
 - делать списание в рамках прав
+- фиксировать и эскалировать расхождения при приёмке
 
 #### Не может делать
 - подтверждать лиды и сделки
@@ -290,6 +318,8 @@ UI labels (русские названия):
 #### Видит разделы
 - Home
 - Executive Dashboard
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Sales
 - Orders
 - Inventory
@@ -308,12 +338,15 @@ UI labels (русские названия):
 - supplier payables
 - override-действия
 - качество данных
+- manual correction approval queue
+- integration health (ATS/Avito inbound, Telegram/MAX outbound)
 
 #### Может делать
 - просматривать полную картину
 - утверждать ограниченный набор критических действий
 - прикреплять файл к supplier request
 - переводить supplier request в `paid` (UI: `Оплачено`) после фактической оплаты
+- подтверждать/отклонять manual corrections в рамках approval workflow
 - инициировать проверки и разбор инцидентов
 
 #### Не должен делать как основной сценарий
@@ -332,6 +365,8 @@ UI для CEO должен быть обзорным и decision-oriented, а н
 - Today
 - My Route
 - Delivery Tasks
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Issues
 - Completed
 
@@ -381,6 +416,8 @@ UI для CEO должен быть обзорным и decision-oriented, а н
 - Users
 - Roles
 - Permissions
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Settings
 - Audit
 - System Health
@@ -426,7 +463,23 @@ UI для CEO должен быть обзорным и decision-oriented, а н
 - статус `stocked` в `Supplier Requests` меняет только `warehouse`
 - `Return Requests` используют статусы `created`, `confirmed`, `processed`, `closed` (UI: `Оформлена`, `Подтверждена`, `Обработана`, `Закрыта`)
 - если прошло более `14` дней после реализации, `ReturnRequest.confirmed` требует согласования `ceo`
-- `TBD`: точный timestamp "после реализации" фиксируется отдельно в API/DB contract
+- канонический anchor реализации: `realizationAnchorAt = MIN(orders.fulfillments.fulfilled_at)` по возвращаемым позициям через linkage к `orders.fulfillment_items`
+- `orders.orders.shipped_at` / `orders.orders.partially_shipped_at` не являются каноническим anchor для этого правила
+
+### 5.7 External payment intake/control baseline
+- UI не должен предоставлять CRM-side payment creation/checkout/payment-link действия
+- `finance`/`ceo` работают с confirm/reject входящего external payment fact
+- `rejected` фиксируется как terminal статус факта и не создаёт cash/revenue side effects
+
+### 5.8 Manual correction and audit baseline
+- corrections проходят только workflow `draft -> pending_approval -> approved/rejected -> applied`
+- UI не должен позволять apply до approval
+- approval/apply/reject actions обязаны оставлять audit trail
+
+### 5.9 Workspace productivity baseline
+- каждый workspace обязан иметь role home dashboard, saved filters и role notifications
+- список уведомлений формируется по permission-safe routing
+- KPI widgets остаются derived/read-only и не могут менять доменные факты
 
 ---
 

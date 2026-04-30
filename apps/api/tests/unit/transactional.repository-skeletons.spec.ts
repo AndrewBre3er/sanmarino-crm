@@ -64,7 +64,7 @@ describe("transactional repository skeletons", () => {
     await expect(
       returnRequestRepository.create({
         orderId: "order_1",
-        status: "draft",
+        status: "created",
         reason: "Need return"
       })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);

@@ -7,7 +7,9 @@ import type { AuthRoleCode } from "../../src/modules/auth/auth.contract";
 import { AuthAccessGuard } from "../../src/modules/auth/auth.access.guard";
 import type { AuthService } from "../../src/modules/auth/auth.service";
 import { DeliveryTasksController } from "../../src/modules/logistics/delivery-tasks.controller";
+import { ReturnRequestsController } from "../../src/modules/orders/return-requests.controller";
 import { DeliveryTasksReadController } from "../../src/modules/read-side/logistics/delivery-task.read.controller";
+import { ReturnRequestsReadController } from "../../src/modules/read-side/returns/return-request.read.controller";
 
 type ControllerClass = new (...args: never[]) => object;
 
@@ -124,3 +126,95 @@ describe("delivery task access baseline", () => {
   });
 });
 
+describe("return request access baseline", () => {
+  it("keeps read baseline separate from command permissions", () => {
+    const requirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      ReturnRequestsReadController
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+
+    expect(requirements?.authenticated).toBe(true);
+    expect(requirements?.requiredRoleCodes).toEqual([
+      "admin",
+      "seller",
+      "warehouse",
+      "logistics",
+      "finance",
+      "ceo",
+      "driver",
+      "marketing"
+    ]);
+  });
+
+  it("allows seller only on return-request create command", async () => {
+    const guard = make_guard(
+      vi.fn(async () => ({
+        user: make_user(["seller"]),
+        session: {
+          sessionId: "s1",
+          issuedAt: "2026-04-06T00:00:00.000Z",
+          refreshExpiresAt: "2026-04-07T00:00:00.000Z"
+        }
+      }))
+    );
+
+    await expect(
+      guard.canActivate(
+        make_http_context(ReturnRequestsController, "create", "sm_access_token=token-1")
+      )
+    ).resolves.toBe(true);
+    await expect(
+      guard.canActivate(
+        make_http_context(ReturnRequestsController, "confirm", "sm_access_token=token-1")
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("forbids logistics from return-request command surface", async () => {
+    const guard = make_guard(
+      vi.fn(async () => ({
+        user: make_user(["logistics"]),
+        session: {
+          sessionId: "s1",
+          issuedAt: "2026-04-06T00:00:00.000Z",
+          refreshExpiresAt: "2026-04-07T00:00:00.000Z"
+        }
+      }))
+    );
+
+    for (const handlerName of ["create", "confirm", "process", "close"]) {
+      await expect(
+        guard.canActivate(
+          make_http_context(ReturnRequestsController, handlerName, "sm_access_token=token-1")
+        )
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    }
+  });
+
+  it("allows warehouse on inventory-affecting return processing only", async () => {
+    const guard = make_guard(
+      vi.fn(async () => ({
+        user: make_user(["warehouse"]),
+        session: {
+          sessionId: "s1",
+          issuedAt: "2026-04-06T00:00:00.000Z",
+          refreshExpiresAt: "2026-04-07T00:00:00.000Z"
+        }
+      }))
+    );
+
+    await expect(
+      guard.canActivate(
+        make_http_context(ReturnRequestsController, "process", "sm_access_token=token-1")
+      )
+    ).resolves.toBe(true);
+    await expect(
+      guard.canActivate(
+        make_http_context(ReturnRequestsController, "create", "sm_access_token=token-1")
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});

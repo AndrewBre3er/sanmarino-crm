@@ -42,6 +42,16 @@
 - executive dashboard обязан разделять денежные показатели, отгрузку и контрольные денежные потоки от водителей
 - `Supplier Requests` является обязательным MVP экраном (list + card) для `seller` и `warehouse`
 - список и статус `Supplier Requests` и `Return Requests` должны быть видимы всем ролям
+- CRM productivity baseline обязателен в seller workspace: follow-up, next contact date, reminders, lost reasons, communication history, stuck deals
+- client card baseline обязателен: address, contact, linked deals/orders, dedup/merge workflow surface, installer/designer referral context
+- deal supply summary baseline обязателен: partial coverage, deficits, ETA, linked supplier request context
+- product-supplier matrix baseline обязателен: multiple suppliers, supplier priority, base purchase price
+- `base purchase price` должен быть скрыт от `seller`, `warehouse`, `logistics` на уровне UI/API
+- payment UI в v1 работает как external fact intake/control; CRM-side payment creation не допускается
+- payment `rejected` отображается как terminal status без cash/revenue side effects
+- finance manual correction UI обязателен в рамках approval workflow
+- role home dashboards должны поддерживать saved filters и role notifications
+- integrations baseline обязателен: ATS/Avito inbound events и Telegram/MAX outbound notifications
 - действия по `Supplier Requests` остаются role-limited:
   - `seller` оформляет заявку
   - `warehouse`, `finance`, `ceo` прикрепляют файл
@@ -97,6 +107,8 @@
    - Logistics
    - Finance
    - KPI
+   - Integrations
+   - Notifications
    - Audit
    - Users
 
@@ -244,6 +256,8 @@
 - видимые системные статусы
 - быстрый переход в карточку
 - индикаторы блокировок, конфликтов, просрочек и ошибок
+- сохранение пользовательских фильтров и предустановок по роли
+- quick access к role notifications, связанным с текущим списком
 
 ---
 
@@ -390,6 +404,9 @@
 
 Сайдбар должен быть ролевым.
 
+Обязательное исключение v1:
+- для всех ролей должен быть доступен read-only entrypoint к списку и статусу `Supplier Requests` и `Return Requests` (через sidebar, quick-link или notifications center в зависимости от workspace)
+
 Пример:
 
 ### Продавец sidebar (`seller`)
@@ -470,9 +487,18 @@
 - `logistics`: конфликт слота, срыв доставки, деньги от водителя не подтверждены в срок
 - `warehouse`: частичный резерв, отрицательный остаток, конфликт отгрузки, расхождение при приёмке поставки
 - `ceo`: критическая невязка сверки, проблемный заказ, деньги у водителя, сбой интеграции, системный риск
+- `finance`: external payment fact rejected/pending control, manual correction waiting approval
+- `seller`: клиент без next contact, deal в stuck состоянии, дефицит по supply summary
+- `warehouse`: low-stock alert, stale reservation alert, receipt discrepancy alert
+- `logistics`: route day перегрузка, partial delivery risk, driver-money control escalation
 
 Уведомления не должны дублировать весь event stream.
 Они должны показывать только то, что требует решения пользователя.
+
+Интеграционные правила для уведомлений:
+- inbound события ATS/Avito должны быть валидированы и идемпотентно обработаны до отображения в user inbox
+- outbound Telegram/MAX маршрутизуются только по permission-safe policy
+- notification center должен показывать статус отправки (queued/sent/failed) без раскрытия запрещённых полей
 
 ---
 
@@ -483,6 +509,7 @@
 - связанные orders
 - supplier request
 - reserve coverage summary
+- partial coverage / deficits / ETA
 - статус каждого order
 - сумма
 - оплата в агрегированном виде
@@ -499,6 +526,7 @@
 - control flags (`OnControl` / `Problem`)
 - возвраты
 - timeline
+- linked supplier request context и краткий deal supply summary
 
 ### 13.3 Payment -> Context
 На карточке payment должны быть видны:
@@ -507,6 +535,8 @@
 - сумма
 - канал
 - возвраты / корректировки
+- статус external fact control (`pending` / `completed` / `rejected`)
+- явная пометка: `rejected` не создаёт cash/revenue side effects
 
 ### 13.4 Logistics Task -> Context
 На карточке логистической задачи должны быть видны:
@@ -539,11 +569,15 @@
 Это правило применяется к:
 - марже
 - себестоимости
+- `base purchase price` product-supplier matrix
 - закрытым расходам
 - управленческим KPI
 - override-операциям
 - audit-журналам
 - экспортам
+
+Обязательное поле-level правило v1:
+- `base purchase price` полностью скрыт для `seller`, `warehouse`, `logistics`
 
 ---
 

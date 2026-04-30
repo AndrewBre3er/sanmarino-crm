@@ -36,11 +36,15 @@
 - онлайн-остатки в нужном для сделки срезе
 - supplier request status по своим сделкам
 - статус оплаты и исполнения по своим заказам
+- follow-up queue, next contact date, reminders по своим сделкам
+- communication history и stuck-deal индикаторы по своим сделкам
+- client card: address, contact, linked deals/orders, installer/designer referral context
 
 Не видит:
 - полную финансовую отчётность компании
 - внутреннюю кредиторку поставщикам
 - закрытую управленческую маржу
+- `base purchase price` в product-supplier matrix
 
 Может:
 - принимать lead в обработку
@@ -49,6 +53,9 @@
 - добавлять товарный состав
 - оформлять supplier request
 - запускать коммерческий сценарий обеспечения товара
+- ставить follow-up, next contact date и reminders
+- фиксировать lost reason и факты коммуникации
+- инициировать dedup/merge workflow по клиенту
 - инициировать возврат через `ReturnRequest`
 
 ---
@@ -64,6 +71,9 @@
 - возвраты на склад
 - товарную матрицу
 - supplier request и supplier documents в разрешённой части
+- low-stock alerts
+- stale reservation alerts
+- receipt discrepancy cases
 
 Может:
 - подтверждать складские движения в рамках процесса
@@ -72,10 +82,12 @@
 - переводить supplier request в `stocked` (UI: `Оприходовано`) после фактического прихода товара
 - принимать деньги при самовывозе
 - вручную фиксировать cash intake по звонку водителя в рамках складского процесса
+- фиксировать и эскалировать расхождения при приёмке
 
 Не может:
 - подтверждать денежную выручку по карте/безналу без финансового контура
 - менять роль/права
+- видеть `base purchase price`
 
 ---
 
@@ -84,20 +96,24 @@
 Видит:
 - delivery tasks
 - слоты
+- route day
 - адреса
 - контакты доставки
 - статус готовности заказа к отгрузке
 - проблемные заказы по своему контуру
+- контрольный контекст по деньгам от водителя (`OnControl` / `Problem`)
 
 Может:
 - планировать и назначать доставку
 - вести delivery execution
+- закрывать частичную доставку по своим задачам
 - быть ответственным за `Problem` order по просроченным деньгам от водителя
 
 Не может:
 - подтверждать оплату
 - менять складские движения напрямую
 - менять финансовые факты
+- видеть `base purchase price`
 
 ---
 
@@ -110,14 +126,19 @@
 - marketing expenses
 - управленческую прибыль
 - заказы `OnControl` / `Problem`
+- external payment intake/control queue (включая отклонённые факты)
+- mismatch reports
+- manual corrections и их approval state
 
 Может:
-- подтверждать денежное поступление
+- подтверждать или отклонять внешний payment fact (`completed` / `rejected`)
 - подтверждать или отклонять кассовое/безналичное проведение
 - вести расходы
 - прикреплять файл к supplier request
 - переводить supplier request в `paid` (UI: `Оплачено`) после фактической оплаты
 - снимать проблемный флаг после фактического поступления денег
+- создавать и отправлять на согласование manual corrections
+- применять manual correction после approval workflow
 
 ---
 
@@ -136,6 +157,7 @@
 - подтверждать снятие проблемного флага
 - прикреплять файл к supplier request
 - переводить supplier request в `paid` (UI: `Оплачено`) после фактической оплаты
+- утверждать/отклонять manual corrections в рамках approval workflow
 
 ---
 
@@ -208,3 +230,29 @@
   - статус `stocked`: `warehouse`
 - прикреплённый файл `SupplierRequest` видят только `warehouse`, `finance`, `ceo`
 - для `ReturnRequest` со сроком более `14` дней после реализации подтверждение требует согласования `ceo`
+
+### 9.6 Purchase price field-level visibility
+- `base purchase price` в product-supplier matrix является чувствительным полем
+- поле должно быть полностью скрыто для ролей `seller`, `warehouse`, `logistics`
+- read/write доступ к полю допускается только по отдельному permission rule (минимум `finance`, `ceo`, `admin` в рамках их задач)
+
+### 9.7 External payment intake/control access
+- CRM-side создание оплаты (checkout / payment-link orchestration) не допускается
+- роли `finance` и `ceo` выполняют confirm/reject входящего external payment fact
+- переход в `rejected` является terminal и не создаёт `cash operation`/`finance income`
+- остальные роли видят только агрегированный статус оплаты в контексте своих объектов
+
+### 9.8 Manual correction workflow access
+- manual correction выполняется только через approval workflow (`draft -> pending_approval -> approved/rejected -> applied`)
+- apply допускается только после approval
+- операции approval/apply должны быть audit-traced и role-limited
+
+### 9.9 CRM client dedup/merge safety
+- dedup/merge workflow должен быть явным action, а не скрытым автослиянием
+- merge операции обязаны оставлять audit trail (actor, before/after, timestamp)
+- linked deals/orders и referral context должны сохраняться после merge без потери трассируемости
+
+### 9.10 KPI and workspace visibility discipline
+- manager-entered department plans доступны только ролям с управленческим правом планирования
+- KPI facts остаются derived и не могут использоваться как permission bypass для изменения доменных фактов
+- role home dashboards, saved filters и role notifications должны подчиняться той же матрице прав, что и карточки/действия

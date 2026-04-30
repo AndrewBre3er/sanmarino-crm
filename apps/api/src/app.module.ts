@@ -12,6 +12,7 @@ import { LeadsModule } from "./modules/leads/leads.module";
 import { LogisticsModule } from "./modules/logistics/logistics.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { PaymentsModule } from "./modules/payments/payments.module";
+import { ReconciliationModule } from "./modules/reconciliation/reconciliation.module";
 import { TransactionalReadModule } from "./modules/read-side/read-side.module";
 import { SupplyModule } from "./modules/supply/supply.module";
 import { UsersModule } from "./modules/users/users.module";
@@ -26,6 +27,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     LeadsModule,
     OrdersModule,
     PaymentsModule,
+    ReconciliationModule,
     FinanceModule,
     LogisticsModule,
     CrmRelationsModule,

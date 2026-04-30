@@ -542,6 +542,7 @@ model OrdersOrderItem {
   version             Int                         @default(1)
   fulfillmentItems    OrdersFulfillmentItem[]
   deliveryTaskItems   LogisticsDeliveryTaskItem[]
+  returnRequestItems  OrdersReturnRequestItem[]
 
   @@unique([orderId, lineNo])
   @@index([orderId])
@@ -742,6 +743,7 @@ model OrdersReturnRequest {
   reason                String                       @db.Text
   requestedRefundAmount Decimal?                     @map("requested_refund_amount") @db.Decimal(14, 2)
   approvedRefundAmount  Decimal?                     @map("approved_refund_amount") @db.Decimal(14, 2)
+  realizationAnchorAt   DateTime?                    @map("realization_anchor_at") @db.Timestamptz(6)
   confirmedAt           DateTime?                    @map("confirmed_at") @db.Timestamptz(6)
   requiresCeoApproval   Boolean                      @default(false) @map("requires_ceo_approval")
   ceoApprovedBy         String?                      @map("ceo_approved_by") @db.Uuid
@@ -760,11 +762,29 @@ model OrdersReturnRequest {
   inventoryMovements    InventoryInventoryMovement[]
   cashOperations        PaymentsCashOperation[]
   financeEntries        FinanceFinanceEntry[]
+  items                 OrdersReturnRequestItem[]
 
   @@index([orderId])
   @@index([status])
   @@index([isDeleted])
   @@map("return_requests")
+  @@schema("orders")
+}
+
+model OrdersReturnRequestItem {
+  id              String              @id @default(uuid()) @db.Uuid
+  returnRequestId String              @map("return_request_id") @db.Uuid
+  returnRequest   OrdersReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Restrict)
+  orderItemId     String              @map("order_item_id") @db.Uuid
+  orderItem       OrdersOrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  qty             Decimal             @db.Decimal(14, 3)
+  resolution      String              @db.VarChar(64)
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([returnRequestId, orderItemId])
+  @@index([orderItemId])
+  @@map("return_request_items")
   @@schema("orders")
 }
 
@@ -1155,6 +1175,28 @@ model FinanceMarketingExpense {
   @@index([occurredAt])
   @@map("marketing_expenses")
   @@schema("finance")
+}
+
+enum ReconciliationReportStatus {
+  RUNNING   @map("running")
+  COMPLETED @map("completed")
+  FAILED    @map("failed")
+
+  @@schema("reconciliation")
+}
+
+model ReconciliationReport {
+  id         String                   @id @default(uuid()) @db.Uuid
+  reportDate DateTime                 @unique @map("report_date") @db.Date
+  status     ReconciliationReportStatus
+  summary    Json
+  issuesCount Int                     @default(0) @map("issues_count")
+  createdAt  DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, reportDate])
+  @@map("reports")
+  @@schema("reconciliation")
 }
 
 enum IdempotencyStatus {

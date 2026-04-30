@@ -61,10 +61,8 @@ export const logistics_route_day_statuses = [
 ] as const;
 
 export const return_request_statuses = [
-  "draft",
-  "submitted",
-  "approved",
-  "rejected",
+  "created",
+  "confirmed",
   "processed",
   "closed"
 ] as const;

@@ -44,8 +44,8 @@ describe("transactional status transition guards", () => {
   });
 
   it("keeps return request command transition discipline", () => {
-    expect(() => assert_return_request_status_transition("submitted", "approved")).not.toThrow();
-    expect(() => assert_return_request_status_transition("closed", "draft")).toThrowError();
+    expect(() => assert_return_request_status_transition("created", "confirmed")).not.toThrow();
+    expect(() => assert_return_request_status_transition("closed", "created")).toThrowError();
   });
 
   it("rejects payment rollback completed -> pending", () => {
