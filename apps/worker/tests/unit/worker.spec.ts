@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   build_daily_reconciliation_command,
@@ -6,6 +8,32 @@ import {
   ReconciliationJobError,
   type ReconciliationJobRunner
 } from "../../src/jobs/reconciliation.processor";
+import {
+  accepted_kpi_refresh_metric_keys,
+  build_kpi_refresh_command,
+  kpi_refresh_job_contract,
+  KpiRefreshJobError,
+  KpiRefreshValidationError,
+  process_kpi_recompute_job,
+  type KpiRefreshJobRunner
+} from "../../src/jobs/kpi-recompute.processor";
+import { worker_queue_contracts } from "../../src/queues/queue.contracts";
+
+const expected_kpi_metric_keys = [
+  "cash_revenue",
+  "shipped_amount",
+  "gross_profit",
+  "net_profit",
+  "cash_balance",
+  "sales_pipeline_count",
+  "sales_pipeline_amount",
+  "sales_conversion_by_shipment",
+  "cac_paid_channels_first_shipment",
+  "inventory_turnover_ratio_month",
+  "driver_money_expected",
+  "problem_orders_count",
+  "supplier_payables_amount"
+] as const;
 
 describe("reconciliation worker baseline", () => {
   it("declares a concrete daily reconciliation queue job contract", () => {
@@ -78,5 +106,188 @@ describe("reconciliation worker baseline", () => {
       reportDate: "2026-04-29",
       idempotencyKey: "reconciliation.daily.2026-04-29"
     } satisfies Partial<ReconciliationJobError>);
+  });
+});
+
+describe("KPI refresh worker boundary", () => {
+  it("keeps the accepted KPI queue contract bound to analytics.kpi", () => {
+    expect(worker_queue_contracts).toContainEqual({
+      key: "kpi",
+      env_key: "WORKER_KPI_QUEUE",
+      default_name: "analytics.kpi",
+      purpose: "KPI aggregate refresh placeholder"
+    });
+  });
+
+  it("declares a narrow live aggregate refresh job contract on the KPI queue", () => {
+    expect(kpi_refresh_job_contract).toEqual({
+      queueKey: "kpi",
+      jobName: "kpi.live-aggregate.refresh"
+    });
+  });
+
+  it("keeps the worker KPI refresh metric list limited to accepted keys", () => {
+    expect(accepted_kpi_refresh_metric_keys).toEqual(expected_kpi_metric_keys);
+  });
+
+  it("builds a normalized command for an accepted metric refresh payload", () => {
+    const command = build_kpi_refresh_command({
+      metricKey: "cash_revenue",
+      period: "2026-04",
+      refreshedAt: new Date("2026-04-30T10:00:00.000Z"),
+      idempotencyKey: "kpi.refresh.cash_revenue.2026-04"
+    });
+
+    expect(command).toEqual({
+      metricKey: "cash_revenue",
+      period: "2026-04",
+      refreshedAt: "2026-04-30T10:00:00.000Z",
+      idempotencyKey: "kpi.refresh.cash_revenue.2026-04"
+    });
+  });
+
+  it("keeps repeated equivalent payloads on the same idempotency boundary", () => {
+    const payload = {
+      metricKey: "cash_revenue",
+      period: "2026-04",
+      refreshedAt: "2026-04-30T10:00:00.000Z",
+      idempotencyKey: "kpi.refresh.cash_revenue.2026-04"
+    };
+
+    expect(build_kpi_refresh_command(payload)).toEqual(build_kpi_refresh_command(payload));
+  });
+
+  it("rejects unsupported metric keys before runner execution", async () => {
+    const runner: KpiRefreshJobRunner = {
+      refreshLiveAggregate: vi.fn()
+    };
+
+    await expect(
+      process_kpi_recompute_job(
+        {
+          metricKey: "unsupported_metric",
+          period: "2026-04",
+          refreshedAt: "2026-04-30T10:00:00.000Z",
+          idempotencyKey: "kpi.refresh.unsupported.2026-04"
+        },
+        runner
+      )
+    ).rejects.toMatchObject({
+      name: "KpiRefreshValidationError"
+    } satisfies Partial<KpiRefreshValidationError>);
+
+    expect(runner.refreshLiveAggregate).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing idempotency input before runner execution", async () => {
+    const runner: KpiRefreshJobRunner = {
+      refreshLiveAggregate: vi.fn()
+    };
+
+    await expect(
+      process_kpi_recompute_job(
+        {
+          metricKey: "cash_revenue",
+          period: "2026-04",
+          refreshedAt: "2026-04-30T10:00:00.000Z"
+        },
+        runner
+      )
+    ).rejects.toMatchObject({
+      name: "KpiRefreshValidationError"
+    } satisfies Partial<KpiRefreshValidationError>);
+
+    expect(runner.refreshLiveAggregate).not.toHaveBeenCalled();
+  });
+
+  it("rejects blank idempotency input before runner execution", async () => {
+    const runner: KpiRefreshJobRunner = {
+      refreshLiveAggregate: vi.fn()
+    };
+
+    await expect(
+      process_kpi_recompute_job(
+        {
+          metricKey: "cash_revenue",
+          period: "2026-04",
+          refreshedAt: "2026-04-30T10:00:00.000Z",
+          idempotencyKey: "   "
+        },
+        runner
+      )
+    ).rejects.toMatchObject({
+      name: "KpiRefreshValidationError"
+    } satisfies Partial<KpiRefreshValidationError>);
+
+    expect(runner.refreshLiveAggregate).not.toHaveBeenCalled();
+  });
+
+  it("delegates valid KPI refresh payloads to the runner once", async () => {
+    const runner: KpiRefreshJobRunner = {
+      refreshLiveAggregate: vi.fn().mockResolvedValue({
+        refreshedAt: "2026-04-30T10:00:05.000Z"
+      })
+    };
+
+    const result = await process_kpi_recompute_job(
+      {
+        metricKey: "cash_revenue",
+        period: "2026-04",
+        refreshedAt: "2026-04-30T10:00:00.000Z",
+        idempotencyKey: "kpi.refresh.cash_revenue.2026-04"
+      },
+      runner
+    );
+
+    expect(runner.refreshLiveAggregate).toHaveBeenCalledOnce();
+    expect(runner.refreshLiveAggregate).toHaveBeenCalledWith({
+      metricKey: "cash_revenue",
+      period: "2026-04",
+      refreshedAt: "2026-04-30T10:00:00.000Z",
+      idempotencyKey: "kpi.refresh.cash_revenue.2026-04"
+    });
+    expect(result).toEqual({
+      metricKey: "cash_revenue",
+      period: "2026-04",
+      refreshedAt: "2026-04-30T10:00:05.000Z",
+      idempotencyKey: "kpi.refresh.cash_revenue.2026-04",
+      eventType: "kpi.live_aggregate_refreshed"
+    });
+  });
+
+  it("wraps runner failures with retryable KPI diagnostic context", async () => {
+    const runner: KpiRefreshJobRunner = {
+      refreshLiveAggregate: vi.fn().mockRejectedValue(new Error("refresh adapter unavailable"))
+    };
+
+    await expect(
+      process_kpi_recompute_job(
+        {
+          metricKey: "cash_revenue",
+          period: "2026-04",
+          refreshedAt: "2026-04-30T10:00:00.000Z",
+          idempotencyKey: "kpi.refresh.cash_revenue.2026-04"
+        },
+        runner
+      )
+    ).rejects.toMatchObject({
+      retryable: true,
+      metricKey: "cash_revenue",
+      period: "2026-04",
+      idempotencyKey: "kpi.refresh.cash_revenue.2026-04"
+    } satisfies Partial<KpiRefreshJobError>);
+  });
+
+  it("keeps the KPI processor isolated from API, HTTP, and notification provider coupling", () => {
+    const processor_path = path.resolve(process.cwd(), "src/jobs/kpi-recompute.processor.ts");
+    const processor = readFileSync(processor_path, "utf8");
+
+    expect(processor).not.toContain("apps/api");
+    expect(processor).not.toContain("@sanmarino/api");
+    expect(processor).not.toContain("http://");
+    expect(processor).not.toContain("https://");
+    expect(processor).not.toContain("telegram");
+    expect(processor).not.toContain("max");
+    expect(processor).not.toContain("notification");
   });
 });
