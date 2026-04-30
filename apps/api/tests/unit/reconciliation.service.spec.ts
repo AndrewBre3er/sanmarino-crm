@@ -20,6 +20,7 @@ function create_prisma_mock() {
   const reconciliationReportCount = vi.fn();
   const systemOutboxRecordCreateMany = vi.fn();
   const auditLogRecordCreate = vi.fn();
+  const auditLogRecordCreateMany = vi.fn();
   const systemIdempotencyRecordFindUnique = vi.fn();
   const systemIdempotencyRecordCreate = vi.fn();
   const systemIdempotencyRecordUpdate = vi.fn();
@@ -56,7 +57,8 @@ function create_prisma_mock() {
       createMany: systemOutboxRecordCreateMany
     },
     auditLogRecord: {
-      create: auditLogRecordCreate
+      create: auditLogRecordCreate,
+      createMany: auditLogRecordCreateMany
     },
     systemIdempotencyRecord: {
       update: systemIdempotencyRecordUpdate
@@ -95,7 +97,8 @@ function create_prisma_mock() {
       createMany: systemOutboxRecordCreateMany
     },
     auditLogRecord: {
-      create: auditLogRecordCreate
+      create: auditLogRecordCreate,
+      createMany: auditLogRecordCreateMany
     },
     systemIdempotencyRecord: {
       findUnique: systemIdempotencyRecordFindUnique,
@@ -132,6 +135,7 @@ function create_prisma_mock() {
     reconciliationReportCount,
     systemOutboxRecordCreateMany,
     auditLogRecordCreate,
+    auditLogRecordCreateMany,
     systemIdempotencyRecordFindUnique,
     systemIdempotencyRecordCreate,
     systemIdempotencyRecordUpdate
@@ -235,6 +239,8 @@ describe("reconciliation service", () => {
       logisticsDeliveryTaskFindMany,
       reconciliationReportFindUnique,
       reconciliationReportCreate,
+      systemOutboxRecordCreateMany,
+      auditLogRecordCreateMany,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate
     } = create_prisma_mock();
@@ -297,6 +303,40 @@ describe("reconciliation service", () => {
     expect(pairSet.has("orders_payments")).toBe(true);
     expect(pairSet.has("logistics_orders")).toBe(true);
     expect(result.issuesCount).toBeGreaterThanOrEqual(2);
+
+    const outboxPayload = systemOutboxRecordCreateMany.mock.calls[0]?.[0] as {
+      data: Array<{ eventType: string; payload: Record<string, unknown> }>;
+    };
+    const alertEvents = outboxPayload.data.filter(
+      event => event.eventType === "reconciliation.mismatch_alert_requested"
+    );
+    expect(alertEvents).toHaveLength(result.summary.mismatches.length);
+    expect(alertEvents[0]).toEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          reportId: result.id,
+          pair: "orders_payments",
+          targetRoles: ["finance", "admin", "ceo"]
+        })
+      })
+    );
+
+    expect(auditLogRecordCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            action: "reconciliation.mismatch_alert_queued",
+            entityType: "reconciliation.report",
+            entityId: result.id,
+            actorUserId: "finance_1",
+            payload: expect.objectContaining({
+              reportId: result.id,
+              targetRoles: ["finance", "admin", "ceo"]
+            })
+          })
+        ])
+      })
+    );
   });
 
   it("detects same-total wrong-product orders_inventory mismatch", async () => {
@@ -400,6 +440,7 @@ describe("reconciliation service", () => {
       prismaService,
       reconciliationReportCreate,
       reconciliationReportFindFirst,
+      systemOutboxRecordCreateMany,
       systemIdempotencyRecordFindUnique
     } = create_prisma_mock();
     const service = new ReconciliationService(prismaService);
@@ -435,6 +476,7 @@ describe("reconciliation service", () => {
 
     expect(result.id).toBe("report_77");
     expect(reconciliationReportCreate).not.toHaveBeenCalled();
+    expect(systemOutboxRecordCreateMany).not.toHaveBeenCalled();
   });
 
   it("denies reconciliation run for non-finance roles", async () => {

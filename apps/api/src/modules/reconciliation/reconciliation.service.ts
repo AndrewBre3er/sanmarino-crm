@@ -24,6 +24,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 
 const reconciliation_allowed_roles = new Set<string>(["finance", "admin", "ceo"]);
 const run_reconciliation_idempotency_scope = "reconciliation.run.v1";
+const mismatch_alert_target_roles = ["finance", "admin", "ceo"] as const;
 
 const reconciliation_pairs = [
   "orders_payments",
@@ -239,6 +240,12 @@ export class ReconciliationService {
             sequenceNo: index + 1
           }
         }));
+        const mismatchAlertEvents = mismatches.map((mismatch, index) => ({
+          eventType: "reconciliation.mismatch_alert_requested",
+          aggregateType: "reconciliation.report",
+          aggregateId: created.id,
+          payload: build_mismatch_alert_payload(created.id, mismatch, generatedAt, index + 1)
+        }));
 
         await transactionClient.systemOutboxRecord.createMany({
           data: [
@@ -253,9 +260,31 @@ export class ReconciliationService {
               aggregateType: event.aggregateType,
               aggregateId: event.aggregateId,
               payload: event.payload as Prisma.InputJsonValue
+            })),
+            ...mismatchAlertEvents.map(event => ({
+              eventType: event.eventType,
+              aggregateType: event.aggregateType,
+              aggregateId: event.aggregateId,
+              payload: event.payload as Prisma.InputJsonValue
             }))
           ]
         });
+
+        if (mismatchAlertEvents.length > 0) {
+          await transactionClient.auditLogRecord.createMany({
+            data: mismatchAlertEvents.map((event, index) => ({
+              eventId: build_reconciliation_alert_audit_event_id(created.id, index + 1),
+              occurredAt: generatedAt,
+              action: "reconciliation.mismatch_alert_queued",
+              entityType: "reconciliation.report",
+              entityId: created.id,
+              actorUserId: actor.userId,
+              ...(context.requestId ? { requestId: context.requestId } : {}),
+              ...(context.correlationId ? { correlationId: context.correlationId } : {}),
+              payload: event.payload as Prisma.InputJsonValue
+            }))
+          });
+        }
 
         await transactionClient.auditLogRecord.create({
           data: {
@@ -837,6 +866,53 @@ function build_reconciliation_audit_event_id(reportId: string, idempotencyKey: s
     .update(`${reportId}:${idempotencyKey}`)
     .digest("hex");
   return `reconciliation_run_${hash.slice(0, 40)}`;
+}
+
+function build_reconciliation_alert_audit_event_id(reportId: string, sequenceNo: number): string {
+  const hash = createHash("sha256")
+    .update(`${reportId}:mismatch_alert:${sequenceNo}`)
+    .digest("hex");
+  return `reconciliation_alert_${hash.slice(0, 40)}`;
+}
+
+function build_mismatch_alert_payload(
+  reportId: string,
+  mismatch: ReconciliationMismatch,
+  detectedAt: Date,
+  sequenceNo: number
+): Record<string, unknown> {
+  return {
+    reportId,
+    pair: mismatch.pair,
+    leftEntityRef: mismatch.leftEntityRef,
+    rightEntityRef: mismatch.rightEntityRef,
+    actualDifference: mismatch.actualDifference,
+    recommendedAction: mismatch.recommendedAction,
+    detectedAt: detectedAt.toISOString(),
+    sequenceNo,
+    targetRoles: [...mismatch_alert_target_roles],
+    dedupeKey: build_mismatch_alert_dedupe_key(reportId, mismatch, sequenceNo)
+  };
+}
+
+function build_mismatch_alert_dedupe_key(
+  reportId: string,
+  mismatch: ReconciliationMismatch,
+  sequenceNo: number
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        reportId,
+        sequenceNo,
+        pair: mismatch.pair,
+        leftEntityRef: mismatch.leftEntityRef,
+        rightEntityRef: mismatch.rightEntityRef,
+        actualDifference: mismatch.actualDifference,
+        recommendedAction: mismatch.recommendedAction
+      })
+    )
+    .digest("hex");
 }
 
 function resolve_report_id_from_response_body(payload: Prisma.JsonValue | null): string | null {
