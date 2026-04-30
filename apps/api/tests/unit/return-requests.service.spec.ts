@@ -14,8 +14,12 @@ function create_prisma_mock() {
   const ordersFulfillmentAggregate = vi.fn();
   const inventoryReservationFindFirst = vi.fn();
   const inventoryInventoryMovementFindFirst = vi.fn();
+  const inventoryInventoryMovementFindMany = vi.fn();
   const inventoryInventoryMovementCreate = vi.fn();
+  const paymentsCashOperationAggregate = vi.fn();
+  const financeFinanceEntryAggregate = vi.fn();
   const auditLogRecordCreate = vi.fn();
+  const systemOutboxRecordCreateMany = vi.fn();
   const systemIdempotencyRecordFindUnique = vi.fn();
   const systemIdempotencyRecordCreate = vi.fn();
   const systemIdempotencyRecordUpdate = vi.fn();
@@ -46,10 +50,20 @@ function create_prisma_mock() {
     },
     inventoryInventoryMovement: {
       findFirst: inventoryInventoryMovementFindFirst,
+      findMany: inventoryInventoryMovementFindMany,
       create: inventoryInventoryMovementCreate
+    },
+    paymentsCashOperation: {
+      aggregate: paymentsCashOperationAggregate
+    },
+    financeFinanceEntry: {
+      aggregate: financeFinanceEntryAggregate
     },
     auditLogRecord: {
       create: auditLogRecordCreate
+    },
+    systemOutboxRecord: {
+      createMany: systemOutboxRecordCreateMany
     },
     systemIdempotencyRecord: {
       update: systemIdempotencyRecordUpdate
@@ -82,10 +96,20 @@ function create_prisma_mock() {
     },
     inventoryInventoryMovement: {
       findFirst: inventoryInventoryMovementFindFirst,
+      findMany: inventoryInventoryMovementFindMany,
       create: inventoryInventoryMovementCreate
+    },
+    paymentsCashOperation: {
+      aggregate: paymentsCashOperationAggregate
+    },
+    financeFinanceEntry: {
+      aggregate: financeFinanceEntryAggregate
     },
     auditLogRecord: {
       create: auditLogRecordCreate
+    },
+    systemOutboxRecord: {
+      createMany: systemOutboxRecordCreateMany
     },
     systemIdempotencyRecord: {
       findUnique: systemIdempotencyRecordFindUnique,
@@ -117,35 +141,59 @@ function create_prisma_mock() {
     ordersFulfillmentAggregate,
     inventoryReservationFindFirst,
     inventoryInventoryMovementFindFirst,
+    inventoryInventoryMovementFindMany,
     inventoryInventoryMovementCreate,
+    paymentsCashOperationAggregate,
+    financeFinanceEntryAggregate,
     auditLogRecordCreate,
+    systemOutboxRecordCreateMany,
     systemIdempotencyRecordFindUnique,
     systemIdempotencyRecordCreate,
     systemIdempotencyRecordUpdate
   };
 }
 
-function build_return_request_record(status: "CREATED" | "CONFIRMED" | "PROCESSED" | "CLOSED") {
+function build_return_request_record(
+  status: "CREATED" | "CONFIRMED" | "PROCESSED" | "CLOSED",
+  overrides?: Partial<{
+    requestedRefundAmount: string;
+    approvedRefundAmount: string | null;
+    realizationAnchorAt: Date | null;
+    confirmedAt: Date | null;
+    processedAt: Date | null;
+    closedAt: Date | null;
+    items: Array<{
+      id: string;
+      orderItemId: string;
+      qty: string;
+      resolution: string;
+      orderItem: {
+        id: string;
+        productId: string;
+      };
+    }>;
+  }>
+) {
   const createdAt = new Date("2026-04-20T10:00:00.000Z");
   return {
     id: "ret_1",
     orderId: "order_1",
     status,
     reason: "Need return",
-    requestedRefundAmount: "0.00",
-    approvedRefundAmount: null,
-    realizationAnchorAt: null,
-    confirmedAt: null,
+    requestedRefundAmount: overrides?.requestedRefundAmount ?? "0.00",
+    approvedRefundAmount: overrides?.approvedRefundAmount ?? null,
+    realizationAnchorAt: overrides?.realizationAnchorAt ?? null,
+    confirmedAt: overrides?.confirmedAt ?? null,
     requiresCeoApproval: false,
     ceoApprovedBy: null,
     ceoApprovedAt: null,
-    processedAt: null,
-    closedAt: null,
+    processedAt: overrides?.processedAt ?? null,
+    closedAt: overrides?.closedAt ?? null,
     createdAt,
     updatedAt: createdAt,
     version: 1,
     isDeleted: false,
-    items: [
+    items: overrides?.items ?? [
       {
         id: "ret_item_1",
         orderItemId: "order_item_1",
@@ -170,6 +218,8 @@ describe("return requests service", () => {
       ordersReturnRequestCreate,
       ordersReturnRequestFindFirst,
       ordersReturnRequestItemCreateMany,
+      auditLogRecordCreate,
+      systemOutboxRecordCreateMany,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate
     } = create_prisma_mock();
@@ -206,6 +256,24 @@ describe("return requests service", () => {
             orderItemId: "order_item_1",
             qty: "1.000",
             resolution: "return_to_quarantine"
+          })
+        ])
+      })
+    );
+    expect(auditLogRecordCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "orders.return_request.create",
+          entityId: "ret_1"
+        })
+      })
+    );
+    expect(systemOutboxRecordCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "return_request.created",
+            aggregateId: "ret_1"
           })
         ])
       })
@@ -293,6 +361,7 @@ describe("return requests service", () => {
       ordersFulfillmentItemFindMany,
       ordersFulfillmentAggregate,
       auditLogRecordCreate,
+      systemOutboxRecordCreateMany,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate
     } = create_prisma_mock();
@@ -340,6 +409,16 @@ describe("return requests service", () => {
       })
     );
     expect(auditLogRecordCreate).toHaveBeenCalledOnce();
+    expect(systemOutboxRecordCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "return_request.confirmed",
+            aggregateId: "ret_1"
+          })
+        ])
+      })
+    );
   });
 
   it("processes return through quarantine path only", async () => {
@@ -350,6 +429,7 @@ describe("return requests service", () => {
       inventoryReservationFindFirst,
       inventoryInventoryMovementCreate,
       auditLogRecordCreate,
+      systemOutboxRecordCreateMany,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate
     } = create_prisma_mock();
@@ -395,6 +475,115 @@ describe("return requests service", () => {
       })
     );
     expect(auditLogRecordCreate).toHaveBeenCalledOnce();
+    expect(systemOutboxRecordCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "return_request.processed",
+            aggregateId: "ret_1"
+          })
+        ])
+      })
+    );
+  });
+
+  it("processes writeoff and refund-only resolutions with scoped inventory effects", async () => {
+    const {
+      prismaService,
+      ordersReturnRequestFindFirst,
+      inventoryReservationFindFirst,
+      inventoryInventoryMovementCreate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_prisma_mock();
+    const items = [
+      {
+        id: "ret_item_quarantine",
+        orderItemId: "order_item_quarantine",
+        qty: "1.000",
+        resolution: "return_to_quarantine",
+        orderItem: {
+          id: "order_item_quarantine",
+          productId: "product_quarantine"
+        }
+      },
+      {
+        id: "ret_item_writeoff",
+        orderItemId: "order_item_writeoff",
+        qty: "2.000",
+        resolution: "writeoff",
+        orderItem: {
+          id: "order_item_writeoff",
+          productId: "product_writeoff"
+        }
+      },
+      {
+        id: "ret_item_refund_only",
+        orderItemId: "order_item_refund_only",
+        qty: "1.000",
+        resolution: "refund_only",
+        orderItem: {
+          id: "order_item_refund_only",
+          productId: "product_refund_only"
+        }
+      }
+    ];
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_process_resolution" });
+    ordersReturnRequestFindFirst
+      .mockResolvedValueOnce(
+        build_return_request_record("CONFIRMED", {
+          confirmedAt: new Date("2026-04-20T12:00:00.000Z"),
+          items
+        })
+      )
+      .mockResolvedValueOnce(
+        build_return_request_record("PROCESSED", {
+          processedAt: new Date("2026-04-20T13:00:00.000Z"),
+          items
+        })
+      );
+    inventoryReservationFindFirst.mockResolvedValue({ warehouseId: "wh_1" });
+
+    const service = new ReturnRequestsService(prismaService);
+
+    await service.processReturnRequest(
+      "ret_1",
+      {
+        userId: "warehouse_1",
+        roleCodes: ["warehouse"]
+      },
+      { idempotencyKey: "idem_process_resolution" }
+    );
+
+    expect(inventoryInventoryMovementCreate).toHaveBeenCalledTimes(2);
+    expect(inventoryInventoryMovementCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          productId: "product_quarantine",
+          movementType: "TRANSFER_TO_QUARANTINE",
+          bucketTo: "QUARANTINE",
+          returnRequestId: "ret_1"
+        })
+      })
+    );
+    expect(inventoryInventoryMovementCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          productId: "product_writeoff",
+          movementType: "WRITEOFF",
+          bucketTo: null,
+          returnRequestId: "ret_1"
+        })
+      })
+    );
+    expect(inventoryInventoryMovementCreate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          productId: "product_refund_only"
+        })
+      })
+    );
   });
 
   it("blocks close before processed state", async () => {
@@ -420,6 +609,184 @@ describe("return requests service", () => {
         { idempotencyKey: "idem_close_1" }
       )
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("blocks close when processed goods consequences are missing", async () => {
+    const {
+      prismaService,
+      ordersReturnRequestFindFirst,
+      ordersReturnRequestUpdate,
+      inventoryInventoryMovementFindMany,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_prisma_mock();
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_close_missing_goods" });
+    ordersReturnRequestFindFirst.mockResolvedValue(
+      build_return_request_record("PROCESSED", {
+        processedAt: new Date("2026-04-20T13:00:00.000Z")
+      })
+    );
+    inventoryInventoryMovementFindMany.mockResolvedValue([]);
+
+    const service = new ReturnRequestsService(prismaService);
+
+    await expect(
+      service.closeReturnRequest(
+        "ret_1",
+        {
+          userId: "finance_1",
+          roleCodes: ["finance"]
+        },
+        { idempotencyKey: "idem_close_missing_goods" }
+      )
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(ordersReturnRequestUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "CLOSED"
+        })
+      })
+    );
+  });
+
+  it("blocks close when requested refund consequences are missing", async () => {
+    const {
+      prismaService,
+      ordersReturnRequestFindFirst,
+      ordersReturnRequestUpdate,
+      inventoryInventoryMovementFindMany,
+      paymentsCashOperationAggregate,
+      financeFinanceEntryAggregate,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_prisma_mock();
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_close_missing_refund" });
+    ordersReturnRequestFindFirst.mockResolvedValue(
+      build_return_request_record("PROCESSED", {
+        requestedRefundAmount: "100.00",
+        processedAt: new Date("2026-04-20T13:00:00.000Z")
+      })
+    );
+    inventoryInventoryMovementFindMany.mockResolvedValue([
+      {
+        productId: "product_1",
+        movementType: "TRANSFER_TO_QUARANTINE",
+        qty: "1.000",
+        bucketTo: "QUARANTINE"
+      }
+    ]);
+    paymentsCashOperationAggregate.mockResolvedValue({
+      _sum: {
+        amount: "0.00"
+      }
+    });
+    financeFinanceEntryAggregate.mockResolvedValue({
+      _sum: {
+        amount: "0.00"
+      }
+    });
+
+    const service = new ReturnRequestsService(prismaService);
+
+    await expect(
+      service.closeReturnRequest(
+        "ret_1",
+        {
+          userId: "finance_1",
+          roleCodes: ["finance"]
+        },
+        { idempotencyKey: "idem_close_missing_refund" }
+      )
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(ordersReturnRequestUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "CLOSED"
+        })
+      })
+    );
+  });
+
+  it("closes after inventory and refund consequences are complete", async () => {
+    const {
+      prismaService,
+      ordersReturnRequestFindFirst,
+      ordersReturnRequestUpdate,
+      inventoryInventoryMovementFindMany,
+      paymentsCashOperationAggregate,
+      financeFinanceEntryAggregate,
+      auditLogRecordCreate,
+      systemOutboxRecordCreateMany,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_prisma_mock();
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_close_success" });
+    ordersReturnRequestFindFirst
+      .mockResolvedValueOnce(
+        build_return_request_record("PROCESSED", {
+          requestedRefundAmount: "100.00",
+          processedAt: new Date("2026-04-20T13:00:00.000Z")
+        })
+      )
+      .mockResolvedValueOnce(
+        build_return_request_record("CLOSED", {
+          requestedRefundAmount: "100.00",
+          processedAt: new Date("2026-04-20T13:00:00.000Z"),
+          closedAt: new Date("2026-04-20T14:00:00.000Z")
+        })
+      );
+    inventoryInventoryMovementFindMany.mockResolvedValue([
+      {
+        productId: "product_1",
+        movementType: "TRANSFER_TO_QUARANTINE",
+        qty: "1.000",
+        bucketTo: "QUARANTINE"
+      }
+    ]);
+    paymentsCashOperationAggregate.mockResolvedValue({
+      _sum: {
+        amount: "100.00"
+      }
+    });
+    financeFinanceEntryAggregate.mockResolvedValue({
+      _sum: {
+        amount: "100.00"
+      }
+    });
+
+    const service = new ReturnRequestsService(prismaService);
+    const closed = await service.closeReturnRequest(
+      "ret_1",
+      {
+        userId: "finance_1",
+        roleCodes: ["finance"]
+      },
+      { idempotencyKey: "idem_close_success" }
+    );
+
+    expect(closed.status).toBe("closed");
+    expect(ordersReturnRequestUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "CLOSED",
+          closedAt: expect.any(Date)
+        })
+      })
+    );
+    expect(auditLogRecordCreate).toHaveBeenCalledOnce();
+    expect(systemOutboxRecordCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "return_request.closed",
+            aggregateId: "ret_1"
+          })
+        ])
+      })
+    );
   });
 
   it("returns not found for unknown return request", async () => {

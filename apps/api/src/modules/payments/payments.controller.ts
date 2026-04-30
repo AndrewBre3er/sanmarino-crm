@@ -37,6 +37,20 @@ class CreatePaymentDto {
   externalRef?: string;
 }
 
+class RefundPaymentDto {
+  @IsString()
+  @MaxLength(32)
+  amount!: string;
+
+  @IsUUID()
+  returnRequestId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  reason?: string;
+}
+
 interface PaymentCommandRequest extends AuthenticatedRequestLike {
   shellContext?: {
     idempotencyKey?: string;
@@ -106,5 +120,40 @@ export class PaymentsController {
 
     return { data: completed };
   }
-}
 
+  @Post(":paymentId/refunds")
+  @require_roles("finance", "admin", "ceo")
+  async refund(
+    @Param("paymentId") paymentId: string,
+    @Body() payload: RefundPaymentDto,
+    @Req() request: PaymentCommandRequest
+  ) {
+    const access = get_authenticated_access(request);
+    const shellContext = request.shellContext;
+    const idempotencyKey = shellContext?.idempotencyKey;
+
+    if (!idempotencyKey) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: `${request_context_headers.idempotencyKey} header is required`
+      });
+    }
+
+    const refunded = await this.paymentsService.refundPayment(
+      paymentId,
+      {
+        amount: payload.amount,
+        returnRequestId: payload.returnRequestId,
+        ...(payload.reason !== undefined ? { reason: payload.reason } : {})
+      },
+      access.user,
+      {
+        idempotencyKey,
+        ...(shellContext?.requestId ? { requestId: shellContext.requestId } : {}),
+        ...(shellContext?.correlationId ? { correlationId: shellContext.correlationId } : {})
+      }
+    );
+
+    return { data: refunded };
+  }
+}

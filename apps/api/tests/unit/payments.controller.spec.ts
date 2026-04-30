@@ -53,7 +53,8 @@ describe("payments controller", () => {
   it("creates payment with idempotency command context", async () => {
     const service = {
       createPayment: vi.fn().mockResolvedValue({ id: "pay_1", status: "pending" }),
-      completePayment: vi.fn()
+      completePayment: vi.fn(),
+      refundPayment: vi.fn()
     } as unknown as PaymentsService;
     const controller = new PaymentsController(service);
     const request = build_request("finance_1", ["finance"], "idem_create_1");
@@ -92,7 +93,8 @@ describe("payments controller", () => {
   it("completes payment with idempotency command context", async () => {
     const service = {
       createPayment: vi.fn(),
-      completePayment: vi.fn().mockResolvedValue({ id: "pay_1", status: "completed" })
+      completePayment: vi.fn().mockResolvedValue({ id: "pay_1", status: "completed" }),
+      refundPayment: vi.fn()
     } as unknown as PaymentsService;
     const controller = new PaymentsController(service);
     const request = build_request("finance_1", ["finance"], "idem_complete_1");
@@ -114,10 +116,51 @@ describe("payments controller", () => {
     });
   });
 
+  it("creates refund with required ReturnRequest linkage and idempotency context", async () => {
+    const service = {
+      createPayment: vi.fn(),
+      completePayment: vi.fn(),
+      refundPayment: vi.fn().mockResolvedValue({
+        id: "pay_1",
+        status: "completed",
+        refundedAmount: "500.00"
+      })
+    } as unknown as PaymentsService;
+    const controller = new PaymentsController(service);
+    const request = build_request("finance_1", ["finance"], "idem_refund_1");
+
+    const payload = {
+      amount: "500.00",
+      returnRequestId: "6bb4774e-6d67-4e7f-9692-af0cf356ff9e",
+      reason: "Customer return"
+    };
+
+    const result = await controller.refund("pay_1", payload, request);
+
+    expect(service.refundPayment).toHaveBeenCalledWith(
+      "pay_1",
+      payload,
+      request.auth.user,
+      expect.objectContaining({
+        idempotencyKey: "idem_refund_1",
+        requestId: "req_0000000000000001",
+        correlationId: "corr_0000000000001"
+      })
+    );
+    expect(result).toEqual({
+      data: {
+        id: "pay_1",
+        status: "completed",
+        refundedAmount: "500.00"
+      }
+    });
+  });
+
   it("requires idempotency key for create command", async () => {
     const service = {
       createPayment: vi.fn(),
-      completePayment: vi.fn()
+      completePayment: vi.fn(),
+      refundPayment: vi.fn()
     } as unknown as PaymentsService;
     const controller = new PaymentsController(service);
     const request = build_request("finance_1", ["finance"]);
@@ -138,13 +181,36 @@ describe("payments controller", () => {
   it("requires idempotency key for complete command", async () => {
     const service = {
       createPayment: vi.fn(),
-      completePayment: vi.fn()
+      completePayment: vi.fn(),
+      refundPayment: vi.fn()
     } as unknown as PaymentsService;
     const controller = new PaymentsController(service);
     const request = build_request("finance_1", ["finance"]);
 
     await expect(controller.complete("pay_1", request)).rejects.toBeInstanceOf(BadRequestException);
     expect(service.completePayment).not.toHaveBeenCalled();
+  });
+
+  it("requires idempotency key for refund command", async () => {
+    const service = {
+      createPayment: vi.fn(),
+      completePayment: vi.fn(),
+      refundPayment: vi.fn()
+    } as unknown as PaymentsService;
+    const controller = new PaymentsController(service);
+    const request = build_request("finance_1", ["finance"]);
+
+    await expect(
+      controller.refund(
+        "pay_1",
+        {
+          amount: "500.00",
+          returnRequestId: "6bb4774e-6d67-4e7f-9692-af0cf356ff9e"
+        },
+        request
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.refundPayment).not.toHaveBeenCalled();
   });
 
   it("keeps command access baseline role matrix for payments", () => {
@@ -166,6 +232,13 @@ describe("payments controller", () => {
       authenticated?: boolean;
       requiredRoleCodes?: string[];
     };
+    const refundRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      PaymentsController.prototype.refund
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
 
     expect(classRequirements?.requiredRoleCodes).toEqual(["warehouse", "finance", "admin", "ceo"]);
     expect(createRequirements?.requiredRoleCodes).toEqual([
@@ -175,6 +248,6 @@ describe("payments controller", () => {
       "ceo"
     ]);
     expect(completeRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
+    expect(refundRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
   });
 });
-

@@ -12,7 +12,8 @@ import type {
   FinanceEntryType as PrismaFinanceEntryType,
   IdempotencyStatus as PrismaIdempotencyStatus,
   OrderPaymentControlStatus as PrismaOrderPaymentControlStatus,
-  PaymentMethod as PrismaPaymentMethod
+  PaymentMethod as PrismaPaymentMethod,
+  PaymentStatus as PrismaPaymentStatus
 } from "@prisma/client";
 import type { AuthPrincipal } from "../auth/auth.contract";
 import {
@@ -32,6 +33,12 @@ export interface CreatePaymentInput {
   externalReference?: string;
 }
 
+export interface RefundPaymentInput {
+  amount: string;
+  returnRequestId?: string;
+  reason?: string;
+}
+
 export interface PaymentCommandContext {
   idempotencyKey: string;
   requestId?: string;
@@ -46,6 +53,7 @@ interface AcquiredIdempotencyRecord {
 
 const create_payment_idempotency_scope = "payments.payment.create.v1";
 const complete_payment_idempotency_scope = "payments.payment.complete.v1";
+const refund_payment_idempotency_scope = "payments.payment.refund.v1";
 
 @Injectable()
 export class PaymentsService {
@@ -268,6 +276,270 @@ export class PaymentsService {
       });
 
       return this.get_payment_or_throw(completedPaymentId, actor);
+    } catch (error) {
+      await this.mark_idempotency_failed(idempotency.recordId, error);
+      throw error;
+    }
+  }
+
+  async refundPayment(
+    paymentId: string,
+    payload: RefundPaymentInput,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: PaymentCommandContext
+  ): Promise<PaymentsPaymentReadModel> {
+    const normalizedAmount = normalize_amount(payload.amount);
+    const normalizedReturnRequestId = normalize_required_return_request_id(payload.returnRequestId);
+    const normalizedReason = normalize_refund_reason(payload.reason);
+    const requestHash = build_refund_payment_request_hash({
+      paymentId,
+      returnRequestId: normalizedReturnRequestId,
+      amount: normalizedAmount,
+      reason: normalizedReason
+    });
+    const idempotency = await this.acquire_idempotency(
+      refund_payment_idempotency_scope,
+      context.idempotencyKey,
+      requestHash
+    );
+
+    if (idempotency.replayed) {
+      return this.resolve_replayed_payment(idempotency.responseBody, actor, paymentId);
+    }
+
+    try {
+      const refundedPaymentId = await this.prismaService.$transaction(async transactionClient => {
+        const payment = await transactionClient.paymentsPayment.findFirst({
+          where: {
+            id: paymentId,
+            isDeleted: false
+          },
+          select: {
+            id: true,
+            orderId: true,
+            status: true,
+            amount: true,
+            refundedAmount: true,
+            externalReference: true
+          }
+        });
+
+        if (!payment) {
+          throw new NotFoundException(`Payment '${paymentId}' was not found`);
+        }
+
+        const currentStatus = from_prisma_enum(payment.status);
+        if (currentStatus !== "completed") {
+          throw new ConflictException({
+            code: "TRANSITION_NOT_ALLOWED",
+            message: `Payment '${paymentId}' cannot be refunded from status '${currentStatus}'`
+          });
+        }
+
+        const returnRequest = await transactionClient.ordersReturnRequest.findFirst({
+          where: {
+            id: normalizedReturnRequestId,
+            orderId: payment.orderId,
+            isDeleted: false
+          },
+          select: {
+            id: true,
+            orderId: true,
+            status: true,
+            requestedRefundAmount: true
+          }
+        });
+
+        if (!returnRequest) {
+          throw new ConflictException({
+            code: "PAYMENT_REFUND_REQUIRES_RETURN_REQUEST",
+            message:
+              `Refund for payment '${paymentId}' requires ReturnRequest linked to the same order`
+          });
+        }
+
+        const returnRequestStatus = from_prisma_enum(returnRequest.status);
+        if (returnRequestStatus !== "processed") {
+          throw new ConflictException({
+            code: "TRANSITION_NOT_ALLOWED",
+            message:
+              `Refund for payment '${paymentId}' requires processed ReturnRequest '${returnRequest.id}'`
+          });
+        }
+
+        const refundAmount = to_money_number(normalizedAmount);
+        const paymentAmount = to_money_number(payment.amount);
+        const alreadyRefundedAmount = to_money_number(payment.refundedAmount);
+        const nextRefundedAmount = alreadyRefundedAmount + refundAmount;
+        if (nextRefundedAmount - paymentAmount > 0.005) {
+          throw new ConflictException({
+            code: "SOURCE_OF_TRUTH_VIOLATION",
+            message: `Refund amount exceeds remaining paid amount for payment '${paymentId}'`
+          });
+        }
+
+        if (returnRequest.requestedRefundAmount != null) {
+          const requestedRefundAmount = to_money_number(returnRequest.requestedRefundAmount);
+          const returnRefundAggregate = await transactionClient.paymentsCashOperation.aggregate({
+            where: {
+              returnRequestId: returnRequest.id,
+              operationType: to_prisma_enum<PrismaCashOperationType>("refund")
+            },
+            _sum: {
+              amount: true
+            }
+          });
+          const alreadyRefundedForReturn = to_money_number(returnRefundAggregate._sum.amount);
+          if (alreadyRefundedForReturn + refundAmount - requestedRefundAmount > 0.005) {
+            throw new ConflictException({
+              code: "SOURCE_OF_TRUTH_VIOLATION",
+              message:
+                `Refund amount exceeds requested refund amount for ReturnRequest '${returnRequest.id}'`
+            });
+          }
+        }
+
+        const refundedAt = new Date();
+        await transactionClient.paymentsPayment.update({
+          where: {
+            id: payment.id
+          },
+          data: {
+            refundedAmount: format_money(nextRefundedAmount),
+            status: to_prisma_enum<PrismaPaymentStatus>(
+              paymentAmount - nextRefundedAmount <= 0.005 ? "refunded" : "completed"
+            )
+          }
+        });
+
+        const cashOperation = await transactionClient.paymentsCashOperation.create({
+          data: {
+            payment: {
+              connect: {
+                id: payment.id
+              }
+            },
+            returnRequest: {
+              connect: {
+                id: returnRequest.id
+              }
+            },
+            operationType: to_prisma_enum<PrismaCashOperationType>("refund"),
+            amount: normalizedAmount,
+            currency: "RUB",
+            performedAt: refundedAt,
+            externalReference: payment.externalReference,
+            createdByUser: {
+              connect: {
+                id: actor.userId
+              }
+            }
+          },
+          select: {
+            id: true
+          }
+        });
+
+        const financeEntry = await transactionClient.financeFinanceEntry.create({
+          data: {
+            entryType: to_prisma_enum<PrismaFinanceEntryType>("adjustment"),
+            order: {
+              connect: {
+                id: payment.orderId
+              }
+            },
+            payment: {
+              connect: {
+                id: payment.id
+              }
+            },
+            cashOperation: {
+              connect: {
+                id: cashOperation.id
+              }
+            },
+            returnRequest: {
+              connect: {
+                id: returnRequest.id
+              }
+            },
+            amount: normalizedAmount,
+            currency: "RUB",
+            recognizedAt: refundedAt,
+            description: normalizedReason
+              ? `Refund adjustment linked to ReturnRequest: ${normalizedReason}`
+              : "Refund adjustment linked to ReturnRequest",
+            createdByUser: {
+              connect: {
+                id: actor.userId
+              }
+            }
+          },
+          select: {
+            id: true
+          }
+        });
+
+        await transactionClient.systemOutboxRecord.createMany({
+          data: [
+            {
+              eventType: "payment.refund_completed",
+              aggregateType: "payments.payment",
+              aggregateId: payment.id,
+              payload: {
+                paymentId: payment.id,
+                returnRequestId: returnRequest.id,
+                orderId: payment.orderId,
+                amount: normalizedAmount,
+                cashOperationId: cashOperation.id,
+                financeEntryId: financeEntry.id,
+                completedAt: refundedAt.toISOString()
+              } as Prisma.InputJsonValue
+            }
+          ]
+        });
+
+        await transactionClient.auditLogRecord.create({
+          data: {
+            eventId: build_payment_audit_event_id(
+              "refund",
+              payment.id,
+              context.idempotencyKey
+            ),
+            occurredAt: refundedAt,
+            action: "payments.payment.refund",
+            entityType: "payments.payment",
+            entityId: payment.id,
+            actorUserId: actor.userId,
+            ...(context.requestId ? { requestId: context.requestId } : {}),
+            ...(context.correlationId ? { correlationId: context.correlationId } : {}),
+            payload: {
+              orderId: payment.orderId,
+              returnRequestId: returnRequest.id,
+              amount: normalizedAmount,
+              cashOperationId: cashOperation.id,
+              financeEntryId: financeEntry.id
+            } as Prisma.InputJsonValue
+          }
+        });
+
+        await transactionClient.systemIdempotencyRecord.update({
+          where: { id: idempotency.recordId },
+          data: {
+            status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
+            responseStatusCode: 200,
+            responseBody: {
+              paymentId: payment.id,
+              returnRequestId: returnRequest.id
+            },
+            lockedUntil: null
+          }
+        });
+
+        return payment.id;
+      });
+
+      return this.get_payment_or_throw(refundedPaymentId, actor);
     } catch (error) {
       await this.mark_idempotency_failed(idempotency.recordId, error);
       throw error;
@@ -511,6 +783,15 @@ function build_complete_payment_request_hash(paymentId: string): string {
   return createHash("sha256").update(JSON.stringify({ paymentId })).digest("hex");
 }
 
+function build_refund_payment_request_hash(input: {
+  paymentId: string;
+  returnRequestId: string;
+  amount: string;
+  reason: string | null;
+}): string {
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
+
 function build_payment_number(orderId: string, idempotencyKey: string): string {
   const hash = createHash("sha256").update(`${orderId}:${idempotencyKey}`).digest("hex");
   return `PAY-${hash.slice(0, 20).toUpperCase()}`;
@@ -537,6 +818,27 @@ function normalize_amount(rawAmount: string): string {
 }
 
 function normalize_external_reference(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalize_required_return_request_id(value: string | undefined): string {
+  const normalized = value?.trim();
+  if (!normalized) {
+    throw new BadRequestException({
+      code: "PAYMENT_REFUND_REQUIRES_RETURN_REQUEST",
+      message: "returnRequestId is required for payment refund"
+    });
+  }
+
+  return normalized;
+}
+
+function normalize_refund_reason(value: string | undefined): string | null {
   if (!value) {
     return null;
   }
@@ -591,4 +893,20 @@ function to_money_number(value: Prisma.Decimal | number | string | null | undefi
 
   const amount = Number(typeof value === "number" ? value : value.toString());
   return Number.isFinite(amount) ? amount : 0;
+}
+
+function format_money(value: number): string {
+  return value.toFixed(2);
+}
+
+function build_payment_audit_event_id(
+  action: "refund",
+  paymentId: string,
+  idempotencyKey: string
+): string {
+  const hash = createHash("sha256")
+    .update(`${action}:${paymentId}:${idempotencyKey}`)
+    .digest("hex");
+
+  return `payment_${action}_${hash.slice(0, 40)}`;
 }

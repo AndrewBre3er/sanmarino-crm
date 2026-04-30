@@ -1,11 +1,16 @@
 import { createHash } from "node:crypto";
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { PaymentsService } from "../../src/modules/payments/payments.service";
 import type { PrismaPaymentsPaymentReadRepository } from "../../src/modules/read-side/payments/payment.read.repository";
 import type { PrismaService } from "../../src/prisma/prisma.service";
 
-function build_payment_read_model(status: "pending" | "completed" = "pending") {
+function build_payment_read_model(
+  status: "pending" | "completed" | "refunded" = "pending",
+  overrides?: Partial<{
+    refundedAmount: string;
+  }>
+) {
   return {
     id: "pay_1",
     paymentNumber: "PAY-1",
@@ -13,7 +18,7 @@ function build_payment_read_model(status: "pending" | "completed" = "pending") {
     status,
     paymentMethod: "cash",
     amount: "2000.00",
-    refundedAmount: "0.00",
+    refundedAmount: overrides?.refundedAmount ?? "0.00",
     receivedAt: status === "completed" ? new Date().toISOString() : null,
     externalReference: null,
     createdAt: new Date().toISOString(),
@@ -29,12 +34,16 @@ function build_payment_read_model(status: "pending" | "completed" = "pending") {
 function create_prisma_mock() {
   const ordersOrderFindFirst = vi.fn();
   const ordersOrderUpdate = vi.fn();
+  const ordersReturnRequestFindFirst = vi.fn();
   const paymentsPaymentFindFirst = vi.fn();
   const paymentsPaymentCreate = vi.fn();
   const paymentsPaymentUpdate = vi.fn();
   const paymentsPaymentAggregate = vi.fn();
   const paymentsCashOperationCreate = vi.fn();
+  const paymentsCashOperationAggregate = vi.fn();
   const financeFinanceEntryCreate = vi.fn();
+  const auditLogRecordCreate = vi.fn();
+  const systemOutboxRecordCreateMany = vi.fn();
   const systemIdempotencyRecordFindUnique = vi.fn();
   const systemIdempotencyRecordCreate = vi.fn();
   const systemIdempotencyRecordUpdate = vi.fn();
@@ -44,6 +53,9 @@ function create_prisma_mock() {
       findFirst: ordersOrderFindFirst,
       update: ordersOrderUpdate
     },
+    ordersReturnRequest: {
+      findFirst: ordersReturnRequestFindFirst
+    },
     paymentsPayment: {
       findFirst: paymentsPaymentFindFirst,
       create: paymentsPaymentCreate,
@@ -51,10 +63,17 @@ function create_prisma_mock() {
       aggregate: paymentsPaymentAggregate
     },
     paymentsCashOperation: {
-      create: paymentsCashOperationCreate
+      create: paymentsCashOperationCreate,
+      aggregate: paymentsCashOperationAggregate
     },
     financeFinanceEntry: {
       create: financeFinanceEntryCreate
+    },
+    auditLogRecord: {
+      create: auditLogRecordCreate
+    },
+    systemOutboxRecord: {
+      createMany: systemOutboxRecordCreateMany
     },
     systemIdempotencyRecord: {
       update: systemIdempotencyRecordUpdate
@@ -66,6 +85,9 @@ function create_prisma_mock() {
       findFirst: ordersOrderFindFirst,
       update: ordersOrderUpdate
     },
+    ordersReturnRequest: {
+      findFirst: ordersReturnRequestFindFirst
+    },
     paymentsPayment: {
       findFirst: paymentsPaymentFindFirst,
       create: paymentsPaymentCreate,
@@ -73,10 +95,17 @@ function create_prisma_mock() {
       aggregate: paymentsPaymentAggregate
     },
     paymentsCashOperation: {
-      create: paymentsCashOperationCreate
+      create: paymentsCashOperationCreate,
+      aggregate: paymentsCashOperationAggregate
     },
     financeFinanceEntry: {
       create: financeFinanceEntryCreate
+    },
+    auditLogRecord: {
+      create: auditLogRecordCreate
+    },
+    systemOutboxRecord: {
+      createMany: systemOutboxRecordCreateMany
     },
     systemIdempotencyRecord: {
       findUnique: systemIdempotencyRecordFindUnique,
@@ -100,12 +129,16 @@ function create_prisma_mock() {
     prismaService,
     ordersOrderFindFirst,
     ordersOrderUpdate,
+    ordersReturnRequestFindFirst,
     paymentsPaymentFindFirst,
     paymentsPaymentCreate,
     paymentsPaymentUpdate,
     paymentsPaymentAggregate,
     paymentsCashOperationCreate,
+    paymentsCashOperationAggregate,
     financeFinanceEntryCreate,
+    auditLogRecordCreate,
+    systemOutboxRecordCreateMany,
     systemIdempotencyRecordFindUnique,
     systemIdempotencyRecordCreate,
     systemIdempotencyRecordUpdate
@@ -275,6 +308,7 @@ describe("payments service", () => {
       paymentsPaymentFindFirst,
       paymentsPaymentUpdate,
       paymentsCashOperationCreate,
+      paymentsCashOperationAggregate,
       financeFinanceEntryCreate,
       ordersOrderFindFirst,
       ordersOrderUpdate,
@@ -655,5 +689,229 @@ describe("payments service", () => {
         })
       })
     );
+  });
+
+  it("rejects refund without returnRequestId before side effects", async () => {
+    const {
+      service,
+      paymentsPaymentFindFirst,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
+      systemIdempotencyRecordFindUnique
+    } = create_service_with_mocks();
+
+    await expect(
+      service.refundPayment(
+        "pay_1",
+        {
+          amount: "500.00"
+        },
+        {
+          userId: "finance_1",
+          roleCodes: ["finance"]
+        },
+        {
+          idempotencyKey: "idem_refund_missing_return"
+        }
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(systemIdempotencyRecordFindUnique).not.toHaveBeenCalled();
+    expect(paymentsPaymentFindFirst).not.toHaveBeenCalled();
+    expect(paymentsCashOperationCreate).not.toHaveBeenCalled();
+    expect(financeFinanceEntryCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates accepted refund money and finance consequences linked to ReturnRequest", async () => {
+    const {
+      service,
+      paymentReadRepository,
+      ordersReturnRequestFindFirst,
+      paymentsPaymentFindFirst,
+      paymentsPaymentUpdate,
+      paymentsCashOperationCreate,
+      paymentsCashOperationAggregate,
+      financeFinanceEntryCreate,
+      auditLogRecordCreate,
+      systemOutboxRecordCreateMany,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_refund_0" });
+    paymentsPaymentFindFirst.mockResolvedValue({
+      id: "pay_1",
+      orderId: "order_1",
+      status: "COMPLETED",
+      amount: "2000.00",
+      refundedAmount: "0.00",
+      externalReference: "ext_42"
+    });
+    ordersReturnRequestFindFirst.mockResolvedValue({
+      id: "ret_1",
+      orderId: "order_1",
+      status: "PROCESSED",
+      requestedRefundAmount: "500.00",
+      approvedRefundAmount: null,
+      isDeleted: false
+    });
+    paymentsCashOperationAggregate.mockResolvedValue({
+      _sum: {
+        amount: "0.00"
+      }
+    });
+    paymentsCashOperationCreate.mockResolvedValue({ id: "cash_refund_1" });
+    financeFinanceEntryCreate.mockResolvedValue({ id: "finance_refund_1" });
+    (paymentReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      build_payment_read_model("completed", { refundedAmount: "500.00" })
+    );
+
+    const result = await service.refundPayment(
+      "pay_1",
+      {
+        amount: "500.00",
+        returnRequestId: "ret_1",
+        reason: "Customer return"
+      },
+      {
+        userId: "finance_1",
+        roleCodes: ["finance"]
+      },
+      {
+        idempotencyKey: "idem_refund_0"
+      }
+    );
+
+    expect(result.refundedAmount).toBe("500.00");
+    expect(paymentsPaymentUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "pay_1" },
+        data: expect.objectContaining({
+          refundedAmount: "500.00",
+          status: "COMPLETED"
+        })
+      })
+    );
+    expect(paymentsCashOperationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          operationType: "REFUND",
+          amount: "500.00",
+          payment: {
+            connect: {
+              id: "pay_1"
+            }
+          },
+          returnRequest: {
+            connect: {
+              id: "ret_1"
+            }
+          }
+        })
+      })
+    );
+    expect(financeFinanceEntryCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          entryType: "ADJUSTMENT",
+          amount: "500.00",
+          order: {
+            connect: {
+              id: "order_1"
+            }
+          },
+          payment: {
+            connect: {
+              id: "pay_1"
+            }
+          },
+          cashOperation: {
+            connect: {
+              id: "cash_refund_1"
+            }
+          },
+          returnRequest: {
+            connect: {
+              id: "ret_1"
+            }
+          }
+        })
+      })
+    );
+    expect(auditLogRecordCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "payments.payment.refund",
+          entityId: "pay_1"
+        })
+      })
+    );
+    expect(systemOutboxRecordCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "payment.refund_completed",
+            aggregateId: "pay_1"
+          })
+        ])
+      })
+    );
+  });
+
+  it("replays idempotent refund without second money or finance consequence", async () => {
+    const {
+      service,
+      paymentReadRepository,
+      paymentsPaymentUpdate,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
+      auditLogRecordCreate,
+      systemOutboxRecordCreateMany,
+      systemIdempotencyRecordFindUnique
+    } = create_service_with_mocks();
+
+    const requestHash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          paymentId: "pay_1",
+          returnRequestId: "ret_1",
+          amount: "500.00",
+          reason: null
+        })
+      )
+      .digest("hex");
+    systemIdempotencyRecordFindUnique.mockResolvedValue({
+      id: "idem_refund_done",
+      requestHash,
+      status: "COMPLETED",
+      lockedUntil: null,
+      responseBody: { paymentId: "pay_1" }
+    });
+    (paymentReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      build_payment_read_model("completed", { refundedAmount: "500.00" })
+    );
+
+    const result = await service.refundPayment(
+      "pay_1",
+      {
+        amount: "500.00",
+        returnRequestId: "ret_1"
+      },
+      {
+        userId: "finance_1",
+        roleCodes: ["finance"]
+      },
+      {
+        idempotencyKey: "idem_refund_done"
+      }
+    );
+
+    expect(result.refundedAmount).toBe("500.00");
+    expect(paymentsPaymentUpdate).not.toHaveBeenCalled();
+    expect(paymentsCashOperationCreate).not.toHaveBeenCalled();
+    expect(financeFinanceEntryCreate).not.toHaveBeenCalled();
+    expect(auditLogRecordCreate).not.toHaveBeenCalled();
+    expect(systemOutboxRecordCreateMany).not.toHaveBeenCalled();
   });
 });

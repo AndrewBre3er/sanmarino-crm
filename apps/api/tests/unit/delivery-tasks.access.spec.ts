@@ -8,6 +8,7 @@ import { AuthAccessGuard } from "../../src/modules/auth/auth.access.guard";
 import type { AuthService } from "../../src/modules/auth/auth.service";
 import { DeliveryTasksController } from "../../src/modules/logistics/delivery-tasks.controller";
 import { ReturnRequestsController } from "../../src/modules/orders/return-requests.controller";
+import { PaymentsController } from "../../src/modules/payments/payments.controller";
 import { DeliveryTasksReadController } from "../../src/modules/read-side/logistics/delivery-task.read.controller";
 import { ReturnRequestsReadController } from "../../src/modules/read-side/returns/return-request.read.controller";
 
@@ -123,6 +124,46 @@ describe("delivery task access baseline", () => {
     const context = make_http_context(DeliveryTasksController, "assign", "sm_access_token=token-1");
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+});
+
+describe("payment refund access baseline", () => {
+  it("forbids non-finance roles from refund command even when they can access payment create", async () => {
+    for (const roleCode of ["seller", "warehouse", "logistics"] as AuthRoleCode[]) {
+      const guard = make_guard(
+        vi.fn(async () => ({
+          user: make_user([roleCode]),
+          session: {
+            sessionId: "s1",
+            issuedAt: "2026-04-06T00:00:00.000Z",
+            refreshExpiresAt: "2026-04-07T00:00:00.000Z"
+          }
+        }))
+      );
+
+      await expect(
+        guard.canActivate(
+          make_http_context(PaymentsController, "refund", "sm_access_token=token-1")
+        )
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    }
+  });
+
+  it("allows finance on refund command", async () => {
+    const guard = make_guard(
+      vi.fn(async () => ({
+        user: make_user(["finance"]),
+        session: {
+          sessionId: "s1",
+          issuedAt: "2026-04-06T00:00:00.000Z",
+          refreshExpiresAt: "2026-04-07T00:00:00.000Z"
+        }
+      }))
+    );
+
+    await expect(
+      guard.canActivate(make_http_context(PaymentsController, "refund", "sm_access_token=token-1"))
+    ).resolves.toBe(true);
   });
 });
 

@@ -9,6 +9,8 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
+  CashOperationType as PrismaCashOperationType,
+  FinanceEntryType as PrismaFinanceEntryType,
   FulfillmentStatus as PrismaFulfillmentStatus,
   IdempotencyStatus as PrismaIdempotencyStatus,
   InventoryBucket as PrismaInventoryBucket,
@@ -201,6 +203,48 @@ export class ReturnRequestsService {
           }))
         });
 
+        const createdAt = new Date();
+        await transactionClient.auditLogRecord.create({
+          data: {
+            eventId: build_return_request_audit_event_id(
+              "create",
+              created.id,
+              context.idempotencyKey
+            ),
+            occurredAt: createdAt,
+            action: "orders.return_request.create",
+            entityType: "orders.return_request",
+            entityId: created.id,
+            actorUserId: actor.userId,
+            ...(context.requestId ? { requestId: context.requestId } : {}),
+            ...(context.correlationId ? { correlationId: context.correlationId } : {}),
+            payload: {
+              orderId: order.id,
+              reason: normalizedReason,
+              requestedRefundAmount: normalizedRequestedRefundAmount ?? null,
+              items: normalizedItems
+            } as Prisma.InputJsonValue
+          }
+        });
+
+        await transactionClient.systemOutboxRecord.createMany({
+          data: [
+            {
+              eventType: "return_request.created",
+              aggregateType: "orders.return_request",
+              aggregateId: created.id,
+              payload: {
+                returnRequestId: created.id,
+                orderId: order.id,
+                reason: normalizedReason,
+                items: normalizedItems,
+                status: "created",
+                createdAt: createdAt.toISOString()
+              } as Prisma.InputJsonValue
+            }
+          ]
+        });
+
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
           data: {
@@ -337,6 +381,24 @@ export class ReturnRequestsService {
           }
         });
 
+        await transactionClient.systemOutboxRecord.createMany({
+          data: [
+            {
+              eventType: "return_request.confirmed",
+              aggregateType: "orders.return_request",
+              aggregateId: returnRequest.id,
+              payload: {
+                returnRequestId: returnRequest.id,
+                confirmedAt: confirmedAt.toISOString(),
+                realizationAnchorAt: realizationAnchorAt.toISOString(),
+                realizationAnchorType: "min_fulfillment_fulfilled_at_for_return_items",
+                requiresCeoApproval,
+                confirmedByRole: actor.roleCodes[0] ?? null
+              } as Prisma.InputJsonValue
+            }
+          ]
+        });
+
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
           data: {
@@ -389,7 +451,8 @@ export class ReturnRequestsService {
         const processedAt = new Date();
         let inventoryMovementCount = 0;
         for (const item of returnRequest.items) {
-          if (item.resolution === "refund_only") {
+          const resolution = normalize_resolution(item.resolution);
+          if (resolution === "refund_only") {
             continue;
           }
 
@@ -398,18 +461,23 @@ export class ReturnRequestsService {
             returnRequest.orderId,
             item.orderItem.productId
           );
+          const isWriteoff = resolution === "writeoff";
 
           await transactionClient.inventoryInventoryMovement.create({
             data: {
-              movementType: to_prisma_enum<PrismaInventoryMovementType>("transfer_to_quarantine"),
+              movementType: to_prisma_enum<PrismaInventoryMovementType>(
+                isWriteoff ? "writeoff" : "transfer_to_quarantine"
+              ),
               productId: item.orderItem.productId,
               warehouseId,
               qty: item.qty,
               bucketFrom: null,
-              bucketTo: to_prisma_enum<PrismaInventoryBucket>("quarantine"),
+              bucketTo: isWriteoff ? null : to_prisma_enum<PrismaInventoryBucket>("quarantine"),
               orderId: returnRequest.orderId,
               returnRequestId: returnRequest.id,
-              reason: "return_request.processed_to_quarantine",
+              reason: isWriteoff
+                ? "return_request.processed_writeoff"
+                : "return_request.processed_to_quarantine",
               performedBy: actor.userId
             }
           });
@@ -444,6 +512,23 @@ export class ReturnRequestsService {
               quarantineDefaultPath: true
             }
           }
+        });
+
+        await transactionClient.systemOutboxRecord.createMany({
+          data: [
+            {
+              eventType: "return_request.processed",
+              aggregateType: "orders.return_request",
+              aggregateId: returnRequest.id,
+              payload: {
+                returnRequestId: returnRequest.id,
+                processedAt: processedAt.toISOString(),
+                inventoryHandled: inventoryMovementCount > 0,
+                paymentHandled: false,
+                inventoryMovementCount
+              } as Prisma.InputJsonValue
+            }
+          ]
         });
 
         await transactionClient.systemIdempotencyRecord.update({
@@ -494,6 +579,7 @@ export class ReturnRequestsService {
           from_prisma_enum(returnRequest.status),
           "closed"
         );
+        await this.assert_return_consequences_complete(transactionClient, returnRequest);
 
         const closedAt = new Date();
         await transactionClient.ordersReturnRequest.update({
@@ -522,6 +608,20 @@ export class ReturnRequestsService {
               orderId: returnRequest.orderId
             }
           }
+        });
+
+        await transactionClient.systemOutboxRecord.createMany({
+          data: [
+            {
+              eventType: "return_request.closed",
+              aggregateType: "orders.return_request",
+              aggregateId: returnRequest.id,
+              payload: {
+                returnRequestId: returnRequest.id,
+                closedAt: closedAt.toISOString()
+              } as Prisma.InputJsonValue
+            }
+          ]
         });
 
         await transactionClient.systemIdempotencyRecord.update({
@@ -609,6 +709,128 @@ export class ReturnRequestsService {
     }
 
     return returnRequest;
+  }
+
+  private async assert_return_consequences_complete(
+    transactionClient: Prisma.TransactionClient,
+    returnRequest: {
+      id: string;
+      requestedRefundAmount: Prisma.Decimal | string | number | null;
+      items: Array<{
+        qty: Prisma.Decimal | string | number;
+        resolution: string;
+        orderItem: {
+          productId: string;
+        };
+      }>;
+    }
+  ): Promise<void> {
+    const goodsItems = returnRequest.items.filter(
+      item => normalize_resolution(item.resolution) !== "refund_only"
+    );
+
+    if (goodsItems.length > 0) {
+      const inventoryMovements = await transactionClient.inventoryInventoryMovement.findMany({
+        where: {
+          returnRequestId: returnRequest.id,
+          movementType: {
+            in: [
+              to_prisma_enum<PrismaInventoryMovementType>("transfer_to_quarantine"),
+              to_prisma_enum<PrismaInventoryMovementType>("writeoff")
+            ]
+          }
+        },
+        select: {
+          productId: true,
+          movementType: true,
+          qty: true,
+          bucketTo: true
+        }
+      });
+
+      const movementQtyByKey = new Map<string, number>();
+      for (const movement of inventoryMovements) {
+        const movementType = from_prisma_enum(movement.movementType);
+        if (movementType === "transfer_to_quarantine") {
+          if (from_prisma_enum(movement.bucketTo ?? "") !== "quarantine") {
+            continue;
+          }
+        } else if (movementType === "writeoff") {
+          if (movement.bucketTo !== null) {
+            continue;
+          }
+        } else {
+          continue;
+        }
+
+        const key = build_return_goods_consequence_key(movement.productId, movementType);
+        movementQtyByKey.set(
+          key,
+          (movementQtyByKey.get(key) ?? 0) + decimal_to_number(movement.qty)
+        );
+      }
+
+      const requiredQtyByKey = new Map<string, number>();
+      for (const item of goodsItems) {
+        const resolution = normalize_resolution(item.resolution);
+        const movementType = resolution === "writeoff" ? "writeoff" : "transfer_to_quarantine";
+        const key = build_return_goods_consequence_key(item.orderItem.productId, movementType);
+        requiredQtyByKey.set(
+          key,
+          (requiredQtyByKey.get(key) ?? 0) + decimal_to_number(item.qty)
+        );
+      }
+
+      for (const [key, requiredQty] of requiredQtyByKey.entries()) {
+        const actualQty = movementQtyByKey.get(key) ?? 0;
+        if (actualQty + 0.0005 >= requiredQty) {
+          continue;
+        }
+
+        throw new ConflictException({
+          code: "SOURCE_OF_TRUTH_VIOLATION",
+          message:
+            `ReturnRequest '${returnRequest.id}' cannot close before goods consequences are complete`
+        });
+      }
+    }
+
+    const requestedRefundAmount = decimal_to_number(returnRequest.requestedRefundAmount);
+    if (requestedRefundAmount <= 0) {
+      return;
+    }
+
+    const cashRefundAggregate = await transactionClient.paymentsCashOperation.aggregate({
+      where: {
+        returnRequestId: returnRequest.id,
+        operationType: to_prisma_enum<PrismaCashOperationType>("refund")
+      },
+      _sum: {
+        amount: true
+      }
+    });
+    const financeRefundAggregate = await transactionClient.financeFinanceEntry.aggregate({
+      where: {
+        returnRequestId: returnRequest.id,
+        entryType: to_prisma_enum<PrismaFinanceEntryType>("adjustment")
+      },
+      _sum: {
+        amount: true
+      }
+    });
+
+    const cashRefundAmount = decimal_to_number(cashRefundAggregate._sum.amount);
+    const financeRefundAmount = decimal_to_number(financeRefundAggregate._sum.amount);
+    if (
+      cashRefundAmount + 0.005 < requestedRefundAmount ||
+      financeRefundAmount + 0.005 < requestedRefundAmount
+    ) {
+      throw new ConflictException({
+        code: "SOURCE_OF_TRUTH_VIOLATION",
+        message:
+          `ReturnRequest '${returnRequest.id}' cannot close before refund consequences are complete`
+      });
+    }
   }
 
   private async resolve_warehouse_for_return_item(
@@ -1057,7 +1279,7 @@ function build_simple_return_request_hash(returnRequestId: string): string {
 }
 
 function build_return_request_audit_event_id(
-  action: "confirm" | "process" | "close",
+  action: "create" | "confirm" | "process" | "close",
   returnRequestId: string,
   idempotencyKey: string
 ): string {
@@ -1066,6 +1288,10 @@ function build_return_request_audit_event_id(
     .digest("hex");
 
   return `return_request_${action}_${hash.slice(0, 40)}`;
+}
+
+function build_return_goods_consequence_key(productId: string, movementType: string): string {
+  return `${productId}:${movementType}`;
 }
 
 function resolve_return_request_id_from_response_body(payload: Prisma.JsonValue | null): string | null {
