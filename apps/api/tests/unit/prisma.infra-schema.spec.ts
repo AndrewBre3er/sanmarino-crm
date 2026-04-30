@@ -44,6 +44,7 @@ describe("prisma schema foundation (infra + users + CRM core + orders + supply i
     expect(schema).toContain("model FinanceFinanceEntry");
     expect(schema).toContain("model FinanceExpense");
     expect(schema).toContain("model FinanceMarketingExpense");
+    expect(schema).toContain("model FinanceManualCorrection");
     expect(schema).toContain("model ReconciliationReport");
     expect(schema).toContain("model InventorySupplier");
     expect(schema).toContain("model InventorySupplierRequest");
@@ -137,12 +138,17 @@ describe("prisma schema foundation (infra + users + CRM core + orders + supply i
     expect(schema).toContain('CASH_IN  @map("cash_in")');
     expect(schema).toContain("enum FinanceEntryType");
     expect(schema).toContain('INCOME     @map("income")');
+    expect(schema).toContain("enum FinanceCorrectionStatus");
+    expect(schema).toContain('PENDING_APPROVAL @map("pending_approval")');
     expect(schema).toContain("enum ExpenseType");
     expect(schema).toContain('OPERATIONAL @map("operational")');
     expect(schema).toContain("enum ReconciliationReportStatus");
     expect(schema).toContain('COMPLETED @map("completed")');
     expect(schema).toContain('@map("cash_operations")');
     expect(schema).toContain('@map("finance_entries")');
+    expect(schema).toContain('@map("manual_corrections")');
+    expect(schema).toContain('@map("applied_entry_id")');
+    expect(schema).toContain("@@unique([appliedEntryId])");
     expect(schema).toContain('@map("marketing_expenses")');
     expect(schema).toContain('@map("reports")');
     expect(schema).toContain('@@schema("reconciliation")');

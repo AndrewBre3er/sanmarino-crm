@@ -1,8 +1,4 @@
-export const deal_statuses = [
-  "in_progress",
-  "converted_to_order",
-  "cancelled"
-] as const;
+export const deal_statuses = ["in_progress", "converted_to_order", "cancelled"] as const;
 
 export const lead_statuses = ["new", "in_processing", "cancelled"] as const;
 
@@ -14,11 +10,7 @@ export const order_statuses = [
   "shipped"
 ] as const;
 
-export const order_control_overlay_statuses = [
-  "none",
-  "on_control",
-  "problem"
-] as const;
+export const order_control_overlay_statuses = ["none", "on_control", "problem"] as const;
 
 export const order_delivery_statuses = [
   "not_scheduled",
@@ -30,12 +22,7 @@ export const order_delivery_statuses = [
 
 export const order_fulfillment_types = ["delivery", "pickup", "manual"] as const;
 
-export const fulfillment_statuses = [
-  "pending",
-  "completed",
-  "failed",
-  "cancelled"
-] as const;
+export const fulfillment_statuses = ["pending", "completed", "failed", "cancelled"] as const;
 
 export const delivery_task_statuses = [
   "planned",
@@ -46,26 +33,11 @@ export const delivery_task_statuses = [
   "rescheduled"
 ] as const;
 
-export const logistics_slot_statuses = [
-  "open",
-  "held",
-  "booked",
-  "closed"
-] as const;
+export const logistics_slot_statuses = ["open", "held", "booked", "closed"] as const;
 
-export const logistics_route_day_statuses = [
-  "planned",
-  "active",
-  "closed",
-  "cancelled"
-] as const;
+export const logistics_route_day_statuses = ["planned", "active", "closed", "cancelled"] as const;
 
-export const return_request_statuses = [
-  "created",
-  "confirmed",
-  "processed",
-  "closed"
-] as const;
+export const return_request_statuses = ["created", "confirmed", "processed", "closed"] as const;
 
 export const supplier_request_statuses = [
   "formed",
@@ -76,12 +48,7 @@ export const supplier_request_statuses = [
 
 export const product_units = ["шт", "кв.м", "п.м", "услуга"] as const;
 
-export const stock_lock_statuses = [
-  "active",
-  "expired",
-  "released",
-  "promoted"
-] as const;
+export const stock_lock_statuses = ["active", "expired", "released", "promoted"] as const;
 
 export const reservation_statuses = [
   "active",
@@ -126,6 +93,14 @@ export const expense_types = [
   "other"
 ] as const;
 
+export const finance_correction_statuses = [
+  "draft",
+  "pending_approval",
+  "approved",
+  "rejected",
+  "applied"
+] as const;
+
 export const active_delivery_task_statuses = [
   "planned",
   "assigned",
@@ -155,6 +130,7 @@ export type PaymentMethod = (typeof payment_methods)[number];
 export type CashOperationType = (typeof cash_operation_types)[number];
 export type FinanceEntryType = (typeof finance_entry_types)[number];
 export type ExpenseType = (typeof expense_types)[number];
+export type FinanceCorrectionStatus = (typeof finance_correction_statuses)[number];
 
 export function is_active_delivery_task_status(status: DeliveryTaskStatus): boolean {
   return (active_delivery_task_statuses as readonly string[]).includes(status);

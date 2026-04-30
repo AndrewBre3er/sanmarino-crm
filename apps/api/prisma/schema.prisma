@@ -219,6 +219,16 @@ enum ExpenseType {
   @@schema("finance")
 }
 
+enum FinanceCorrectionStatus {
+  DRAFT            @map("draft")
+  PENDING_APPROVAL @map("pending_approval")
+  APPROVED         @map("approved")
+  REJECTED         @map("rejected")
+  APPLIED          @map("applied")
+
+  @@schema("finance")
+}
+
 enum RecordStatus {
   ACTIVE   @map("active")
   INACTIVE @map("inactive")
@@ -312,6 +322,8 @@ model UsersUser {
   financeEntriesCreated              FinanceFinanceEntry[]        @relation("FinanceFinanceEntryCreatedByUser")
   expensesCreated                    FinanceExpense[]             @relation("FinanceExpenseCreatedByUser")
   marketingExpensesCreated           FinanceMarketingExpense[]    @relation("FinanceMarketingExpenseCreatedByUser")
+  financeManualCorrectionsRequested  FinanceManualCorrection[]    @relation("FinanceManualCorrectionRequestedByUser")
+  financeManualCorrectionsApproved   FinanceManualCorrection[]    @relation("FinanceManualCorrectionApprovedByUser")
   inventorySupplierRequestsRequested InventorySupplierRequest[]   @relation("InventorySupplierRequestRequestedByUser")
   inventorySupplierRequestsConfirmed InventorySupplierRequest[]   @relation("InventorySupplierRequestConfirmedByUser")
   inventorySupplierRequestsPaid      InventorySupplierRequest[]   @relation("InventorySupplierRequestPaidByUser")
@@ -1114,6 +1126,7 @@ model FinanceFinanceEntry {
   expense            FinanceExpense?          @relation("FinanceEntryExpense", fields: [expenseId], references: [id], onDelete: SetNull)
   marketingExpenseId String?                  @map("marketing_expense_id") @db.Uuid
   marketingExpense   FinanceMarketingExpense? @relation("FinanceEntryMarketingExpense", fields: [marketingExpenseId], references: [id], onDelete: SetNull)
+  manualCorrection   FinanceManualCorrection? @relation("FinanceManualCorrectionAppliedEntry")
   cashOperationId    String?                  @map("cash_operation_id") @db.Uuid
   cashOperation      PaymentsCashOperation?   @relation(fields: [cashOperationId], references: [id], onDelete: SetNull)
   returnRequestId    String?                  @map("return_request_id") @db.Uuid
@@ -1174,6 +1187,30 @@ model FinanceMarketingExpense {
   @@index([source])
   @@index([occurredAt])
   @@map("marketing_expenses")
+  @@schema("finance")
+}
+
+model FinanceManualCorrection {
+  id                String                  @id @default(uuid()) @db.Uuid
+  status            FinanceCorrectionStatus @default(DRAFT)
+  reason            String                  @db.Text
+  requestedByUserId String                  @map("requested_by_user_id") @db.Uuid
+  requestedByUser   UsersUser               @relation("FinanceManualCorrectionRequestedByUser", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  approvedByUserId  String?                 @map("approved_by_user_id") @db.Uuid
+  approvedByUser    UsersUser?              @relation("FinanceManualCorrectionApprovedByUser", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  approvedAt        DateTime?               @map("approved_at") @db.Timestamptz(6)
+  rejectedAt        DateTime?               @map("rejected_at") @db.Timestamptz(6)
+  appliedAt         DateTime?               @map("applied_at") @db.Timestamptz(6)
+  appliedEntryId    String?                 @map("applied_entry_id") @db.Uuid
+  appliedEntry      FinanceFinanceEntry?    @relation("FinanceManualCorrectionAppliedEntry", fields: [appliedEntryId], references: [id], onDelete: SetNull)
+  payload           Json
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([appliedEntryId])
+  @@index([status, createdAt])
+  @@index([requestedByUserId, status])
+  @@map("manual_corrections")
   @@schema("finance")
 }
 

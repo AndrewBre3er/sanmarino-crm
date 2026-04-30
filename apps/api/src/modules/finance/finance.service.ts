@@ -10,8 +10,10 @@ import {
 import { Prisma } from "@prisma/client";
 import type {
   ExpenseType as PrismaExpenseType,
+  FinanceCorrectionStatus as PrismaFinanceCorrectionStatus,
   FinanceEntryType as PrismaFinanceEntryType,
   FinanceExpense,
+  FinanceManualCorrection,
   FinanceMarketingExpense,
   IdempotencyStatus as PrismaIdempotencyStatus
 } from "@prisma/client";
@@ -28,13 +30,24 @@ import {
   to_prisma_enum
 } from "../read-side/shared/prisma-read.mapper";
 import type { ExpenseType } from "../transactional/shared/status.contract";
+import type { FinanceCorrectionStatus } from "../transactional/shared/status.contract";
 import { PrismaService } from "../../prisma/prisma.service";
 
 const finance_allowed_roles = new Set(["finance", "admin", "ceo"] as const);
+const manual_correction_read_roles = new Set(["finance", "ceo"] as const);
+const manual_correction_finance_command_roles = new Set(["finance"] as const);
+const manual_correction_ceo_command_roles = new Set(["ceo"] as const);
 const create_expense_idempotency_scope = "finance.expense.create.v1";
 const update_expense_idempotency_scope = "finance.expense.update.v1";
 const create_marketing_expense_idempotency_scope = "finance.marketing_expense.create.v1";
 const update_marketing_expense_idempotency_scope = "finance.marketing_expense.update.v1";
+const create_manual_correction_idempotency_scope = "finance.manual_correction.create.v1";
+const submit_manual_correction_idempotency_scope =
+  "finance.manual_correction.submit_for_approval.v1";
+const approve_manual_correction_idempotency_scope = "finance.manual_correction.approve.v1";
+const reject_manual_correction_idempotency_scope = "finance.manual_correction.reject.v1";
+const apply_manual_correction_idempotency_scope = "finance.manual_correction.apply.v1";
+const manual_correction_entity_type = "finance.manual_correction";
 
 interface AcquiredIdempotencyRecord {
   recordId: string;
@@ -68,6 +81,39 @@ export interface MarketingExpenseReadModel {
   currency: string;
   occurredAt: string;
   description: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManualCorrectionReconciliationReference {
+  reportId: string;
+  pair: string;
+  leftEntityRef: string;
+  rightEntityRef: string;
+  recommendedAction: string;
+}
+
+export interface ManualCorrectionPayload {
+  amount: string;
+  currency: string;
+  recognizedAt: string;
+  reason: string;
+  description: string | null;
+  relatedOrderId: string | null;
+  reconciliationReference: ManualCorrectionReconciliationReference | null;
+}
+
+export interface ManualCorrectionReadModel {
+  id: string;
+  status: FinanceCorrectionStatus;
+  reason: string;
+  requestedByUserId: string;
+  approvedByUserId: string | null;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  appliedAt: string | null;
+  appliedEntryId: string | null;
+  payload: ManualCorrectionPayload;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,6 +152,20 @@ export interface UpdateMarketingExpenseInput {
   currency?: string;
   occurredAt?: string;
   description?: string;
+}
+
+export interface CreateManualCorrectionInput {
+  amount: string;
+  currency?: string;
+  recognizedAt: string;
+  reason: string;
+  description?: string;
+  relatedOrderId?: string;
+  reconciliationReference?: Record<string, unknown>;
+}
+
+export interface RejectManualCorrectionInput {
+  reason: string;
 }
 
 interface NormalizedExpenseUpdateInput {
@@ -235,7 +295,7 @@ export class FinanceService {
         await this.assert_order_exists(relatedOrderId);
       }
 
-      const createdExpenseId = await this.prismaService.$transaction(async transactionClient => {
+      const createdExpenseId = await this.prismaService.$transaction(async (transactionClient) => {
         const createdExpense = await transactionClient.financeExpense.create({
           data: {
             expenseType: to_prisma_enum<PrismaExpenseType>(input.expenseType),
@@ -338,7 +398,7 @@ export class FinanceService {
         await this.assert_order_exists(normalizedInput.relatedOrderId);
       }
 
-      const updatedExpenseId = await this.prismaService.$transaction(async transactionClient => {
+      const updatedExpenseId = await this.prismaService.$transaction(async (transactionClient) => {
         const existing = await transactionClient.financeExpense.findFirst({
           where: {
             id: expenseId
@@ -475,59 +535,62 @@ export class FinanceService {
     }
 
     try {
-      const createdMarketingExpenseId = await this.prismaService.$transaction(async transactionClient => {
-        const createdMarketingExpense = await transactionClient.financeMarketingExpense.create({
-          data: {
-            source: normalizedSource,
-            campaign,
-            amount: normalizedAmount,
-            currency: normalizedCurrency,
-            occurredAt,
-            description,
-            createdByUser: {
-              connect: {
-                id: actor.userId
-              }
-            }
-          },
-          select: {
-            id: true
-          }
-        });
-
-        await transactionClient.financeFinanceEntry.create({
-          data: {
-            entryType: to_prisma_enum<PrismaFinanceEntryType>("expense"),
-            marketingExpense: {
-              connect: {
-                id: createdMarketingExpense.id
+      const createdMarketingExpenseId = await this.prismaService.$transaction(
+        async (transactionClient) => {
+          const createdMarketingExpense = await transactionClient.financeMarketingExpense.create({
+            data: {
+              source: normalizedSource,
+              campaign,
+              amount: normalizedAmount,
+              currency: normalizedCurrency,
+              occurredAt,
+              description,
+              createdByUser: {
+                connect: {
+                  id: actor.userId
+                }
               }
             },
-            amount: normalizedAmount,
-            currency: normalizedCurrency,
-            recognizedAt: occurredAt,
-            description:
-              description ?? `Marketing expense recorded (${normalizedSource}${campaign ? `/${campaign}` : ""})`,
-            createdByUser: {
-              connect: {
-                id: actor.userId
+            select: {
+              id: true
+            }
+          });
+
+          await transactionClient.financeFinanceEntry.create({
+            data: {
+              entryType: to_prisma_enum<PrismaFinanceEntryType>("expense"),
+              marketingExpense: {
+                connect: {
+                  id: createdMarketingExpense.id
+                }
+              },
+              amount: normalizedAmount,
+              currency: normalizedCurrency,
+              recognizedAt: occurredAt,
+              description:
+                description ??
+                `Marketing expense recorded (${normalizedSource}${campaign ? `/${campaign}` : ""})`,
+              createdByUser: {
+                connect: {
+                  id: actor.userId
+                }
               }
             }
-          }
-        });
+          });
 
-        await transactionClient.systemIdempotencyRecord.update({
-          where: { id: idempotency.recordId },
-          data: {
-            status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
-            responseStatusCode: 200,
-            responseBody: { marketingExpenseId: createdMarketingExpense.id },
-            lockedUntil: null
-          }
-        });
+          await transactionClient.systemIdempotencyRecord.update({
+            where: { id: idempotency.recordId },
+            data: {
+              status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
+              responseStatusCode: 200,
+              responseBody: { marketingExpenseId: createdMarketingExpense.id },
+              lockedUntil: null
+            }
+          });
 
-        return createdMarketingExpense.id;
-      });
+          return createdMarketingExpense.id;
+        }
+      );
 
       return this.getMarketingExpense(createdMarketingExpenseId, actor);
     } catch (error) {
@@ -544,7 +607,10 @@ export class FinanceService {
   ): Promise<MarketingExpenseReadModel> {
     this.assert_finance_access(actor);
     const normalizedInput = normalize_marketing_expense_update_input(input);
-    const requestHash = build_update_marketing_expense_request_hash(marketingExpenseId, normalizedInput);
+    const requestHash = build_update_marketing_expense_request_hash(
+      marketingExpenseId,
+      normalizedInput
+    );
 
     const idempotency = await this.acquire_idempotency(
       update_marketing_expense_idempotency_scope,
@@ -561,45 +627,550 @@ export class FinanceService {
     }
 
     try {
-      const updatedMarketingExpenseId = await this.prismaService.$transaction(async transactionClient => {
-        const existing = await transactionClient.financeMarketingExpense.findFirst({
-          where: {
-            id: marketingExpenseId
-          },
-          select: {
-            id: true
-          }
-        });
+      const updatedMarketingExpenseId = await this.prismaService.$transaction(
+        async (transactionClient) => {
+          const existing = await transactionClient.financeMarketingExpense.findFirst({
+            where: {
+              id: marketingExpenseId
+            },
+            select: {
+              id: true
+            }
+          });
 
-        if (!existing) {
-          throw new NotFoundException(`Marketing expense '${marketingExpenseId}' was not found`);
+          if (!existing) {
+            throw new NotFoundException(`Marketing expense '${marketingExpenseId}' was not found`);
+          }
+
+          await transactionClient.financeMarketingExpense.update({
+            where: {
+              id: marketingExpenseId
+            },
+            data: build_marketing_expense_update_data(normalizedInput)
+          });
+
+          await transactionClient.systemIdempotencyRecord.update({
+            where: { id: idempotency.recordId },
+            data: {
+              status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
+              responseStatusCode: 200,
+              responseBody: { marketingExpenseId },
+              lockedUntil: null
+            }
+          });
+
+          return marketingExpenseId;
         }
-
-        await transactionClient.financeMarketingExpense.update({
-          where: {
-            id: marketingExpenseId
-          },
-          data: build_marketing_expense_update_data(normalizedInput)
-        });
-
-        await transactionClient.systemIdempotencyRecord.update({
-          where: { id: idempotency.recordId },
-          data: {
-            status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
-            responseStatusCode: 200,
-            responseBody: { marketingExpenseId },
-            lockedUntil: null
-          }
-        });
-
-        return marketingExpenseId;
-      });
+      );
 
       return this.getMarketingExpense(updatedMarketingExpenseId, actor);
     } catch (error) {
       await this.mark_idempotency_failed(idempotency.recordId, error);
       throw error;
     }
+  }
+
+  async listManualCorrections(
+    query: ReadCollectionQueryInput,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">
+  ): Promise<ReadCollectionResult<ManualCorrectionReadModel>> {
+    this.assert_manual_correction_read_access(actor);
+    const and_clauses: Prisma.FinanceManualCorrectionWhereInput[] = [];
+
+    if (query.search) {
+      and_clauses.push({
+        reason: { contains: query.search, mode: "insensitive" }
+      });
+    }
+
+    if (query.status && query.status.length > 0) {
+      const mapped = query.status.map((value) =>
+        to_prisma_enum<PrismaFinanceCorrectionStatus>(value)
+      );
+      const [first_status] = mapped;
+      if (mapped.length === 1 && first_status) {
+        and_clauses.push({ status: first_status });
+      } else {
+        and_clauses.push({ status: { in: mapped } });
+      }
+    }
+
+    const where: Prisma.FinanceManualCorrectionWhereInput =
+      and_clauses.length > 0 ? { AND: and_clauses } : {};
+
+    const orderBy = {
+      [query.sortField]: query.sortDirection
+    } as Prisma.FinanceManualCorrectionOrderByWithRelationInput;
+
+    const [items, totalItems] = await this.prismaService.$transaction([
+      this.prismaService.financeManualCorrection.findMany({
+        where,
+        orderBy,
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize
+      }),
+      this.prismaService.financeManualCorrection.count({ where })
+    ]);
+
+    return {
+      items: items.map(map_manual_correction_read_model),
+      pagination: build_page_pagination_meta(totalItems, query.page, query.pageSize),
+      ...(query.contract.filters ? { appliedFilters: query.contract.filters } : {}),
+      ...(query.contract.sort ? { appliedSort: query.contract.sort } : {})
+    };
+  }
+
+  async getManualCorrection(
+    correctionId: string,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">
+  ): Promise<ManualCorrectionReadModel> {
+    this.assert_manual_correction_read_access(actor);
+    const correction = await this.prismaService.financeManualCorrection.findFirst({
+      where: {
+        id: correctionId
+      }
+    });
+    if (!correction) {
+      throw new NotFoundException(`Finance correction '${correctionId}' was not found`);
+    }
+
+    return map_manual_correction_read_model(correction);
+  }
+
+  async createManualCorrection(
+    input: CreateManualCorrectionInput,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: FinanceCommandContext
+  ): Promise<ManualCorrectionReadModel> {
+    this.assert_manual_correction_finance_command_access(actor);
+    const payload = build_create_manual_correction_payload(input);
+    const requestHash = build_create_manual_correction_request_hash(payload);
+
+    const idempotency = await this.acquire_idempotency(
+      create_manual_correction_idempotency_scope,
+      context.idempotencyKey,
+      requestHash
+    );
+
+    if (idempotency.replayed) {
+      return this.resolve_replayed_manual_correction(idempotency.responseBody, actor);
+    }
+
+    try {
+      const createdCorrectionId = await this.prismaService.$transaction(
+        async (transactionClient) => {
+          const createdCorrection = await transactionClient.financeManualCorrection.create({
+            data: {
+              status: to_prisma_enum<PrismaFinanceCorrectionStatus>("draft"),
+              reason: payload.reason,
+              requestedByUser: {
+                connect: {
+                  id: actor.userId
+                }
+              },
+              payload: payload as unknown as Prisma.InputJsonValue
+            },
+            select: {
+              id: true
+            }
+          });
+
+          await this.emit_manual_correction_event(transactionClient, {
+            eventType: "finance.correction_created",
+            correctionId: createdCorrection.id,
+            actor,
+            context,
+            payload: {
+              correctionId: createdCorrection.id,
+              status: "draft",
+              reason: payload.reason,
+              requestedByUserId: actor.userId
+            }
+          });
+
+          await transactionClient.systemIdempotencyRecord.update({
+            where: { id: idempotency.recordId },
+            data: {
+              status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
+              responseStatusCode: 200,
+              responseBody: { correctionId: createdCorrection.id },
+              lockedUntil: null
+            }
+          });
+
+          return createdCorrection.id;
+        }
+      );
+
+      return this.getManualCorrection(createdCorrectionId, actor);
+    } catch (error) {
+      await this.mark_idempotency_failed(idempotency.recordId, error);
+      throw error;
+    }
+  }
+
+  async submitManualCorrectionForApproval(
+    correctionId: string,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: FinanceCommandContext
+  ): Promise<ManualCorrectionReadModel> {
+    this.assert_manual_correction_finance_command_access(actor);
+    return this.transition_manual_correction(correctionId, actor, context, {
+      idempotencyScope: submit_manual_correction_idempotency_scope,
+      requestHash: build_correction_transition_request_hash(correctionId),
+      expectedStatus: "DRAFT",
+      nextStatus: "PENDING_APPROVAL",
+      eventType: "finance.correction_submitted_for_approval",
+      updateData: {
+        status: to_prisma_enum<PrismaFinanceCorrectionStatus>("pending_approval")
+      },
+      responseBody: { correctionId }
+    });
+  }
+
+  async approveManualCorrection(
+    correctionId: string,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: FinanceCommandContext
+  ): Promise<ManualCorrectionReadModel> {
+    this.assert_manual_correction_ceo_command_access(actor);
+    const approvedAt = new Date();
+    return this.transition_manual_correction(correctionId, actor, context, {
+      idempotencyScope: approve_manual_correction_idempotency_scope,
+      requestHash: build_correction_transition_request_hash(correctionId),
+      expectedStatus: "PENDING_APPROVAL",
+      nextStatus: "APPROVED",
+      eventType: "finance.correction_approved",
+      updateData: {
+        status: to_prisma_enum<PrismaFinanceCorrectionStatus>("approved"),
+        approvedByUser: {
+          connect: {
+            id: actor.userId
+          }
+        },
+        approvedAt
+      },
+      responseBody: { correctionId },
+      eventPayload: {
+        approvedByUserId: actor.userId
+      }
+    });
+  }
+
+  async rejectManualCorrection(
+    correctionId: string,
+    input: RejectManualCorrectionInput,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: FinanceCommandContext
+  ): Promise<ManualCorrectionReadModel> {
+    this.assert_manual_correction_ceo_command_access(actor);
+    const reason = normalize_required_text(input.reason, "reason", 5000);
+    const rejectedAt = new Date();
+    return this.transition_manual_correction(correctionId, actor, context, {
+      idempotencyScope: reject_manual_correction_idempotency_scope,
+      requestHash: build_reject_manual_correction_request_hash(correctionId, reason),
+      expectedStatus: "PENDING_APPROVAL",
+      nextStatus: "REJECTED",
+      eventType: "finance.correction_rejected",
+      updateData: {
+        status: to_prisma_enum<PrismaFinanceCorrectionStatus>("rejected"),
+        rejectedAt
+      },
+      responseBody: { correctionId },
+      eventPayload: {
+        reason
+      }
+    });
+  }
+
+  async applyManualCorrection(
+    correctionId: string,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: FinanceCommandContext
+  ): Promise<ManualCorrectionReadModel> {
+    this.assert_manual_correction_finance_command_access(actor);
+    const requestHash = build_correction_transition_request_hash(correctionId);
+    const idempotency = await this.acquire_idempotency(
+      apply_manual_correction_idempotency_scope,
+      context.idempotencyKey,
+      requestHash
+    );
+
+    if (idempotency.replayed) {
+      return this.resolve_replayed_manual_correction(idempotency.responseBody, actor, correctionId);
+    }
+
+    try {
+      const appliedCorrectionId = await this.prismaService.$transaction(
+        async (transactionClient) => {
+          const existing = await transactionClient.financeManualCorrection.findFirst({
+            where: {
+              id: correctionId
+            }
+          });
+
+          if (!existing) {
+            throw new NotFoundException(`Finance correction '${correctionId}' was not found`);
+          }
+
+          if (existing.status !== "APPROVED" || existing.appliedEntryId) {
+            throw to_manual_correction_transition_conflict(
+              correctionId,
+              existing.status,
+              "APPROVED"
+            );
+          }
+
+          const payload = normalize_manual_correction_payload(existing.payload);
+          const financeEntry = await transactionClient.financeFinanceEntry.create({
+            data: {
+              entryType: to_prisma_enum<PrismaFinanceEntryType>("adjustment"),
+              ...(payload.relatedOrderId
+                ? {
+                    order: {
+                      connect: {
+                        id: payload.relatedOrderId
+                      }
+                    }
+                  }
+                : {}),
+              amount: payload.amount,
+              currency: payload.currency,
+              recognizedAt: normalize_datetime(payload.recognizedAt, "recognizedAt"),
+              description: payload.description ?? `Manual finance correction: ${payload.reason}`,
+              createdByUser: {
+                connect: {
+                  id: actor.userId
+                }
+              }
+            },
+            select: {
+              id: true
+            }
+          });
+
+          try {
+            await transactionClient.financeManualCorrection.update({
+              where: {
+                id: correctionId,
+                status: to_prisma_enum<PrismaFinanceCorrectionStatus>("approved"),
+                appliedEntry: null
+              },
+              data: {
+                status: to_prisma_enum<PrismaFinanceCorrectionStatus>("applied"),
+                appliedAt: new Date(),
+                appliedEntry: {
+                  connect: {
+                    id: financeEntry.id
+                  }
+                }
+              }
+            });
+          } catch (error) {
+            if (is_record_not_found_error(error)) {
+              throw to_manual_correction_transition_conflict(correctionId, "APPLIED", "APPROVED");
+            }
+            throw error;
+          }
+
+          await this.emit_manual_correction_event(transactionClient, {
+            eventType: "finance.correction_applied",
+            correctionId,
+            actor,
+            context,
+            payload: {
+              correctionId,
+              status: "applied",
+              financeEntryId: financeEntry.id
+            }
+          });
+
+          await transactionClient.systemIdempotencyRecord.update({
+            where: { id: idempotency.recordId },
+            data: {
+              status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
+              responseStatusCode: 200,
+              responseBody: { correctionId, financeEntryId: financeEntry.id },
+              lockedUntil: null
+            }
+          });
+
+          return correctionId;
+        }
+      );
+
+      return this.getManualCorrection(appliedCorrectionId, actor);
+    } catch (error) {
+      await this.mark_idempotency_failed(idempotency.recordId, error);
+      throw error;
+    }
+  }
+
+  private async transition_manual_correction(
+    correctionId: string,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: FinanceCommandContext,
+    command: {
+      idempotencyScope: string;
+      requestHash: string;
+      expectedStatus: PrismaFinanceCorrectionStatus;
+      nextStatus: PrismaFinanceCorrectionStatus;
+      eventType: string;
+      updateData: Prisma.FinanceManualCorrectionUpdateInput;
+      responseBody: Record<string, string>;
+      eventPayload?: Record<string, string>;
+    }
+  ): Promise<ManualCorrectionReadModel> {
+    const idempotency = await this.acquire_idempotency(
+      command.idempotencyScope,
+      context.idempotencyKey,
+      command.requestHash
+    );
+
+    if (idempotency.replayed) {
+      return this.resolve_replayed_manual_correction(idempotency.responseBody, actor, correctionId);
+    }
+
+    try {
+      const updatedCorrectionId = await this.prismaService.$transaction(
+        async (transactionClient) => {
+          const existing = await transactionClient.financeManualCorrection.findFirst({
+            where: {
+              id: correctionId
+            },
+            select: {
+              id: true,
+              status: true
+            }
+          });
+
+          if (!existing) {
+            throw new NotFoundException(`Finance correction '${correctionId}' was not found`);
+          }
+
+          if (existing.status !== command.expectedStatus) {
+            throw to_manual_correction_transition_conflict(
+              correctionId,
+              existing.status,
+              command.expectedStatus
+            );
+          }
+
+          try {
+            await transactionClient.financeManualCorrection.update({
+              where: {
+                id: correctionId,
+                status: command.expectedStatus
+              },
+              data: command.updateData
+            });
+          } catch (error) {
+            if (is_record_not_found_error(error)) {
+              throw to_manual_correction_transition_conflict(
+                correctionId,
+                command.nextStatus,
+                command.expectedStatus
+              );
+            }
+            throw error;
+          }
+
+          await this.emit_manual_correction_event(transactionClient, {
+            eventType: command.eventType,
+            correctionId,
+            actor,
+            context,
+            payload: {
+              correctionId,
+              status: from_prisma_enum(command.nextStatus),
+              ...(command.eventPayload ?? {})
+            }
+          });
+
+          await transactionClient.systemIdempotencyRecord.update({
+            where: { id: idempotency.recordId },
+            data: {
+              status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
+              responseStatusCode: 200,
+              responseBody: command.responseBody,
+              lockedUntil: null
+            }
+          });
+
+          return correctionId;
+        }
+      );
+
+      return this.getManualCorrection(updatedCorrectionId, actor);
+    } catch (error) {
+      await this.mark_idempotency_failed(idempotency.recordId, error);
+      throw error;
+    }
+  }
+
+  private async emit_manual_correction_event(
+    transactionClient: Prisma.TransactionClient,
+    event: {
+      eventType: string;
+      correctionId: string;
+      actor: Pick<AuthPrincipal, "userId">;
+      context: FinanceCommandContext;
+      payload: Record<string, unknown>;
+    }
+  ): Promise<void> {
+    const occurredAt = new Date();
+    const payload = {
+      ...event.payload,
+      actorUserId: event.actor.userId,
+      occurredAt: occurredAt.toISOString(),
+      ...build_manual_correction_event_time_payload(event.eventType, occurredAt)
+    };
+
+    await transactionClient.auditLogRecord.create({
+      data: {
+        eventId: build_manual_correction_audit_event_id(
+          event.eventType,
+          event.correctionId,
+          event.context.idempotencyKey
+        ),
+        occurredAt,
+        action: event.eventType,
+        entityType: manual_correction_entity_type,
+        entityId: event.correctionId,
+        actorUserId: event.actor.userId,
+        ...(event.context.requestId ? { requestId: event.context.requestId } : {}),
+        ...(event.context.correlationId ? { correlationId: event.context.correlationId } : {}),
+        payload: payload as Prisma.InputJsonValue
+      }
+    });
+
+    await transactionClient.systemOutboxRecord.createMany({
+      data: [
+        {
+          eventType: event.eventType,
+          aggregateType: manual_correction_entity_type,
+          aggregateId: event.correctionId,
+          payload: payload as Prisma.InputJsonValue
+        }
+      ]
+    });
+  }
+
+  private async resolve_replayed_manual_correction(
+    responseBody: Prisma.JsonValue | null,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    fallbackCorrectionId?: string
+  ): Promise<ManualCorrectionReadModel> {
+    const correctionId =
+      resolve_id_from_response_body(responseBody, "correctionId") ?? fallbackCorrectionId;
+    if (!correctionId) {
+      throw new ConflictException({
+        code: "SOURCE_OF_TRUTH_VIOLATION",
+        message: "Idempotency record does not contain finance correction reference"
+      });
+    }
+
+    return this.getManualCorrection(correctionId, actor);
   }
 
   private async resolve_replayed_expense(
@@ -624,7 +1195,8 @@ export class FinanceService {
     fallbackMarketingExpenseId?: string
   ): Promise<MarketingExpenseReadModel> {
     const marketingExpenseId =
-      resolve_id_from_response_body(responseBody, "marketingExpenseId") ?? fallbackMarketingExpenseId;
+      resolve_id_from_response_body(responseBody, "marketingExpenseId") ??
+      fallbackMarketingExpenseId;
     if (!marketingExpenseId) {
       throw new ConflictException({
         code: "SOURCE_OF_TRUTH_VIOLATION",
@@ -777,6 +1349,49 @@ export class FinanceService {
       });
     }
   }
+
+  private assert_manual_correction_read_access(actor: Pick<AuthPrincipal, "roleCodes">): void {
+    const hasAccess = actor.roleCodes.some((roleCode) =>
+      manual_correction_read_roles.has(roleCode as "finance" | "ceo")
+    );
+
+    if (!hasAccess) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "Finance manual corrections are available only for finance/ceo"
+      });
+    }
+  }
+
+  private assert_manual_correction_finance_command_access(
+    actor: Pick<AuthPrincipal, "roleCodes">
+  ): void {
+    const hasAccess = actor.roleCodes.some((roleCode) =>
+      manual_correction_finance_command_roles.has(roleCode as "finance")
+    );
+
+    if (!hasAccess) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "Finance manual correction command is available only for finance"
+      });
+    }
+  }
+
+  private assert_manual_correction_ceo_command_access(
+    actor: Pick<AuthPrincipal, "roleCodes">
+  ): void {
+    const hasAccess = actor.roleCodes.some((roleCode) =>
+      manual_correction_ceo_command_roles.has(roleCode as "ceo")
+    );
+
+    if (!hasAccess) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message: "Finance manual correction approval command is available only for ceo"
+      });
+    }
+  }
 }
 
 function map_expense_read_model(record: FinanceExpense): ExpenseReadModel {
@@ -793,7 +1408,9 @@ function map_expense_read_model(record: FinanceExpense): ExpenseReadModel {
   };
 }
 
-function map_marketing_expense_read_model(record: FinanceMarketingExpense): MarketingExpenseReadModel {
+function map_marketing_expense_read_model(
+  record: FinanceMarketingExpense
+): MarketingExpenseReadModel {
   return {
     id: record.id,
     source: record.source,
@@ -802,6 +1419,25 @@ function map_marketing_expense_read_model(record: FinanceMarketingExpense): Mark
     currency: record.currency,
     occurredAt: to_iso_datetime(record.occurredAt) ?? "",
     description: record.description,
+    createdAt: to_iso_datetime(record.createdAt) ?? "",
+    updatedAt: to_iso_datetime(record.updatedAt) ?? ""
+  };
+}
+
+function map_manual_correction_read_model(
+  record: FinanceManualCorrection
+): ManualCorrectionReadModel {
+  return {
+    id: record.id,
+    status: from_prisma_enum(record.status) as FinanceCorrectionStatus,
+    reason: record.reason,
+    requestedByUserId: record.requestedByUserId,
+    approvedByUserId: record.approvedByUserId,
+    approvedAt: to_iso_datetime(record.approvedAt),
+    rejectedAt: to_iso_datetime(record.rejectedAt),
+    appliedAt: to_iso_datetime(record.appliedAt),
+    appliedEntryId: record.appliedEntryId,
+    payload: normalize_manual_correction_payload(record.payload),
     createdAt: to_iso_datetime(record.createdAt) ?? "",
     updatedAt: to_iso_datetime(record.updatedAt) ?? ""
   };
@@ -852,7 +1488,9 @@ function normalize_expense_update_input(input: UpdateExpenseInput): NormalizedEx
   return normalized;
 }
 
-function build_expense_update_data(input: NormalizedExpenseUpdateInput): Prisma.FinanceExpenseUpdateInput {
+function build_expense_update_data(
+  input: NormalizedExpenseUpdateInput
+): Prisma.FinanceExpenseUpdateInput {
   return {
     ...(input.expenseType
       ? { expenseType: to_prisma_enum<PrismaExpenseType>(input.expenseType) }
@@ -913,6 +1551,147 @@ function build_marketing_expense_update_data(
   };
 }
 
+function build_create_manual_correction_payload(
+  input: CreateManualCorrectionInput
+): ManualCorrectionPayload {
+  const recognizedAt = normalize_datetime(input.recognizedAt, "recognizedAt");
+  const reason = normalize_required_text(input.reason, "reason", 5000);
+
+  return {
+    amount: normalize_amount(input.amount),
+    currency: normalize_currency(input.currency),
+    recognizedAt: recognizedAt.toISOString(),
+    reason,
+    description: normalize_optional_text(input.description),
+    relatedOrderId: normalize_optional_text(input.relatedOrderId),
+    reconciliationReference: normalize_manual_correction_reconciliation_reference(
+      input.reconciliationReference
+    )
+  };
+}
+
+function normalize_manual_correction_payload(payload: Prisma.JsonValue): ManualCorrectionPayload {
+  if (!is_json_record(payload)) {
+    throw new ConflictException({
+      code: "SOURCE_OF_TRUTH_VIOLATION",
+      message: "Finance manual correction payload is invalid"
+    });
+  }
+
+  return {
+    amount: read_required_json_string(payload, "amount"),
+    currency: read_required_json_string(payload, "currency"),
+    recognizedAt: read_required_json_string(payload, "recognizedAt"),
+    reason: read_required_json_string(payload, "reason"),
+    description: read_optional_json_string(payload, "description"),
+    relatedOrderId: read_optional_json_string(payload, "relatedOrderId"),
+    reconciliationReference: normalize_manual_correction_reconciliation_reference(
+      read_optional_json_record(payload, "reconciliationReference")
+    )
+  };
+}
+
+function normalize_manual_correction_reconciliation_reference(
+  value: Record<string, unknown> | null | undefined
+): ManualCorrectionReconciliationReference | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (!is_json_record(value)) {
+    throw new BadRequestException({
+      code: "VALIDATION_ERROR",
+      message: "reconciliationReference must be an object"
+    });
+  }
+
+  return {
+    reportId: read_required_input_string(
+      value,
+      "reconciliationReference.reportId",
+      "reportId",
+      128
+    ),
+    pair: read_required_input_string(value, "reconciliationReference.pair", "pair", 128),
+    leftEntityRef: read_required_input_string(
+      value,
+      "reconciliationReference.leftEntityRef",
+      "leftEntityRef",
+      255
+    ),
+    rightEntityRef: read_required_input_string(
+      value,
+      "reconciliationReference.rightEntityRef",
+      "rightEntityRef",
+      255
+    ),
+    recommendedAction: read_required_input_string(
+      value,
+      "reconciliationReference.recommendedAction",
+      "recommendedAction",
+      255
+    )
+  };
+}
+
+function build_create_manual_correction_request_hash(payload: ManualCorrectionPayload): string {
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+function build_correction_transition_request_hash(correctionId: string): string {
+  return createHash("sha256").update(JSON.stringify({ correctionId })).digest("hex");
+}
+
+function build_reject_manual_correction_request_hash(correctionId: string, reason: string): string {
+  return createHash("sha256").update(JSON.stringify({ correctionId, reason })).digest("hex");
+}
+
+function build_manual_correction_audit_event_id(
+  eventType: string,
+  correctionId: string,
+  idempotencyKey: string
+): string {
+  const keyHash = createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 16);
+  return `${eventType}:${correctionId}:${keyHash}`;
+}
+
+function build_manual_correction_event_time_payload(
+  eventType: string,
+  occurredAt: Date
+): Record<string, string> {
+  const occurredAtIso = occurredAt.toISOString();
+  if (eventType === "finance.correction_created") {
+    return { createdAt: occurredAtIso };
+  }
+  if (eventType === "finance.correction_submitted_for_approval") {
+    return { submittedAt: occurredAtIso };
+  }
+  if (eventType === "finance.correction_approved") {
+    return { approvedAt: occurredAtIso };
+  }
+  if (eventType === "finance.correction_rejected") {
+    return { rejectedAt: occurredAtIso };
+  }
+  if (eventType === "finance.correction_applied") {
+    return { appliedAt: occurredAtIso };
+  }
+
+  return {};
+}
+
+function to_manual_correction_transition_conflict(
+  correctionId: string,
+  actualStatus: string,
+  expectedStatus: string
+): ConflictException {
+  return new ConflictException({
+    code: "STATE_TRANSITION_NOT_ALLOWED",
+    message: `Finance correction '${correctionId}' must be ${from_prisma_enum(
+      expectedStatus
+    )} before this command; current status is ${from_prisma_enum(actualStatus)}`
+  });
+}
+
 function build_create_expense_request_hash(input: {
   expenseType: ExpenseType;
   amount: string;
@@ -969,7 +1748,10 @@ function build_update_marketing_expense_request_hash(
   return createHash("sha256").update(JSON.stringify(serialized)).digest("hex");
 }
 
-function resolve_id_from_response_body(payload: Prisma.JsonValue | null, key: string): string | null {
+function resolve_id_from_response_body(
+  payload: Prisma.JsonValue | null,
+  key: string
+): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
   }
@@ -981,6 +1763,75 @@ function resolve_id_from_response_body(payload: Prisma.JsonValue | null, key: st
 
   const normalized = raw.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function is_json_record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function read_required_json_string(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ConflictException({
+      code: "SOURCE_OF_TRUTH_VIOLATION",
+      message: `Finance manual correction payload is missing '${key}'`
+    });
+  }
+
+  return value.trim();
+}
+
+function read_optional_json_string(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new ConflictException({
+      code: "SOURCE_OF_TRUTH_VIOLATION",
+      message: `Finance manual correction payload field '${key}' must be a string`
+    });
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function read_optional_json_record(
+  payload: Record<string, unknown>,
+  key: string
+): Record<string, unknown> | null {
+  const value = payload[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (!is_json_record(value)) {
+    throw new ConflictException({
+      code: "SOURCE_OF_TRUTH_VIOLATION",
+      message: `Finance manual correction payload field '${key}' must be an object`
+    });
+  }
+
+  return value;
+}
+
+function read_required_input_string(
+  payload: Record<string, unknown>,
+  field: string,
+  key: string,
+  maxLength: number
+): string {
+  const value = payload[key];
+  if (typeof value !== "string") {
+    throw new BadRequestException({
+      code: "VALIDATION_ERROR",
+      message: `${field} is required`
+    });
+  }
+
+  return normalize_required_text(value, field, maxLength);
 }
 
 function normalize_amount(rawAmount: string): string {
@@ -1082,4 +1933,13 @@ function is_unique_constraint_error(error: unknown): boolean {
 
   const code = (error as { code?: string }).code;
   return code === "P2002";
+}
+
+function is_record_not_found_error(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const code = (error as { code?: string }).code;
+  return code === "P2025";
 }
