@@ -22,5 +22,4 @@ Stage 7 task sequence status:
 - `docs/tasks/005-stage7-closure-reconciliation-alerts-admin-override.md` completed
 
 Current recommended next task:
-- Define or select the first narrow Stage 8 task for `KPI / Reporting / Automation layer`.
-- Until that task file exists, do not start Stage 8 coding from this index alone.
+- `docs/tasks/006-stage8-kpi-reporting-automation-entry.md`
