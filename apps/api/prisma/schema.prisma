@@ -1430,6 +1430,22 @@ enum OutboxStatus {
   @@schema("system")
 }
 
+enum IntegrationInboxStatus {
+  RECEIVED  @map("received")
+  PROCESSED @map("processed")
+  REJECTED  @map("rejected")
+
+  @@schema("system")
+}
+
+enum NotificationDispatchStatus {
+  QUEUED @map("queued")
+  SENT   @map("sent")
+  FAILED @map("failed")
+
+  @@schema("system")
+}
+
 model SystemIdempotencyRecord {
   id                 String            @id @default(uuid()) @db.Uuid
   idempotencyKey     String            @map("idempotency_key") @db.VarChar(128)
@@ -1481,6 +1497,43 @@ model SystemOutboxRecord {
   @@index([eventType])
   @@index([isDeleted])
   @@map("outbox_events")
+  @@schema("system")
+}
+
+model SystemIntegrationInboxEvent {
+  id              String                 @id @default(uuid()) @db.Uuid
+  sourceSystem    String                 @map("source_system") @db.VarChar(32)
+  externalEventId String                 @map("external_event_id") @db.VarChar(128)
+  payload         Json
+  status          IntegrationInboxStatus @default(RECEIVED)
+  receivedAt      DateTime               @map("received_at") @db.Timestamptz(6)
+  processedAt     DateTime?              @map("processed_at") @db.Timestamptz(6)
+  rejectedReason  String?                @map("rejected_reason") @db.Text
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([sourceSystem, externalEventId])
+  @@index([status, receivedAt])
+  @@map("integration_inbox_events")
+  @@schema("system")
+}
+
+model SystemNotificationDispatch {
+  id           String                     @id @default(uuid()) @db.Uuid
+  channel      String                     @db.VarChar(32)
+  eventType    String                     @map("event_type") @db.VarChar(128)
+  targetRef    String                     @map("target_ref") @db.VarChar(255)
+  payload      Json
+  status       NotificationDispatchStatus @default(QUEUED)
+  queuedAt     DateTime                   @map("queued_at") @db.Timestamptz(6)
+  sentAt       DateTime?                  @map("sent_at") @db.Timestamptz(6)
+  errorMessage String?                    @map("error_message") @db.Text
+  createdAt    DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([channel, status, queuedAt])
+  @@index([eventType, targetRef])
+  @@map("notification_dispatches")
   @@schema("system")
 }
 

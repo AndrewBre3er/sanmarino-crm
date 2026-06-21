@@ -1,5 +1,6 @@
 import { api_error_codes } from "../common/errors/api-error.contract";
 import { request_context_headers } from "../common/request-context/request-context.contract";
+import { integrations_notifications_command_contract } from "./integrations-notifications.contract";
 import {
   logistics_fulfillment_boundary_rules_contract,
   logistics_fulfillment_command_contract,
@@ -95,6 +96,11 @@ export const api_openapi_tags = {
     description:
       "Supply baseline endpoints: suppliers and supplier-requests list/detail/create with Seller create access for supplier requests"
   },
+  integrationsNotifications: {
+    name: "integrations-notifications",
+    description:
+      "Delta 0 ATS/Avito inbound inbox and Telegram/MAX notification dispatch baseline without provider delivery"
+  },
   auth: {
     name: "auth",
     description: "Authentication skeleton endpoints: login, refresh, logout, me"
@@ -119,6 +125,7 @@ export const api_openapi_extensions = {
   logisticsFulfillmentLinkageSurface: logistics_fulfillment_linkage_contract,
   logisticsFulfillmentBoundaryRules: logistics_fulfillment_boundary_rules_contract,
   logisticsFulfillmentEventSurface: logistics_fulfillment_event_contract,
+  integrationsNotificationsCommandSurface: integrations_notifications_command_contract,
   readBoundaryNote:
     "Read-side endpoints are enabled for core transactional entities. CRM/Orders/Supply/Payments contract freezes plus Logistics Step 1 command+event surfaces are fixed; workflow orchestration remains TODO."
 } as const;

@@ -10,6 +10,7 @@ import { CrmRelationsModule } from "./modules/crm-relations/crm-relations.module
 import { AuthModule } from "./modules/auth/auth.module";
 import { FinanceModule } from "./modules/finance/finance.module";
 import { HealthModule } from "./modules/health/health.module";
+import { IntegrationsNotificationsModule } from "./modules/integrations-notifications/integrations-notifications.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { LogisticsModule } from "./modules/logistics/logistics.module";
 import { OrdersModule } from "./modules/orders/orders.module";
@@ -32,6 +33,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     PaymentsModule,
     ReconciliationModule,
     FinanceModule,
+    IntegrationsNotificationsModule,
     LogisticsModule,
     CrmRelationsModule,
     CrmProductivityModule,
