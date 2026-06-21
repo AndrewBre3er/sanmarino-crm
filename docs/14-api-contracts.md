@@ -179,6 +179,7 @@ API должно быть версионируемым.
 - approval/apply операций manual finance correction
 - подтверждение исполнения
 - критические переходы состояний
+- internal worker write boundary for KPI live refresh (`kpi.live_metric_refresh`)
 
 ---
 
@@ -189,6 +190,14 @@ API должно быть версионируемым.
 Если запрос с тем же `Idempotency-Key` уже был успешно обработан, API должно вернуть ранее созданный результат, а не создать новый.
 
 Если с тем же ключом пришёл другой payload, API должно вернуть конфликт идемпотентности.
+
+For KPI live refresh worker writes:
+- the durable idempotency scope is `kpi.live_metric_refresh`
+- the normalized request hash includes `metricKey`, `period`, `scopeType`, `scopeId`, `refreshedAt`, `metricValue`, and `metricPayload` when present
+- a repeated completed key with the same hash returns the prior result
+- a repeated key with a different hash is a conflict
+- an active in-progress key must not execute a second write
+- a failed key is terminal for that `idempotencyKey`; retry uses a new key until a broader retry coordination policy is accepted
 
 ---
 
@@ -1164,6 +1173,52 @@ Technical status codes:
 
 Правило:
 KPI — только read-поверхность для пользователей и систем. KPI не должен использоваться как первичный мутирующий контур бизнес-фактов.
+
+## 7.7.4 Internal KPI live refresh write boundary
+
+This is not a public HTTP API endpoint.
+It is an internal worker persistence boundary for refreshing the analytics read model.
+
+Accepted first write target:
+- `analytics.live_kpi_metrics`
+
+Not accepted here:
+- writes to `analytics.snapshot_kpi_metrics`
+- writes to `analytics.department_plans`
+- source-domain mutations
+- KPI formula calculation
+- source-domain event-to-metric mapping
+- API enqueue endpoint behavior
+
+Accepted write semantics:
+- upsert one live row by `(metric_code, scope_type, scope_id)`
+- `metric_code` maps from `metricKey`
+- `as_of` maps from `refreshedAt`
+- first accepted scope is `scopeType = "global"` and `scopeId = null`
+- `period` is required for event/idempotency grouping but is not stored in `analytics.live_kpi_metrics`
+- `periodStart` and `periodEnd` are snapshot/plan concepts and are out of scope for live refresh writes
+
+Accepted worker write inputs:
+- `metricKey`
+- `period`
+- `scopeType`
+- `scopeId`
+- `refreshedAt`
+- `idempotencyKey`
+
+The persistence adapter also requires an already-computed `metricValue` to write `metric_value`.
+The adapter must not calculate that value.
+`metricPayload` may be `null`; its shape remains `TBD`.
+
+The write must atomically:
+- create/read the idempotency record
+- upsert `analytics.live_kpi_metrics`
+- enqueue `system.outbox_events` with event type `kpi.live_aggregate_refreshed`
+- mark the idempotency record completed
+
+The outbox aggregate is `analytics.live_kpi_metrics`.
+The outbox aggregate id is the affected live KPI row id.
+The event payload stays minimal: `metricKey`, `period`, `refreshedAt`.
 
 Для executive dashboard должны быть поддержаны как минимум metric keys:
 - `cash_revenue`

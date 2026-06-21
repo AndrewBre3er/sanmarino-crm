@@ -100,6 +100,10 @@
 ### KPI / reporting
 - manager-entered department plans отображаются отдельно от factual KPI
 - factual KPI берётся из доменных источников, а не из ручного KPI ввода
+- live KPI refresh writes target only `analytics.live_kpi_metrics`
+- live KPI refresh writes use durable idempotency scope `kpi.live_metric_refresh`
+- live KPI refresh writes enqueue `kpi.live_aggregate_refreshed` through outbox atomically with the live KPI upsert
+- live KPI refresh does not calculate formulas, infer source-domain event-to-metric mapping, write snapshots, mutate department plans, or mutate source-domain facts
 
 ## UI / UX gate
 
@@ -148,6 +152,7 @@
 - `Order.deliveryStatus` корректно агрегируется
 - физический `DELETE` недоступен для `Order`, `Deal`, `Payment`, `ReturnRequest`
 - live KPI endpoint'ы читают агрегаты
+- live KPI refresh write contract is covered by schema/idempotency/outbox tests before enabling the worker adapter
 - не появился CRM-side payment creation flow
 - не появился bypass возврата вне `ReturnRequest`
 - не произошла утечка `base purchase price` в UI/API для запрещённых ролей

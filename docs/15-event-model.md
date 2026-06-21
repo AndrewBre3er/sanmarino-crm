@@ -405,6 +405,16 @@
 ### `kpi.live_aggregate_refreshed`
 Минимальный payload: `metricKey`, `period`, `refreshedAt`.
 
+Rules:
+- produced after a successful write to `analytics.live_kpi_metrics`
+- must be enqueued through `system.outbox_events` in the same database transaction as the live KPI upsert and idempotency completion
+- `aggregate_type = analytics.live_kpi_metrics`
+- `aggregate_id` is the affected live KPI row id
+- payload remains limited to `metricKey`, `period`, and `refreshedAt`
+- `scopeType`, `scopeId`, and `idempotencyKey` are not part of the event payload until this event contract explicitly expands
+- `period` is an event/idempotency grouping value for live KPI and does not define snapshot `period_start` / `period_end`
+- this event reports a refreshed derived read model and must not mutate CRM, Orders, Inventory, Payments, Logistics, Finance, Returns, Audit, or Reconciliation facts
+
 ### `kpi.department_plan_set`
 Минимальный payload: `planId`, `departmentId`, `metricKey`, `periodStart`, `periodEnd`, `planValue`, `setByUserId`, `setAt`.
 

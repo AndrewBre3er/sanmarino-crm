@@ -266,6 +266,70 @@ Live KPI не должны строиться тяжёлыми runtime JOIN по
 
 KPI остаётся read-layer и не может быть первичным бизнес-контуром.
 
+## 7.2 Stage 8E refresh write contract
+
+This section defines the first accepted write contract for refreshing the KPI read layer.
+
+Accepted first write target:
+- `analytics.live_kpi_metrics`
+
+Not authorized by this contract:
+- writes to `analytics.snapshot_kpi_metrics`
+- writes to `analytics.department_plans`
+- source-domain mutations from KPI/reporting/automation
+- formula calculation inside the persistence adapter
+
+Live refresh write semantics:
+- a future worker persistence adapter may upsert one current live KPI row by `(metric_code, scope_type, scope_id)`
+- `metric_code` maps from `metricKey`
+- `metric_value` is an already-computed input to the persistence adapter
+- the adapter must not compute `metric_value`, read transactional source tables for formulas, or map source-domain events to metrics
+- `metric_payload` is optional and may be `null`; its detailed shape is `TBD`
+- formula ownership, source-domain event-to-metric mapping, and the source of each `metric_value` remain `TBD`
+
+Accepted refresh write inputs:
+- `metricKey` is required and must be one of the accepted shared KPI metric keys
+- `period` is required as a non-empty grouping string for the refresh command, event, and idempotency boundary
+- `scopeType` is required
+- `scopeId` is nullable
+- `refreshedAt` is required and must be a timestamp accepted by the worker boundary
+- `idempotencyKey` is required
+
+First accepted scope convention:
+- `scopeType = "global"`
+- `scopeId = null`
+
+No department, user, warehouse, driver, channel, or other scoped KPI dimensions are accepted for refresh writes until docs define them explicitly.
+The first implementation task must verify that the current Prisma/PostgreSQL mapping can enforce one live row for the nullable global scope. If it cannot, stop for schema/index alignment before implementing writes.
+
+Period mapping:
+- live refresh writes store `as_of = refreshedAt`
+- `period` does not map to a column in `analytics.live_kpi_metrics`
+- for live KPI, `period` is only an event/idempotency grouping value
+- `period_start` and `period_end` belong to snapshot KPI and department plans; they are out of scope for the live refresh write contract
+- calendar parsing, fiscal periods, timezone rules, and snapshot closing rules remain `TBD`
+
+Durable idempotency:
+- KPI refresh writes must use `system.idempotency_records`
+- accepted idempotency scope: `kpi.live_metric_refresh`
+- a repeated `idempotencyKey` with the same normalized request hash returns the prior completed result and must not write a second live row or enqueue a second outbox event
+- a repeated `idempotencyKey` with a different normalized request hash is an idempotency conflict
+- the normalized request hash includes `metricKey`, `period`, `scopeType`, `scopeId`, `refreshedAt`, `metricValue`, and `metricPayload` when present
+- an in-progress record with an active lock must not run the write a second time
+- a failed record is terminal for that `idempotencyKey`; retry requires a new `idempotencyKey` until a broader retry coordination policy is accepted
+
+Transaction and outbox:
+- the idempotency record claim/read, `analytics.live_kpi_metrics` upsert, `system.outbox_events` enqueue, and idempotency completion must commit atomically in one database transaction
+- the outbox event type is `kpi.live_aggregate_refreshed`
+- the outbox aggregate type is `analytics.live_kpi_metrics`
+- the outbox aggregate id is the affected live KPI row id
+- the event payload remains the accepted minimal payload: `metricKey`, `period`, `refreshedAt`
+- `scopeType`, `scopeId`, and `idempotencyKey` stay outside the event payload until the shared event contract explicitly expands
+
+Implementation readiness:
+- a next narrow implementation task may implement only this live refresh persistence adapter contract for already-computed `metricValue`
+- formulas, source-domain event-to-metric mapping, snapshot writes, department plan mutations, schedulers, API enqueue behavior, reporting UI, and notification/provider delivery remain out of scope
+
 ## 8. Workspace and integration control metrics (v1)
 
 ### 8.1 Deal supply visibility metrics

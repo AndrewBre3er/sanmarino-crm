@@ -1116,6 +1116,17 @@ Indexes:
 - unique `(metric_code, scope_type, scope_id)`
 - index on `(as_of)`
 
+Rules:
+- first accepted refresh write target is this table only
+- live refresh writes use upsert semantics on `(metric_code, scope_type, scope_id)`
+- first accepted refresh scope is `scope_type = 'global'` with `scope_id = null`
+- implementation must verify that the Prisma/PostgreSQL index mapping enforces one row for nullable global scope; if not, schema/index alignment is required before live refresh writes
+- live refresh writes set `as_of` from the accepted `refreshedAt` input
+- live refresh writes do not store `period`; `period` is only a refresh command, idempotency, and event grouping value for live KPI
+- `metric_value` must be supplied as an already-computed value; this table contract does not define formulas or source-domain event-to-metric mapping
+- `metric_payload` may be `null`; payload shape remains `TBD`
+- KPI remains a derived read layer and cannot mutate source-domain facts
+
 ### 3.8.1a `analytics.department_plans`
 Purpose:
 - manager-entered department plans for KPI plan/fact view
@@ -1216,6 +1227,12 @@ Columns:
 Rules:
 - checked before domain service execution
 - repeated requests with same semantic key return stored or coordinated result
+- KPI live refresh writes use scope `kpi.live_metric_refresh`
+- for KPI live refresh writes, repeated completed records with the same normalized request hash return the prior result
+- for KPI live refresh writes, repeated keys with a different normalized request hash are conflicts
+- KPI live refresh request hash includes `metricKey`, `period`, `scopeType`, `scopeId`, `refreshedAt`, `metricValue`, and `metricPayload` when present
+- active in-progress KPI refresh records must not execute a second write
+- failed KPI refresh records are terminal for the same `idempotency_key`; retry uses a new `idempotency_key` until a broader retry coordination policy is accepted
 
 Indexes:
 - unique `(scope, idempotency_key)`
@@ -1241,6 +1258,14 @@ Indexes:
 - index on `(status, next_attempt_at)`
 - index on `(aggregate_type, aggregate_id)`
 - index on `(event_type)`
+
+KPI live refresh outbox rules:
+- KPI live refresh writes enqueue `kpi.live_aggregate_refreshed`
+- enqueue happens in the same database transaction as the idempotency record completion and live KPI upsert
+- `aggregate_type = 'analytics.live_kpi_metrics'`
+- `aggregate_id` is the affected `analytics.live_kpi_metrics.id`
+- payload contains only `metricKey`, `period`, and `refreshedAt` for the accepted v1 event contract
+- `scopeType`, `scopeId`, and `idempotencyKey` are not part of the event payload until the shared event contract explicitly expands
 
 ### 3.11.3 `system.integration_inbox_events`
 Purpose:

@@ -90,6 +90,10 @@
 - no public CRM-side payment creation contracts
 - manual correction status/transition contracts and `0..1` applied finance entry cardinality
 - KPI plan/fact read contracts keep KPI as derived layer only
+- KPI live refresh write contract covers accepted metric keys, `scopeType = "global"` / `scopeId = null`, `as_of = refreshedAt`, required `idempotencyKey`, and no source-domain mutations
+- KPI live refresh persistence tests prove the adapter writes only an already-computed `metricValue` and does not calculate formulas or source-domain event-to-metric mapping
+- KPI live refresh idempotency tests prove same key/hash returns the prior result, different hash conflicts, active in-progress keys do not run a second write, and failed keys require a new `idempotencyKey`
+- KPI live refresh outbox tests prove `kpi.live_aggregate_refreshed` is enqueued atomically with the live KPI upsert and idempotency completion
 - integration inbound contracts for `ATS`/`Avito` remain idempotent
 - notification outbound contracts for `Telegram`/`MAX` preserve permission-safe routing
 
@@ -236,6 +240,7 @@
 - client dedup/merge сохраняет audit trail и ссылки на связанные сущности
 - manual correction workflow не допускает apply без approval и не нарушает `0..1` applied entry
 - KPI dashboards используют plan/fact модель и не становятся источником истины
+- KPI live refresh write tests must not introduce formula calculation, source-domain event-to-metric mapping, snapshot writes, department plan mutations, API enqueue endpoints, notification routing, or source-domain mutations
 - ATS/Avito inbound обработка идемпотентна
 - Telegram/MAX outbound routing подчинён permission boundaries
 - warehouse alerts/discrepancy flow доступны и трассируются audit-событиями
