@@ -7,7 +7,7 @@ export const payments_finance_entities = [
 ] as const;
 
 export const payments_finance_status_contract = {
-  payment: ["pending", "completed", "refunded"] as const,
+  payment: ["pending", "completed", "refunded", "rejected"] as const,
   paymentMethod: ["cash", "bank_transfer", "card", "sbp", "other"] as const,
   cashOperation: ["cash_in", "cash_out", "refund"] as const,
   financeEntryType: ["income", "expense", "adjustment"] as const,
@@ -15,14 +15,19 @@ export const payments_finance_status_contract = {
 } as const;
 
 export const payments_finance_command_contract = {
-  createPayment: {
+  intakeExternalPaymentFact: {
     method: "POST",
-    path: "/payments",
+    path: "/payments/external-facts/intake",
     requiresIdempotencyKey: true
   },
-  completePayment: {
+  confirmExternalPaymentFact: {
     method: "POST",
-    path: "/payments/:paymentId/complete",
+    path: "/payments/:paymentId/confirm-external-fact",
+    requiresIdempotencyKey: true
+  },
+  rejectExternalPaymentFact: {
+    method: "POST",
+    path: "/payments/:paymentId/reject-external-fact",
     requiresIdempotencyKey: true
   },
   createRefund: {
@@ -42,6 +47,9 @@ export const payments_finance_income_rules_contract = {
 } as const;
 
 export const payments_finance_event_contract = {
+  paymentExternalFactIntaked: "payment.external_fact_intaked" as const,
+  paymentExternalFactConfirmed: "payment.external_fact_confirmed" as const,
+  paymentExternalFactRejected: "payment.external_fact_rejected" as const,
   paymentCompleted: "payment.completed" as const,
   paymentRefundCompleted: "payment.refund_completed" as const,
   financeRevenueRecognized: "finance.revenue_recognized" as const,
@@ -54,4 +62,3 @@ export const payments_finance_out_of_scope_contract = {
   workerConsumers: "deferred" as const,
   reconciliationJobs: "deferred" as const
 } as const;
-

@@ -136,6 +136,18 @@ describe("prisma schema foundation (infra + users + CRM core + orders + supply i
     expect(schema).toContain('@map("return_request_items")');
     expect(schema).toContain("enum CashOperationType");
     expect(schema).toContain('CASH_IN  @map("cash_in")');
+    expect(schema).toContain('REJECTED  @map("rejected")');
+    expect(schema).toContain("enum PaymentSourceType");
+    expect(schema).toContain('EXTERNAL_FACT @map("external_fact")');
+    expect(schema).toContain("sourceType        PaymentSourceType");
+    expect(schema).toContain('@map("source_type")');
+    expect(schema).toContain('@map("external_source") @db.VarChar(64)');
+    expect(schema).toContain('@map("external_event_id") @db.VarChar(128)');
+    expect(schema).toContain('@map("intaked_at")');
+    expect(schema).toContain('@map("confirmed_by") @db.Uuid');
+    expect(schema).toContain('@map("confirmed_at")');
+    expect(schema).toContain('@map("rejected_at")');
+    expect(schema).toContain("@@unique([externalSource, externalEventId])");
     expect(schema).toContain("enum FinanceEntryType");
     expect(schema).toContain('INCOME     @map("income")');
     expect(schema).toContain("enum FinanceCorrectionStatus");

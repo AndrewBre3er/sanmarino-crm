@@ -11,7 +11,9 @@ describe("api shell integration contracts", () => {
     expect(api_openapi_extensions.bootstrapPhase).toBe(
       "phase-15-logistics-fulfillment-contract-freeze"
     );
-    expect(api_openapi_extensions.paymentsCommandSurface.createPayment.path).toBe("/payments");
+    expect(api_openapi_extensions.paymentsCommandSurface.intakeExternalPaymentFact.path).toBe(
+      "/payments/external-facts/intake"
+    );
     expect(
       api_openapi_extensions.logisticsFulfillmentResourceSurface.deliverySlots.create.path
     ).toBe("/delivery-slots");

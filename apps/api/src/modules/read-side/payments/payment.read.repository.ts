@@ -1,7 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { PaymentsPayment, PaymentStatus as PrismaPaymentStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
-import type { PaymentMethod, PaymentStatus } from "../../transactional/shared/status.contract";
+import type {
+  PaymentExternalSource,
+  PaymentMethod,
+  PaymentSourceType,
+  PaymentStatus
+} from "../../transactional/shared/status.contract";
 import type {
   PaymentsPaymentReadScope,
 } from "./payment.read.scope";
@@ -22,10 +27,17 @@ export interface PaymentsPaymentReadModel {
   paymentNumber: string;
   orderId: string;
   status: PaymentStatus;
+  sourceType: PaymentSourceType;
+  externalSource: PaymentExternalSource;
+  externalEventId: string;
   paymentMethod: PaymentMethod;
   amount: string;
   refundedAmount: string;
   receivedAt: string | null;
+  intakedAt: string;
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+  rejectedAt: string | null;
   externalReference: string | null;
   createdAt: string;
   updatedAt: string;
@@ -54,10 +66,17 @@ function map_payment_read_model(record: PaymentsPayment): PaymentsPaymentReadMod
     paymentNumber: record.paymentNumber,
     orderId: record.orderId,
     status: from_prisma_enum(record.status) as PaymentStatus,
+    sourceType: from_prisma_enum(record.sourceType) as PaymentSourceType,
+    externalSource: record.externalSource as PaymentExternalSource,
+    externalEventId: record.externalEventId,
     paymentMethod: from_prisma_enum(record.paymentMethod) as PaymentMethod,
     amount: to_decimal_string(record.amount) ?? "0",
     refundedAmount: to_decimal_string(record.refundedAmount) ?? "0",
     receivedAt: to_iso_datetime(record.receivedAt),
+    intakedAt: to_iso_datetime(record.intakedAt) ?? "",
+    confirmedBy: record.confirmedBy,
+    confirmedAt: to_iso_datetime(record.confirmedAt),
+    rejectedAt: to_iso_datetime(record.rejectedAt),
     externalReference: record.externalReference,
     createdAt: to_iso_datetime(record.createdAt) ?? "",
     updatedAt: to_iso_datetime(record.updatedAt) ?? "",
@@ -86,6 +105,7 @@ export class PrismaPaymentsPaymentReadRepository implements PaymentsPaymentReadR
     if (query.search) {
       where.OR = [
         { paymentNumber: { contains: query.search, mode: "insensitive" } },
+        { externalEventId: { contains: query.search, mode: "insensitive" } },
         { externalReference: { contains: query.search, mode: "insensitive" } }
       ];
     }

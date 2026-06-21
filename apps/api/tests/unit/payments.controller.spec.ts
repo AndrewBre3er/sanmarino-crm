@@ -49,35 +49,44 @@ function build_request(
   };
 }
 
+function build_service_mock() {
+  return {
+    intakeExternalPaymentFact: vi.fn().mockResolvedValue({ id: "pay_1", status: "pending" }),
+    confirmExternalPaymentFact: vi.fn().mockResolvedValue({ id: "pay_1", status: "completed" }),
+    rejectExternalPaymentFact: vi.fn().mockResolvedValue({ id: "pay_1", status: "rejected" }),
+    refundPayment: vi.fn()
+  } as unknown as PaymentsService;
+}
+
 describe("payments controller", () => {
-  it("creates payment with idempotency command context", async () => {
-    const service = {
-      createPayment: vi.fn().mockResolvedValue({ id: "pay_1", status: "pending" }),
-      completePayment: vi.fn(),
-      refundPayment: vi.fn()
-    } as unknown as PaymentsService;
+  it("intakes external payment fact with idempotency command context", async () => {
+    const service = build_service_mock();
     const controller = new PaymentsController(service);
-    const request = build_request("finance_1", ["finance"], "idem_create_1");
+    const request = build_request("finance_1", ["finance"], "idem_intake_1");
 
     const payload = {
       orderId: "27d1ff9b-af56-4d8b-b662-c11ab5b949da",
       amount: "2000.00",
       paymentMethod: "cash" as const,
+      externalSource: "bank" as const,
+      externalEventId: "bank_evt_42",
       externalRef: "ext-42"
     };
 
-    const result = await controller.create(payload, request);
+    const result = await controller.intakeExternalFact(payload, request);
 
-    expect(service.createPayment).toHaveBeenCalledWith(
+    expect(service.intakeExternalPaymentFact).toHaveBeenCalledWith(
       {
         orderId: payload.orderId,
         amount: payload.amount,
         paymentMethod: payload.paymentMethod,
+        externalSource: payload.externalSource,
+        externalEventId: payload.externalEventId,
         externalReference: payload.externalRef
       },
       request.auth.user,
       expect.objectContaining({
-        idempotencyKey: "idem_create_1",
+        idempotencyKey: "idem_intake_1",
         requestId: "req_0000000000000001",
         correlationId: "corr_0000000000001"
       })
@@ -90,22 +99,18 @@ describe("payments controller", () => {
     });
   });
 
-  it("completes payment with idempotency command context", async () => {
-    const service = {
-      createPayment: vi.fn(),
-      completePayment: vi.fn().mockResolvedValue({ id: "pay_1", status: "completed" }),
-      refundPayment: vi.fn()
-    } as unknown as PaymentsService;
+  it("confirms external payment fact with idempotency command context", async () => {
+    const service = build_service_mock();
     const controller = new PaymentsController(service);
-    const request = build_request("finance_1", ["finance"], "idem_complete_1");
+    const request = build_request("finance_1", ["finance"], "idem_confirm_1");
 
-    const result = await controller.complete("pay_1", request);
+    const result = await controller.confirmExternalFact("pay_1", request);
 
-    expect(service.completePayment).toHaveBeenCalledWith(
+    expect(service.confirmExternalPaymentFact).toHaveBeenCalledWith(
       "pay_1",
       request.auth.user,
       expect.objectContaining({
-        idempotencyKey: "idem_complete_1"
+        idempotencyKey: "idem_confirm_1"
       })
     );
     expect(result).toEqual({
@@ -116,16 +121,40 @@ describe("payments controller", () => {
     });
   });
 
-  it("creates refund with required ReturnRequest linkage and idempotency context", async () => {
-    const service = {
-      createPayment: vi.fn(),
-      completePayment: vi.fn(),
-      refundPayment: vi.fn().mockResolvedValue({
-        id: "pay_1",
-        status: "completed",
-        refundedAmount: "500.00"
+  it("rejects external payment fact without cash or finance command payload", async () => {
+    const service = build_service_mock();
+    const controller = new PaymentsController(service);
+    const request = build_request("finance_1", ["finance"], "idem_reject_1");
+
+    const result = await controller.rejectExternalFact(
+      "pay_1",
+      { reason: "Bank statement mismatch" },
+      request
+    );
+
+    expect(service.rejectExternalPaymentFact).toHaveBeenCalledWith(
+      "pay_1",
+      { reason: "Bank statement mismatch" },
+      request.auth.user,
+      expect.objectContaining({
+        idempotencyKey: "idem_reject_1"
       })
-    } as unknown as PaymentsService;
+    );
+    expect(result).toEqual({
+      data: {
+        id: "pay_1",
+        status: "rejected"
+      }
+    });
+  });
+
+  it("creates refund with required ReturnRequest linkage and idempotency context", async () => {
+    const service = build_service_mock();
+    (service.refundPayment as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "pay_1",
+      status: "completed",
+      refundedAmount: "500.00"
+    });
     const controller = new PaymentsController(service);
     const request = build_request("finance_1", ["finance"], "idem_refund_1");
 
@@ -156,47 +185,50 @@ describe("payments controller", () => {
     });
   });
 
-  it("requires idempotency key for create command", async () => {
-    const service = {
-      createPayment: vi.fn(),
-      completePayment: vi.fn(),
-      refundPayment: vi.fn()
-    } as unknown as PaymentsService;
+  it("requires idempotency key for intake command", async () => {
+    const service = build_service_mock();
     const controller = new PaymentsController(service);
     const request = build_request("finance_1", ["finance"]);
 
     await expect(
-      controller.create(
+      controller.intakeExternalFact(
         {
           orderId: "27d1ff9b-af56-4d8b-b662-c11ab5b949da",
           amount: "1500.00",
-          paymentMethod: "cash"
+          paymentMethod: "cash",
+          externalSource: "bank",
+          externalEventId: "bank_evt_42"
         },
         request
       )
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(service.createPayment).not.toHaveBeenCalled();
+    expect(service.intakeExternalPaymentFact).not.toHaveBeenCalled();
   });
 
-  it("requires idempotency key for complete command", async () => {
-    const service = {
-      createPayment: vi.fn(),
-      completePayment: vi.fn(),
-      refundPayment: vi.fn()
-    } as unknown as PaymentsService;
+  it("requires idempotency key for confirm command", async () => {
+    const service = build_service_mock();
     const controller = new PaymentsController(service);
     const request = build_request("finance_1", ["finance"]);
 
-    await expect(controller.complete("pay_1", request)).rejects.toBeInstanceOf(BadRequestException);
-    expect(service.completePayment).not.toHaveBeenCalled();
+    await expect(controller.confirmExternalFact("pay_1", request)).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+    expect(service.confirmExternalPaymentFact).not.toHaveBeenCalled();
+  });
+
+  it("requires idempotency key for reject command", async () => {
+    const service = build_service_mock();
+    const controller = new PaymentsController(service);
+    const request = build_request("finance_1", ["finance"]);
+
+    await expect(
+      controller.rejectExternalFact("pay_1", { reason: "Mismatch" }, request)
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.rejectExternalPaymentFact).not.toHaveBeenCalled();
   });
 
   it("requires idempotency key for refund command", async () => {
-    const service = {
-      createPayment: vi.fn(),
-      completePayment: vi.fn(),
-      refundPayment: vi.fn()
-    } as unknown as PaymentsService;
+    const service = build_service_mock();
     const controller = new PaymentsController(service);
     const request = build_request("finance_1", ["finance"]);
 
@@ -213,21 +245,28 @@ describe("payments controller", () => {
     expect(service.refundPayment).not.toHaveBeenCalled();
   });
 
-  it("keeps command access baseline role matrix for payments", () => {
+  it("keeps command access baseline role matrix for external payment facts", () => {
     const classRequirements = Reflect.getMetadata(auth_access_metadata_key, PaymentsController) as {
       authenticated?: boolean;
       requiredRoleCodes?: string[];
     };
-    const createRequirements = Reflect.getMetadata(
+    const intakeRequirements = Reflect.getMetadata(
       auth_access_metadata_key,
-      PaymentsController.prototype.create
+      PaymentsController.prototype.intakeExternalFact
     ) as {
       authenticated?: boolean;
       requiredRoleCodes?: string[];
     };
-    const completeRequirements = Reflect.getMetadata(
+    const confirmRequirements = Reflect.getMetadata(
       auth_access_metadata_key,
-      PaymentsController.prototype.complete
+      PaymentsController.prototype.confirmExternalFact
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+    const rejectRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      PaymentsController.prototype.rejectExternalFact
     ) as {
       authenticated?: boolean;
       requiredRoleCodes?: string[];
@@ -240,14 +279,10 @@ describe("payments controller", () => {
       requiredRoleCodes?: string[];
     };
 
-    expect(classRequirements?.requiredRoleCodes).toEqual(["warehouse", "finance", "admin", "ceo"]);
-    expect(createRequirements?.requiredRoleCodes).toEqual([
-      "warehouse",
-      "finance",
-      "admin",
-      "ceo"
-    ]);
-    expect(completeRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
+    expect(classRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
+    expect(intakeRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
+    expect(confirmRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
+    expect(rejectRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
     expect(refundRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
   });
 });

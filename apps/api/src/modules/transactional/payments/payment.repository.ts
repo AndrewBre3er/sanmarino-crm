@@ -9,16 +9,28 @@ import type {
 } from "../../../common/persistence";
 import type { PrismaService } from "../../../prisma/prisma.service";
 import { throw_deferred_skeleton } from "../shared/deferred-skeleton.error";
-import type { PaymentMethod, PaymentStatus } from "../shared/status.contract";
+import type {
+  PaymentExternalSource,
+  PaymentMethod,
+  PaymentSourceType,
+  PaymentStatus
+} from "../shared/status.contract";
 
 export interface PaymentsPaymentRecord extends PersistenceRecordBase {
   paymentNumber: string;
   orderId: string;
   status: PaymentStatus;
+  sourceType: PaymentSourceType;
+  externalSource: PaymentExternalSource;
+  externalEventId: string;
   paymentMethod: PaymentMethod;
   amount: string;
   refundedAmount: string;
   receivedAt?: string | null;
+  intakedAt: string;
+  confirmedBy?: string | null;
+  confirmedAt?: string | null;
+  rejectedAt?: string | null;
   externalReference?: string | null;
   createdBy: string;
 }
@@ -27,11 +39,18 @@ export interface PaymentsPaymentCreateInput {
   paymentNumber: string;
   orderId: string;
   status: PaymentStatus;
+  sourceType: PaymentSourceType;
+  externalSource: PaymentExternalSource;
+  externalEventId: string;
   paymentMethod: PaymentMethod;
   amount: string;
   createdBy: string;
   refundedAmount?: string;
   receivedAt?: string | null;
+  intakedAt?: string;
+  confirmedBy?: string | null;
+  confirmedAt?: string | null;
+  rejectedAt?: string | null;
   externalReference?: string | null;
 }
 
@@ -41,6 +60,9 @@ export interface PaymentsPaymentUpdateInput {
   amount?: string;
   refundedAmount?: string;
   receivedAt?: string | null;
+  confirmedBy?: string | null;
+  confirmedAt?: string | null;
+  rejectedAt?: string | null;
   externalReference?: string | null;
 }
 

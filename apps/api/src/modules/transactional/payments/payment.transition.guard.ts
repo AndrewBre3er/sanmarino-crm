@@ -5,9 +5,10 @@ import {
 } from "../shared/transition.guard";
 
 export const payment_status_transition_matrix = {
-  pending: ["completed"],
+  pending: ["completed", "rejected"],
   completed: ["refunded"],
-  refunded: []
+  refunded: [],
+  rejected: []
 } as const satisfies Record<PaymentStatus, readonly PaymentStatus[]>;
 
 export const payment_status_transition_guard: StatusTransitionGuard<PaymentStatus> =

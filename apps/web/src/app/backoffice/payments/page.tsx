@@ -100,9 +100,14 @@ export default async function PaymentsPage({ searchParams }: PaymentsPageProps) 
                   </div>
                   <p className="bo-muted">Method: {payment.paymentMethod}</p>
                   <p className="bo-muted">
+                    Source: {payment.externalSource} / {payment.externalEventId}
+                  </p>
+                  <p className="bo-muted">
                     Amount: {payment.amount} | Refunded: {payment.refundedAmount}
                   </p>
+                  <p className="bo-muted">Intaked at: {payment.intakedAt}</p>
                   <p className="bo-muted">Received at: {payment.receivedAt ?? "not completed yet"}</p>
+                  <p className="bo-muted">Rejected at: {payment.rejectedAt ?? "not rejected"}</p>
                   <p className="bo-muted">
                     External reference: {payment.externalReference ?? "not provided"}
                   </p>
@@ -162,12 +167,22 @@ export default async function PaymentsPage({ searchParams }: PaymentsPageProps) 
               </Link>
             </article>
             <article className="bo-crm-detail-item">
+              <strong>External Fact</strong>
+              <p className="bo-muted">Source type: {paymentDetailResult.data.sourceType}</p>
+              <p className="bo-muted">Source: {paymentDetailResult.data.externalSource}</p>
+              <p className="bo-muted">Event: {paymentDetailResult.data.externalEventId}</p>
+            </article>
+            <article className="bo-crm-detail-item">
               <strong>External Reference</strong>
               <p className="bo-muted">{paymentDetailResult.data.externalReference ?? "not provided"}</p>
             </article>
             <article className="bo-crm-detail-item">
-              <strong>Received At</strong>
+              <strong>Control Timestamps</strong>
+              <p className="bo-muted">Intaked: {paymentDetailResult.data.intakedAt}</p>
               <p className="bo-muted">{paymentDetailResult.data.receivedAt ?? "not completed yet"}</p>
+              <p className="bo-muted">Confirmed by: {paymentDetailResult.data.confirmedBy ?? "not confirmed"}</p>
+              <p className="bo-muted">Confirmed at: {paymentDetailResult.data.confirmedAt ?? "not confirmed"}</p>
+              <p className="bo-muted">Rejected at: {paymentDetailResult.data.rejectedAt ?? "not rejected"}</p>
             </article>
             <article className="bo-crm-detail-item">
               <strong>Method / Amount</strong>
@@ -200,7 +215,7 @@ export default async function PaymentsPage({ searchParams }: PaymentsPageProps) 
         description="This step is read-first and does not add command UI."
       >
         <p className="bo-muted">
-          Payment create/complete/refund actions remain backend-only. This page intentionally does not
+          Payment intake/confirm/reject/refund actions remain backend-only. This page intentionally does not
           provide command controls.
         </p>
       </PageSection>

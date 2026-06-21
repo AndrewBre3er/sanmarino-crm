@@ -18,10 +18,15 @@ import {
   get_authenticated_access,
   type AuthenticatedRequestLike
 } from "../auth/auth.access.helpers";
-import { payment_methods, type PaymentMethod } from "../transactional/shared/status.contract";
+import {
+  payment_external_sources,
+  payment_methods,
+  type PaymentExternalSource,
+  type PaymentMethod
+} from "../transactional/shared/status.contract";
 import { PaymentsService } from "./payments.service";
 
-class CreatePaymentDto {
+class IntakeExternalPaymentFactDto {
   @IsUUID()
   orderId!: string;
 
@@ -32,10 +37,24 @@ class CreatePaymentDto {
   @IsIn(payment_methods)
   paymentMethod!: PaymentMethod;
 
+  @IsIn(payment_external_sources)
+  externalSource!: PaymentExternalSource;
+
+  @IsString()
+  @MaxLength(128)
+  externalEventId!: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(255)
   externalRef?: string;
+}
+
+class RejectExternalPaymentFactDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  reason?: string;
 }
 
 class RefundPaymentDto {
@@ -62,14 +81,17 @@ interface PaymentCommandRequest extends AuthenticatedRequestLike {
 
 @ApiTags(api_openapi_tags.paymentsRead.name)
 @UseGuards(AuthAccessGuard)
-@require_roles("warehouse", "finance", "admin", "ceo")
+@require_roles("finance", "admin", "ceo")
 @Controller("payments")
 export class PaymentsController {
   constructor(@Inject(PaymentsService) private readonly paymentsService: PaymentsService) {}
 
-  @Post()
-  @require_roles("warehouse", "finance", "admin", "ceo")
-  async create(@Body() payload: CreatePaymentDto, @Req() request: PaymentCommandRequest) {
+  @Post("external-facts/intake")
+  @require_roles("finance", "admin", "ceo")
+  async intakeExternalFact(
+    @Body() payload: IntakeExternalPaymentFactDto,
+    @Req() request: PaymentCommandRequest
+  ) {
     const access = get_authenticated_access(request);
     const shellContext = request.shellContext;
     const idempotencyKey = shellContext?.idempotencyKey;
@@ -81,11 +103,13 @@ export class PaymentsController {
       });
     }
 
-    const created = await this.paymentsService.createPayment(
+    const created = await this.paymentsService.intakeExternalPaymentFact(
       {
         orderId: payload.orderId,
         amount: payload.amount,
         paymentMethod: payload.paymentMethod,
+        externalSource: payload.externalSource,
+        externalEventId: payload.externalEventId,
         ...(payload.externalRef !== undefined ? { externalReference: payload.externalRef } : {})
       },
       access.user,
@@ -99,9 +123,12 @@ export class PaymentsController {
     return { data: created };
   }
 
-  @Post(":paymentId/complete")
+  @Post(":paymentId/confirm-external-fact")
   @require_roles("finance", "admin", "ceo")
-  async complete(@Param("paymentId") paymentId: string, @Req() request: PaymentCommandRequest) {
+  async confirmExternalFact(
+    @Param("paymentId") paymentId: string,
+    @Req() request: PaymentCommandRequest
+  ) {
     const access = get_authenticated_access(request);
     const shellContext = request.shellContext;
     const idempotencyKey = shellContext?.idempotencyKey;
@@ -113,13 +140,51 @@ export class PaymentsController {
       });
     }
 
-    const completed = await this.paymentsService.completePayment(paymentId, access.user, {
-      idempotencyKey,
-      ...(shellContext?.requestId ? { requestId: shellContext.requestId } : {}),
-      ...(shellContext?.correlationId ? { correlationId: shellContext.correlationId } : {})
-    });
+    const completed = await this.paymentsService.confirmExternalPaymentFact(
+      paymentId,
+      access.user,
+      {
+        idempotencyKey,
+        ...(shellContext?.requestId ? { requestId: shellContext.requestId } : {}),
+        ...(shellContext?.correlationId ? { correlationId: shellContext.correlationId } : {})
+      }
+    );
 
     return { data: completed };
+  }
+
+  @Post(":paymentId/reject-external-fact")
+  @require_roles("finance", "admin", "ceo")
+  async rejectExternalFact(
+    @Param("paymentId") paymentId: string,
+    @Body() payload: RejectExternalPaymentFactDto,
+    @Req() request: PaymentCommandRequest
+  ) {
+    const access = get_authenticated_access(request);
+    const shellContext = request.shellContext;
+    const idempotencyKey = shellContext?.idempotencyKey;
+
+    if (!idempotencyKey) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: `${request_context_headers.idempotencyKey} header is required`
+      });
+    }
+
+    const rejected = await this.paymentsService.rejectExternalPaymentFact(
+      paymentId,
+      {
+        ...(payload.reason !== undefined ? { reason: payload.reason } : {})
+      },
+      access.user,
+      {
+        idempotencyKey,
+        ...(shellContext?.requestId ? { requestId: shellContext.requestId } : {}),
+        ...(shellContext?.correlationId ? { correlationId: shellContext.correlationId } : {})
+      }
+    );
+
+    return { data: rejected };
   }
 
   @Post(":paymentId/refunds")

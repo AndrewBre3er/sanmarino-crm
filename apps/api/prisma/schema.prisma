@@ -179,6 +179,13 @@ enum PaymentStatus {
   PENDING   @map("pending")
   COMPLETED @map("completed")
   REFUNDED  @map("refunded")
+  REJECTED  @map("rejected")
+
+  @@schema("payments")
+}
+
+enum PaymentSourceType {
+  EXTERNAL_FACT @map("external_fact")
 
   @@schema("payments")
 }
@@ -318,6 +325,7 @@ model UsersUser {
   returnRequestsCeoApproved          OrdersReturnRequest[]        @relation("OrdersReturnRequestCeoApprovedByUser")
   returnRequestsDeleted              OrdersReturnRequest[]        @relation("OrdersReturnRequestDeletedByUser")
   paymentsCreated                    PaymentsPayment[]            @relation("PaymentsPaymentCreatedByUser")
+  paymentsConfirmed                  PaymentsPayment[]            @relation("PaymentsPaymentConfirmedByUser")
   paymentsDeleted                    PaymentsPayment[]            @relation("PaymentsPaymentDeletedByUser")
   cashOperationsCreated              PaymentsCashOperation[]      @relation("PaymentsCashOperationCreatedByUser")
   financeEntriesCreated              FinanceFinanceEntry[]        @relation("FinanceFinanceEntryCreatedByUser")
@@ -1067,10 +1075,18 @@ model PaymentsPayment {
   orderId           String                  @map("order_id") @db.Uuid
   order             OrdersOrder             @relation(fields: [orderId], references: [id], onDelete: Restrict)
   status            PaymentStatus
+  sourceType        PaymentSourceType       @default(EXTERNAL_FACT) @map("source_type")
+  externalSource    String                  @map("external_source") @db.VarChar(64)
+  externalEventId   String                  @map("external_event_id") @db.VarChar(128)
   paymentMethod     PaymentMethod           @map("payment_method")
   amount            Decimal                 @db.Decimal(14, 2)
   refundedAmount    Decimal                 @default(0) @map("refunded_amount") @db.Decimal(14, 2)
   receivedAt        DateTime?               @map("received_at") @db.Timestamptz(6)
+  intakedAt         DateTime                @default(now()) @map("intaked_at") @db.Timestamptz(6)
+  confirmedBy       String?                 @map("confirmed_by") @db.Uuid
+  confirmedByUser   UsersUser?              @relation("PaymentsPaymentConfirmedByUser", fields: [confirmedBy], references: [id], onDelete: SetNull)
+  confirmedAt       DateTime?               @map("confirmed_at") @db.Timestamptz(6)
+  rejectedAt        DateTime?               @map("rejected_at") @db.Timestamptz(6)
   externalReference String?                 @map("external_reference") @db.VarChar(255)
   createdBy         String                  @map("created_by") @db.Uuid
   createdByUser     UsersUser               @relation("PaymentsPaymentCreatedByUser", fields: [createdBy], references: [id], onDelete: Restrict)
@@ -1087,6 +1103,8 @@ model PaymentsPayment {
 
   @@index([orderId])
   @@index([status])
+  @@unique([externalSource, externalEventId])
+  @@index([sourceType, intakedAt])
   @@index([createdBy])
   @@index([isDeleted])
   @@map("payments")

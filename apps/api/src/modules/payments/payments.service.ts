@@ -13,6 +13,7 @@ import type {
   IdempotencyStatus as PrismaIdempotencyStatus,
   OrderPaymentControlStatus as PrismaOrderPaymentControlStatus,
   PaymentMethod as PrismaPaymentMethod,
+  PaymentSourceType as PrismaPaymentSourceType,
   PaymentStatus as PrismaPaymentStatus
 } from "@prisma/client";
 import type { AuthPrincipal } from "../auth/auth.contract";
@@ -23,14 +24,24 @@ import {
 import { resolve_payment_read_scope } from "../read-side/payments/payment.read.scope";
 import { from_prisma_enum, to_prisma_enum } from "../read-side/shared/prisma-read.mapper";
 import { assert_order_control_overlay_transition } from "../transactional/orders/order-control.transition.guard";
-import type { OrderControlOverlayStatus } from "../transactional/shared/status.contract";
+import {
+  payment_external_sources,
+  type OrderControlOverlayStatus,
+  type PaymentExternalSource
+} from "../transactional/shared/status.contract";
 import { PrismaService } from "../../prisma/prisma.service";
 
-export interface CreatePaymentInput {
+export interface IntakeExternalPaymentFactInput {
   orderId: string;
   amount: string;
   paymentMethod: "cash" | "bank_transfer" | "card" | "sbp" | "other";
+  externalSource: string;
+  externalEventId: string;
   externalReference?: string;
+}
+
+export interface RejectExternalPaymentFactInput {
+  reason?: string;
 }
 
 export interface RefundPaymentInput {
@@ -51,8 +62,9 @@ interface AcquiredIdempotencyRecord {
   responseBody: Prisma.JsonValue | null;
 }
 
-const create_payment_idempotency_scope = "payments.payment.create.v1";
-const complete_payment_idempotency_scope = "payments.payment.complete.v1";
+const intake_external_payment_fact_idempotency_scope = "payments.external_fact.intake.v1";
+const confirm_external_payment_fact_idempotency_scope = "payments.external_fact.confirm.v1";
+const reject_external_payment_fact_idempotency_scope = "payments.external_fact.reject.v1";
 const refund_payment_idempotency_scope = "payments.payment.refund.v1";
 
 @Injectable()
@@ -64,21 +76,25 @@ export class PaymentsService {
     private readonly paymentReadRepository: PrismaPaymentsPaymentReadRepository
   ) {}
 
-  async createPayment(
-    payload: CreatePaymentInput,
+  async intakeExternalPaymentFact(
+    payload: IntakeExternalPaymentFactInput,
     actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
     context: PaymentCommandContext
   ): Promise<PaymentsPaymentReadModel> {
     const normalizedAmount = normalize_amount(payload.amount);
+    const normalizedExternalSource = normalize_external_source(payload.externalSource);
+    const normalizedExternalEventId = normalize_external_event_id(payload.externalEventId);
     const normalizedExternalReference = normalize_external_reference(payload.externalReference);
-    const requestHash = build_create_payment_request_hash({
+    const requestHash = build_intake_external_payment_fact_request_hash({
       orderId: payload.orderId,
       amount: normalizedAmount,
       paymentMethod: payload.paymentMethod,
+      externalSource: normalizedExternalSource,
+      externalEventId: normalizedExternalEventId,
       externalReference: normalizedExternalReference
     });
     const idempotency = await this.acquire_idempotency(
-      create_payment_idempotency_scope,
+      intake_external_payment_fact_idempotency_scope,
       context.idempotencyKey,
       requestHash
     );
@@ -103,6 +119,7 @@ export class PaymentsService {
           throw new NotFoundException(`Order '${payload.orderId}' was not found`);
         }
 
+        const intakedAt = new Date();
         const created = await transactionClient.paymentsPayment.create({
           data: {
             paymentNumber: build_payment_number(payload.orderId, context.idempotencyKey),
@@ -117,14 +134,58 @@ export class PaymentsService {
               }
             },
             status: "PENDING",
+            sourceType: to_prisma_enum<PrismaPaymentSourceType>("external_fact"),
+            externalSource: normalizedExternalSource,
+            externalEventId: normalizedExternalEventId,
             paymentMethod: to_prisma_enum<PrismaPaymentMethod>(payload.paymentMethod),
             amount: normalizedAmount,
             refundedAmount: "0.00",
             receivedAt: null,
+            intakedAt,
             externalReference: normalizedExternalReference
           },
           select: {
             id: true
+          }
+        });
+
+        await transactionClient.systemOutboxRecord.createMany({
+          data: [
+            {
+              eventType: "payment.external_fact_intaked",
+              aggregateType: "payments.payment",
+              aggregateId: created.id,
+              payload: {
+                paymentId: created.id,
+                orderId: payload.orderId,
+                externalSource: normalizedExternalSource,
+                externalEventId: normalizedExternalEventId,
+                intakedAt: intakedAt.toISOString()
+              } as Prisma.InputJsonValue
+            }
+          ]
+        });
+
+        await transactionClient.auditLogRecord.create({
+          data: {
+            eventId: build_payment_audit_event_id(
+              "intake",
+              created.id,
+              context.idempotencyKey
+            ),
+            occurredAt: intakedAt,
+            action: "payments.external_fact.intake",
+            entityType: "payments.payment",
+            entityId: created.id,
+            actorUserId: actor.userId,
+            ...(context.requestId ? { requestId: context.requestId } : {}),
+            ...(context.correlationId ? { correlationId: context.correlationId } : {}),
+            payload: {
+              orderId: payload.orderId,
+              externalSource: normalizedExternalSource,
+              externalEventId: normalizedExternalEventId,
+              amount: normalizedAmount
+            } as Prisma.InputJsonValue
           }
         });
 
@@ -153,9 +214,17 @@ export class PaymentsService {
     actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
     context: PaymentCommandContext
   ): Promise<PaymentsPaymentReadModel> {
-    const requestHash = build_complete_payment_request_hash(paymentId);
+    return this.confirmExternalPaymentFact(paymentId, actor, context);
+  }
+
+  async confirmExternalPaymentFact(
+    paymentId: string,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: PaymentCommandContext
+  ): Promise<PaymentsPaymentReadModel> {
+    const requestHash = build_confirm_external_payment_fact_request_hash(paymentId);
     const idempotency = await this.acquire_idempotency(
-      complete_payment_idempotency_scope,
+      confirm_external_payment_fact_idempotency_scope,
       context.idempotencyKey,
       requestHash
     );
@@ -176,6 +245,7 @@ export class PaymentsService {
             orderId: true,
             status: true,
             amount: true,
+            paymentMethod: true,
             externalReference: true,
             receivedAt: true
           }
@@ -200,7 +270,13 @@ export class PaymentsService {
           },
           data: {
             status: "COMPLETED",
-            receivedAt
+            receivedAt,
+            confirmedAt: receivedAt,
+            confirmedByUser: {
+              connect: {
+                id: actor.userId
+              }
+            }
           }
         });
 
@@ -227,7 +303,7 @@ export class PaymentsService {
           }
         });
 
-        await transactionClient.financeFinanceEntry.create({
+        const financeEntry = await transactionClient.financeFinanceEntry.create({
           data: {
             entryType: to_prisma_enum<PrismaFinanceEntryType>("income"),
             order: {
@@ -254,6 +330,9 @@ export class PaymentsService {
                 id: actor.userId
               }
             }
+          },
+          select: {
+            id: true
           }
         });
 
@@ -261,6 +340,69 @@ export class PaymentsService {
           transactionClient,
           payment.orderId
         );
+
+        await transactionClient.systemOutboxRecord.createMany({
+          data: [
+            {
+              eventType: "payment.external_fact_confirmed",
+              aggregateType: "payments.payment",
+              aggregateId: payment.id,
+              payload: {
+                paymentId: payment.id,
+                orderId: payment.orderId,
+                amount: payment.amount.toString(),
+                confirmedAt: receivedAt.toISOString(),
+                confirmedByRole: actor.roleCodes[0] ?? null
+              } as Prisma.InputJsonValue
+            },
+            {
+              eventType: "payment.completed",
+              aggregateType: "payments.payment",
+              aggregateId: payment.id,
+              payload: {
+                paymentId: payment.id,
+                orderId: payment.orderId,
+                amount: payment.amount.toString(),
+                completedAt: receivedAt.toISOString(),
+                paymentMethod: from_prisma_enum(payment.paymentMethod)
+              } as Prisma.InputJsonValue
+            },
+            {
+              eventType: "finance.revenue_recognized",
+              aggregateType: "finance.finance_entry",
+              aggregateId: financeEntry.id,
+              payload: {
+                paymentId: payment.id,
+                orderId: payment.orderId,
+                amount: payment.amount.toString(),
+                recognizedAt: receivedAt.toISOString()
+              } as Prisma.InputJsonValue
+            }
+          ]
+        });
+
+        await transactionClient.auditLogRecord.create({
+          data: {
+            eventId: build_payment_audit_event_id(
+              "confirm",
+              payment.id,
+              context.idempotencyKey
+            ),
+            occurredAt: receivedAt,
+            action: "payments.external_fact.confirm",
+            entityType: "payments.payment",
+            entityId: payment.id,
+            actorUserId: actor.userId,
+            ...(context.requestId ? { requestId: context.requestId } : {}),
+            ...(context.correlationId ? { correlationId: context.correlationId } : {}),
+            payload: {
+              orderId: payment.orderId,
+              amount: payment.amount.toString(),
+              cashOperationId: cashOperation.id,
+              financeEntryId: financeEntry.id
+            } as Prisma.InputJsonValue
+          }
+        });
 
         await transactionClient.systemIdempotencyRecord.update({
           where: { id: idempotency.recordId },
@@ -276,6 +418,123 @@ export class PaymentsService {
       });
 
       return this.get_payment_or_throw(completedPaymentId, actor);
+    } catch (error) {
+      await this.mark_idempotency_failed(idempotency.recordId, error);
+      throw error;
+    }
+  }
+
+  async rejectExternalPaymentFact(
+    paymentId: string,
+    payload: RejectExternalPaymentFactInput,
+    actor: Pick<AuthPrincipal, "userId" | "roleCodes">,
+    context: PaymentCommandContext
+  ): Promise<PaymentsPaymentReadModel> {
+    const normalizedReason = normalize_reject_reason(payload.reason);
+    const requestHash = build_reject_external_payment_fact_request_hash({
+      paymentId,
+      reason: normalizedReason
+    });
+    const idempotency = await this.acquire_idempotency(
+      reject_external_payment_fact_idempotency_scope,
+      context.idempotencyKey,
+      requestHash
+    );
+
+    if (idempotency.replayed) {
+      return this.resolve_replayed_payment(idempotency.responseBody, actor, paymentId);
+    }
+
+    try {
+      const rejectedPaymentId = await this.prismaService.$transaction(async transactionClient => {
+        const payment = await transactionClient.paymentsPayment.findFirst({
+          where: {
+            id: paymentId,
+            isDeleted: false
+          },
+          select: {
+            id: true,
+            orderId: true,
+            status: true
+          }
+        });
+
+        if (!payment) {
+          throw new NotFoundException(`Payment '${paymentId}' was not found`);
+        }
+
+        const currentStatus = from_prisma_enum(payment.status);
+        if (currentStatus !== "pending") {
+          throw new ConflictException({
+            code: "TRANSITION_NOT_ALLOWED",
+            message: `Payment '${paymentId}' cannot be rejected from status '${currentStatus}'`
+          });
+        }
+
+        const rejectedAt = new Date();
+        await transactionClient.paymentsPayment.update({
+          where: {
+            id: payment.id
+          },
+          data: {
+            status: to_prisma_enum<PrismaPaymentStatus>("rejected"),
+            rejectedAt
+          }
+        });
+
+        await transactionClient.systemOutboxRecord.createMany({
+          data: [
+            {
+              eventType: "payment.external_fact_rejected",
+              aggregateType: "payments.payment",
+              aggregateId: payment.id,
+              payload: {
+                paymentId: payment.id,
+                orderId: payment.orderId,
+                reason: normalizedReason,
+                rejectedAt: rejectedAt.toISOString(),
+                toStatus: "rejected"
+              } as Prisma.InputJsonValue
+            }
+          ]
+        });
+
+        await transactionClient.auditLogRecord.create({
+          data: {
+            eventId: build_payment_audit_event_id(
+              "reject",
+              payment.id,
+              context.idempotencyKey
+            ),
+            occurredAt: rejectedAt,
+            action: "payments.external_fact.reject",
+            entityType: "payments.payment",
+            entityId: payment.id,
+            actorUserId: actor.userId,
+            ...(context.requestId ? { requestId: context.requestId } : {}),
+            ...(context.correlationId ? { correlationId: context.correlationId } : {}),
+            payload: {
+              orderId: payment.orderId,
+              reason: normalizedReason,
+              toStatus: "rejected"
+            } as Prisma.InputJsonValue
+          }
+        });
+
+        await transactionClient.systemIdempotencyRecord.update({
+          where: { id: idempotency.recordId },
+          data: {
+            status: to_prisma_enum<PrismaIdempotencyStatus>("completed"),
+            responseStatusCode: 200,
+            responseBody: { paymentId: payment.id },
+            lockedUntil: null
+          }
+        });
+
+        return payment.id;
+      });
+
+      return this.get_payment_or_throw(rejectedPaymentId, actor);
     } catch (error) {
       await this.mark_idempotency_failed(idempotency.recordId, error);
       throw error;
@@ -770,17 +1029,26 @@ export class PaymentsService {
   }
 }
 
-function build_create_payment_request_hash(input: {
+function build_intake_external_payment_fact_request_hash(input: {
   orderId: string;
   amount: string;
   paymentMethod: string;
+  externalSource: string;
+  externalEventId: string;
   externalReference: string | null;
 }): string {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
-function build_complete_payment_request_hash(paymentId: string): string {
+function build_confirm_external_payment_fact_request_hash(paymentId: string): string {
   return createHash("sha256").update(JSON.stringify({ paymentId })).digest("hex");
+}
+
+function build_reject_external_payment_fact_request_hash(input: {
+  paymentId: string;
+  reason: string | null;
+}): string {
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
 function build_refund_payment_request_hash(input: {
@@ -826,6 +1094,31 @@ function normalize_external_reference(value: string | undefined): string | null 
   return normalized.length > 0 ? normalized : null;
 }
 
+function normalize_external_source(value: string): PaymentExternalSource {
+  const normalized = value.trim().toLowerCase();
+  if (!payment_external_sources.includes(normalized as PaymentExternalSource)) {
+    throw new BadRequestException({
+      code: "VALIDATION_ERROR",
+      message:
+        "externalSource must be one of bank, acquiring, cash_register, manual_import, other"
+    });
+  }
+
+  return normalized as PaymentExternalSource;
+}
+
+function normalize_external_event_id(value: string): string {
+  const normalized = value.trim();
+  if (normalized.length === 0 || normalized.length > 128) {
+    throw new BadRequestException({
+      code: "VALIDATION_ERROR",
+      message: "externalEventId must be a non-empty string up to 128 characters"
+    });
+  }
+
+  return normalized;
+}
+
 function normalize_required_return_request_id(value: string | undefined): string {
   const normalized = value?.trim();
   if (!normalized) {
@@ -839,6 +1132,15 @@ function normalize_required_return_request_id(value: string | undefined): string
 }
 
 function normalize_refund_reason(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalize_reject_reason(value: string | undefined): string | null {
   if (!value) {
     return null;
   }
@@ -900,7 +1202,7 @@ function format_money(value: number): string {
 }
 
 function build_payment_audit_event_id(
-  action: "refund",
+  action: "intake" | "confirm" | "reject" | "refund",
   paymentId: string,
   idempotencyKey: string
 ): string {

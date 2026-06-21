@@ -23,7 +23,7 @@ export const api_openapi_contract = {
     "- pagination/filter/sort query contracts aligned with shared platform types",
     "",
     "Phase 14 payments+finance contract freeze baseline:",
-    "- command-style payment surface: POST /payments, POST /payments/:paymentId/complete, POST /payments/:paymentId/refunds",
+    "- external payment fact surface: POST /payments/external-facts/intake, POST /payments/:paymentId/confirm-external-fact, POST /payments/:paymentId/reject-external-fact, POST /payments/:paymentId/refunds",
     "- refund requires ReturnRequest linkage",
     "- income recognition source is payment.completed only",
     "",
@@ -76,7 +76,7 @@ export const api_openapi_tags = {
   },
   paymentsRead: {
     name: "payments-read",
-    description: "Payments read + command contract surface (implementation deferred)"
+    description: "Payments read + external payment fact command surface"
   },
   logisticsRead: {
     name: "logistics-read",

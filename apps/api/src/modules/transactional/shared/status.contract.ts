@@ -77,7 +77,17 @@ export const inventory_bucket_statuses = [
   "quarantine"
 ] as const;
 
-export const payment_statuses = ["pending", "completed", "refunded"] as const;
+export const payment_statuses = ["pending", "completed", "refunded", "rejected"] as const;
+
+export const payment_source_types = ["external_fact"] as const;
+
+export const payment_external_sources = [
+  "bank",
+  "acquiring",
+  "cash_register",
+  "manual_import",
+  "other"
+] as const;
 
 export const payment_methods = ["cash", "bank_transfer", "card", "sbp", "other"] as const;
 
@@ -126,6 +136,8 @@ export type ReservationStatus = (typeof reservation_statuses)[number];
 export type InventoryMovementType = (typeof inventory_movement_types)[number];
 export type InventoryBucketStatus = (typeof inventory_bucket_statuses)[number];
 export type PaymentStatus = (typeof payment_statuses)[number];
+export type PaymentSourceType = (typeof payment_source_types)[number];
+export type PaymentExternalSource = (typeof payment_external_sources)[number];
 export type PaymentMethod = (typeof payment_methods)[number];
 export type CashOperationType = (typeof cash_operation_types)[number];
 export type FinanceEntryType = (typeof finance_entry_types)[number];

@@ -1,7 +1,9 @@
-export const payment_statuses = ["pending", "completed", "refunded"] as const;
+export const payment_statuses = ["pending", "completed", "refunded", "rejected"] as const;
+export const payment_source_types = ["external_fact"] as const;
 export const payment_methods = ["cash", "bank_transfer", "card", "sbp", "other"] as const;
 
 export type PaymentStatus = (typeof payment_statuses)[number];
+export type PaymentSourceType = (typeof payment_source_types)[number];
 export type PaymentMethod = (typeof payment_methods)[number];
 
 export interface PaymentsPagePagination {
@@ -16,10 +18,17 @@ export interface PaymentListView {
   paymentNumber: string;
   orderId: string;
   status: PaymentStatus;
+  sourceType: PaymentSourceType;
+  externalSource: string;
+  externalEventId: string;
   paymentMethod: PaymentMethod;
   amount: string;
   refundedAmount: string;
   receivedAt: string | null;
+  intakedAt: string;
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+  rejectedAt: string | null;
   externalReference: string | null;
   createdAt: string;
   updatedAt: string;
@@ -77,6 +86,16 @@ function as_payment_method(value: unknown): PaymentMethod | null {
   return payment_methods.includes(value as PaymentMethod) ? (value as PaymentMethod) : null;
 }
 
+function as_payment_source_type(value: unknown): PaymentSourceType | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  return payment_source_types.includes(value as PaymentSourceType)
+    ? (value as PaymentSourceType)
+    : null;
+}
+
 function parse_pagination(metaValue: unknown): PaymentsPagePagination | null {
   const metaRecord = as_record(metaValue);
   if (!metaRecord) {
@@ -125,9 +144,13 @@ function parse_payment(value: unknown): PaymentListView | null {
   const paymentNumber = as_string(record.paymentNumber);
   const orderId = as_string(record.orderId);
   const status = as_payment_status(record.status);
+  const sourceType = as_payment_source_type(record.sourceType);
+  const externalSource = as_string(record.externalSource);
+  const externalEventId = as_string(record.externalEventId);
   const paymentMethod = as_payment_method(record.paymentMethod);
   const amount = as_string(record.amount);
   const refundedAmount = as_string(record.refundedAmount);
+  const intakedAt = as_string(record.intakedAt);
   const createdAt = as_string(record.createdAt);
   const updatedAt = as_string(record.updatedAt);
   const version = as_number(record.version);
@@ -138,9 +161,13 @@ function parse_payment(value: unknown): PaymentListView | null {
     !paymentNumber ||
     !orderId ||
     !status ||
+    !sourceType ||
+    !externalSource ||
+    !externalEventId ||
     !paymentMethod ||
     !amount ||
     !refundedAmount ||
+    !intakedAt ||
     !createdAt ||
     !updatedAt ||
     version === null ||
@@ -154,10 +181,17 @@ function parse_payment(value: unknown): PaymentListView | null {
     paymentNumber,
     orderId,
     status,
+    sourceType,
+    externalSource,
+    externalEventId,
     paymentMethod,
     amount,
     refundedAmount,
     receivedAt: as_nullable_string(record.receivedAt),
+    intakedAt,
+    confirmedBy: as_nullable_string(record.confirmedBy),
+    confirmedAt: as_nullable_string(record.confirmedAt),
+    rejectedAt: as_nullable_string(record.rejectedAt),
     externalReference: as_nullable_string(record.externalReference),
     createdAt,
     updatedAt,

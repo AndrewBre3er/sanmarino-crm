@@ -74,6 +74,9 @@ describe("transactional repository skeletons", () => {
         paymentNumber: "PAY-SKELETON",
         orderId: "order_1",
         status: "pending",
+        sourceType: "external_fact",
+        externalSource: "manual_import",
+        externalEventId: "manual_evt_skeleton",
         paymentMethod: "cash",
         amount: "100.00",
         createdBy: "user_1"

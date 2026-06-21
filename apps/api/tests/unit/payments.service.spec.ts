@@ -6,9 +6,11 @@ import type { PrismaPaymentsPaymentReadRepository } from "../../src/modules/read
 import type { PrismaService } from "../../src/prisma/prisma.service";
 
 function build_payment_read_model(
-  status: "pending" | "completed" | "refunded" = "pending",
+  status: "pending" | "completed" | "refunded" | "rejected" = "pending",
   overrides?: Partial<{
     refundedAmount: string;
+    externalSource: string;
+    externalEventId: string;
   }>
 ) {
   return {
@@ -20,6 +22,13 @@ function build_payment_read_model(
     amount: "2000.00",
     refundedAmount: overrides?.refundedAmount ?? "0.00",
     receivedAt: status === "completed" ? new Date().toISOString() : null,
+    sourceType: "external_fact",
+    externalSource: overrides?.externalSource ?? "bank",
+    externalEventId: overrides?.externalEventId ?? "bank_evt_42",
+    intakedAt: new Date().toISOString(),
+    confirmedBy: status === "completed" ? "finance_1" : null,
+    confirmedAt: status === "completed" ? new Date().toISOString() : null,
+    rejectedAt: status === "rejected" ? new Date().toISOString() : null,
     externalReference: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -161,7 +170,7 @@ function create_service_with_mocks() {
 }
 
 describe("payments service", () => {
-  it("creates payment and persists createdBy actor linkage", async () => {
+  it("intakes external payment fact and persists provider uniqueness payload", async () => {
     const {
       service,
       paymentReadRepository,
@@ -179,11 +188,14 @@ describe("payments service", () => {
       build_payment_read_model("pending")
     );
 
-    const result = await service.createPayment(
+    const result = await service.intakeExternalPaymentFact(
       {
         orderId: "order_1",
         amount: "2000.00",
-        paymentMethod: "cash"
+        paymentMethod: "cash",
+        externalSource: "bank",
+        externalEventId: "bank_evt_42",
+        externalReference: "bank-ref-42"
       },
       {
         userId: "finance_1",
@@ -198,6 +210,11 @@ describe("payments service", () => {
     expect(paymentsPaymentCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
+          sourceType: "EXTERNAL_FACT",
+          externalSource: "bank",
+          externalEventId: "bank_evt_42",
+          intakedAt: expect.any(Date),
+          externalReference: "bank-ref-42",
           createdByUser: {
             connect: {
               id: "finance_1"
@@ -208,7 +225,7 @@ describe("payments service", () => {
     );
   });
 
-  it("replays idempotent create without second mutation", async () => {
+  it("replays idempotent external fact intake without second mutation", async () => {
     const {
       service,
       paymentReadRepository,
@@ -223,6 +240,8 @@ describe("payments service", () => {
           orderId: "order_1",
           amount: "2000.00",
           paymentMethod: "cash",
+          externalSource: "bank",
+          externalEventId: "bank_evt_42",
           externalReference: null
         })
       )
@@ -238,11 +257,13 @@ describe("payments service", () => {
       build_payment_read_model("pending")
     );
 
-    const result = await service.createPayment(
+    const result = await service.intakeExternalPaymentFact(
       {
         orderId: "order_1",
         amount: "2000.00",
-        paymentMethod: "cash"
+        paymentMethod: "cash",
+        externalSource: "bank",
+        externalEventId: "bank_evt_42"
       },
       {
         userId: "finance_1",
@@ -311,6 +332,7 @@ describe("payments service", () => {
       financeFinanceEntryCreate,
       ordersOrderFindFirst,
       ordersOrderUpdate,
+      systemOutboxRecordCreateMany,
       systemIdempotencyRecordFindUnique,
       systemIdempotencyRecordCreate,
       systemIdempotencyRecordUpdate
@@ -323,6 +345,7 @@ describe("payments service", () => {
       orderId: "order_1",
       status: "PENDING",
       amount: "2000.00",
+      paymentMethod: "CASH",
       externalReference: "ext_42",
       receivedAt: null
     });
@@ -352,6 +375,21 @@ describe("payments service", () => {
 
     expect(result.status).toBe("completed");
     expect(paymentsPaymentUpdate).toHaveBeenCalledOnce();
+    expect(paymentsPaymentUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "pay_1" },
+        data: expect.objectContaining({
+          status: "COMPLETED",
+          receivedAt: expect.any(Date),
+          confirmedAt: expect.any(Date),
+          confirmedByUser: {
+            connect: {
+              id: "finance_1"
+            }
+          }
+        })
+      })
+    );
     expect(paymentsCashOperationCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -392,6 +430,24 @@ describe("payments service", () => {
       })
     );
     expect(ordersOrderUpdate).not.toHaveBeenCalled();
+    expect(systemOutboxRecordCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "payment.external_fact_confirmed",
+            aggregateId: "pay_1"
+          }),
+          expect.objectContaining({
+            eventType: "payment.completed",
+            aggregateId: "pay_1"
+          }),
+          expect.objectContaining({
+            eventType: "finance.revenue_recognized",
+            aggregateId: "fin_1"
+          })
+        ])
+      })
+    );
     expect(systemIdempotencyRecordUpdate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -422,6 +478,7 @@ describe("payments service", () => {
       orderId: "order_1",
       status: "PENDING",
       amount: "1000.00",
+      paymentMethod: "CASH",
       externalReference: null,
       receivedAt: null
     });
@@ -488,6 +545,7 @@ describe("payments service", () => {
       orderId: "order_1",
       status: "PENDING",
       amount: "5000.00",
+      paymentMethod: "CASH",
       externalReference: null,
       receivedAt: null
     });
@@ -594,11 +652,13 @@ describe("payments service", () => {
     });
 
     await expect(
-      service.createPayment(
+      service.intakeExternalPaymentFact(
         {
           orderId: "order_1",
           amount: "2000.00",
-          paymentMethod: "cash"
+          paymentMethod: "cash",
+          externalSource: "bank",
+          externalEventId: "bank_evt_42"
         },
         {
           userId: "finance_1",
@@ -688,6 +748,107 @@ describe("payments service", () => {
         })
       })
     );
+  });
+
+  it("rejects pending external fact without cash-in or finance income side effects", async () => {
+    const {
+      service,
+      paymentReadRepository,
+      paymentsPaymentFindFirst,
+      paymentsPaymentUpdate,
+      paymentsCashOperationCreate,
+      financeFinanceEntryCreate,
+      systemOutboxRecordCreateMany,
+      systemIdempotencyRecordFindUnique,
+      systemIdempotencyRecordCreate
+    } = create_service_with_mocks();
+
+    systemIdempotencyRecordFindUnique.mockResolvedValue(null);
+    systemIdempotencyRecordCreate.mockResolvedValue({ id: "idem_reject_0" });
+    paymentsPaymentFindFirst.mockResolvedValue({
+      id: "pay_1",
+      orderId: "order_1",
+      status: "PENDING",
+      amount: "2000.00"
+    });
+    (paymentReadRepository.getById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      build_payment_read_model("rejected")
+    );
+
+    const result = await service.rejectExternalPaymentFact(
+      "pay_1",
+      {
+        reason: "Bank statement mismatch"
+      },
+      {
+        userId: "finance_1",
+        roleCodes: ["finance"]
+      },
+      {
+        idempotencyKey: "idem_reject_0"
+      }
+    );
+
+    expect(result.status).toBe("rejected");
+    expect(paymentsPaymentUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "pay_1" },
+        data: expect.objectContaining({
+          status: "REJECTED",
+          rejectedAt: expect.any(Date)
+        })
+      })
+    );
+    expect(systemOutboxRecordCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "payment.external_fact_rejected",
+            aggregateId: "pay_1",
+            payload: expect.objectContaining({
+              paymentId: "pay_1",
+              orderId: "order_1",
+              reason: "Bank statement mismatch",
+              toStatus: "rejected"
+            })
+          })
+        ])
+      })
+    );
+    expect(paymentsCashOperationCreate).not.toHaveBeenCalled();
+    expect(financeFinanceEntryCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects inbound lead integration names as payment external sources", async () => {
+    const {
+      service,
+      ordersOrderFindFirst,
+      paymentsPaymentCreate,
+      systemIdempotencyRecordFindUnique
+    } = create_service_with_mocks();
+
+    await expect(
+      service.intakeExternalPaymentFact(
+        {
+          orderId: "order_1",
+          amount: "2000.00",
+          paymentMethod: "cash",
+          externalSource: "ATS",
+          externalEventId: "ats_evt_42"
+        },
+        {
+          userId: "finance_1",
+          roleCodes: ["finance"]
+        },
+        {
+          idempotencyKey: "idem_bad_source"
+        }
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(systemIdempotencyRecordFindUnique).not.toHaveBeenCalled();
+    expect(ordersOrderFindFirst).not.toHaveBeenCalled();
+    expect(paymentsPaymentCreate).not.toHaveBeenCalled();
   });
 
   it("rejects refund without returnRequestId before side effects", async () => {

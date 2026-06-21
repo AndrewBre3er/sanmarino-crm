@@ -35,15 +35,21 @@ describe("payments + finance contract freeze", () => {
   });
 
   it("freezes command-style payment flow with idempotency requirements", () => {
-    expect(payments_finance_command_contract.createPayment).toEqual({
+    expect(payments_finance_command_contract.intakeExternalPaymentFact).toEqual({
       method: "POST",
-      path: "/payments",
+      path: "/payments/external-facts/intake",
       requiresIdempotencyKey: true
     });
 
-    expect(payments_finance_command_contract.completePayment).toEqual({
+    expect(payments_finance_command_contract.confirmExternalPaymentFact).toEqual({
       method: "POST",
-      path: "/payments/:paymentId/complete",
+      path: "/payments/:paymentId/confirm-external-fact",
+      requiresIdempotencyKey: true
+    });
+
+    expect(payments_finance_command_contract.rejectExternalPaymentFact).toEqual({
+      method: "POST",
+      path: "/payments/:paymentId/reject-external-fact",
       requiresIdempotencyKey: true
     });
 
@@ -67,6 +73,9 @@ describe("payments + finance contract freeze", () => {
 
   it("freezes payment+finance event surface required for this stage", () => {
     expect(payments_finance_event_contract).toEqual({
+      paymentExternalFactIntaked: "payment.external_fact_intaked",
+      paymentExternalFactConfirmed: "payment.external_fact_confirmed",
+      paymentExternalFactRejected: "payment.external_fact_rejected",
       paymentCompleted: "payment.completed",
       paymentRefundCompleted: "payment.refund_completed",
       financeRevenueRecognized: "finance.revenue_recognized",
@@ -81,4 +90,3 @@ describe("payments + finance contract freeze", () => {
     expect(payments_finance_out_of_scope_contract.reconciliationJobs).toBe("deferred");
   });
 });
-
