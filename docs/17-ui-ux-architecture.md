@@ -33,6 +33,33 @@
 
 `Application Shell -> Role Workspace -> Domain Screens -> Object Views -> Actions`
 
+Дополнительное правило текущего v1:
+- названия ролей в интерфейсе показываются на русском языке
+- техническая авторизация использует канонические role codes:
+  - `admin`, `seller`, `warehouse`, `logistics`, `finance`, `ceo`
+  - optional: `driver`, `marketing`
+- marketing workspace не является обязательным стартовым workspace
+- executive dashboard обязан разделять денежные показатели, отгрузку и контрольные денежные потоки от водителей
+- `Supplier Requests` является обязательным MVP экраном (list + card) для `seller` и `warehouse`
+- список и статус `Supplier Requests` и `Return Requests` должны быть видимы всем ролям
+- CRM productivity baseline обязателен в seller workspace: follow-up, next contact date, reminders, lost reasons, communication history, stuck deals
+- client card baseline обязателен: address, contact, linked deals/orders, dedup/merge workflow surface, installer/designer referral context
+- deal supply summary baseline обязателен: partial coverage, deficits, ETA, linked supplier request context
+- product-supplier matrix baseline обязателен: multiple suppliers, supplier priority, base purchase price
+- `base purchase price` должен быть скрыт от `seller`, `warehouse`, `logistics` на уровне UI/API
+- payment UI в v1 работает как external fact intake/control; CRM-side payment creation не допускается
+- payment `rejected` отображается как terminal status без cash/revenue side effects
+- finance manual correction UI обязателен в рамках approval workflow
+- role home dashboards должны поддерживать saved filters и role notifications
+- integrations baseline обязателен: ATS/Avito inbound events и Telegram/MAX outbound notifications
+- действия по `Supplier Requests` остаются role-limited:
+  - `seller` оформляет заявку
+  - `warehouse`, `finance`, `ceo` прикрепляют файл
+  - `finance` или `ceo` переводят в `paid` (UI: `Оплачено`)
+  - `warehouse` переводит в `stocked` (UI: `Оприходовано`)
+- прикреплённый файл supplier request должен быть видим только `warehouse`, `finance`, `ceo`
+- `ReturnRequest` со сроком более `14` дней после реализации требует согласования `ceo` на подтверждении
+
 ---
 
 ## 3. Цели UI/UX системы
@@ -80,6 +107,8 @@
    - Logistics
    - Finance
    - KPI
+   - Integrations
+   - Notifications
    - Audit
    - Users
 
@@ -227,6 +256,8 @@
 - видимые системные статусы
 - быстрый переход в карточку
 - индикаторы блокировок, конфликтов, просрочек и ошибок
+- сохранение пользовательских фильтров и предустановок по роли
+- quick access к role notifications, связанным с текущим списком
 
 ---
 
@@ -300,16 +331,16 @@
 
 После входа пользователь попадает не на общий dashboard, а на **role home**.
 
-### Sales Home
+### Продавец Home (`seller`)
 Показывает:
 - новые лиды
-- лиды без контакта
-- просроченные follow-up
-- сделки без заказа
+- lead, ожидающие перевода в `в обработке`
+- активные `Deal`
+- supplier coverage status
+- заказы, требующие резерва / partial reserve / supplier coverage
 - заказы, требующие реакции менеджера
-- оплаты со статусом issue, если они влияют на его сделки
 
-### Marketing Home
+### Маркетинг Home (`marketing`, optional later)
 Показывает:
 - лиды по каналам
 - CPL/CAC/ROMI
@@ -317,42 +348,47 @@
 - расходы по маркетингу
 - аномалии каналов
 
-### Finance Home
+### Финансист Home (`finance`)
 Показывает:
 - входящие оплаты
 - невязки по платежам
 - возвраты
 - расходы
-- кассовые отчёты
+- supplier payables
+- деньги у водителей
 - критические расхождения сверки
 
-### Logistics Home
+### Логист Home (`logistics`)
 Показывает:
 - сегодняшний календарь доставок
 - перегруженные интервалы
 - неподтверждённые задачи
 - срывы и переносы
 - доступность водителей
+- проблемные заказы по просроченным деньгам
 
-### Warehouse Home
+### Кладовщик Home (`warehouse`)
 Показывает:
 - низкие остатки
 - активные резервы
-- резервы с истечением TTL
+- partial reserve / full reserve readiness
 - ожидаемые приходы
+- supplier request со статусами `paid` (UI: `Оплачено`) и `stocked` (UI: `Оприходовано`)
 - проблемные отгрузки
 
-### CEO / Management Home
+### Исполнительный директор Home (`ceo`)
 Показывает:
 - сквозные KPI
 - узкие места по воронке
-- cash summary
+- денежную выручку отдельно от `отгружено`
+- деньги у водителей
+- supplier payables
 - логистическую нагрузку
 - остатки и дефицит
 - междоменные расхождения
 - критические override и ошибки данных
 
-### Driver Home
+### Водитель Home (`driver`)
 Показывает:
 - маршрут на сегодня
 - список задач
@@ -368,18 +404,22 @@
 
 Сайдбар должен быть ролевым.
 
+Обязательное исключение v1:
+- для всех ролей должен быть доступен read-only entrypoint к списку и статусу `Supplier Requests` и `Return Requests` (через sidebar, quick-link или notifications center в зависимости от workspace)
+
 Пример:
 
-### Sales sidebar
+### Продавец sidebar (`seller`)
 - Home
 - Leads
 - Deals
 - Orders
 - Clients
+- Supplier Requests
 - Follow-ups
 - My KPI
 
-### Marketing sidebar
+### Маркетинг sidebar (`marketing`, optional later)
 - Home
 - Channels
 - Leads Attribution
@@ -387,15 +427,16 @@
 - Funnel Analytics
 - Reports
 
-### Finance sidebar
+### Финансист sidebar (`finance`)
 - Home
 - Payments
 - Refunds
 - Expenses
+- Supplier Payables
 - Reconciliation
 - Finance Reports
 
-### Logistics sidebar
+### Логист sidebar (`logistics`)
 - Home
 - Delivery Calendar
 - Tasks
@@ -403,27 +444,31 @@
 - Route Days
 - Incidents
 
-### Warehouse sidebar
+### Кладовщик sidebar (`warehouse`)
 - Home
 - Stock
 - Reservations
+- Supplier Requests
 - Movements
 - Receipts
+- Product Matrix
+- ABC Report
 - Returns
 - Write-offs
 
-### CEO sidebar
+### Исполнительный директор sidebar (`ceo`)
 - Home
 - Executive Dashboard
 - Sales
 - Finance
 - Logistics
 - Inventory
+- Supplier Coverage
 - KPI
 - Audit
 - Admin Reports
 
-### Driver sidebar
+### Водитель sidebar (`driver`)
 - Today
 - My Route
 - Delivery Tasks
@@ -437,14 +482,23 @@
 Уведомления должны быть контекстными и ролевыми.
 
 Примеры:
-- Sales: новый lead, просроченный follow-up, deal без следующего шага
-- Finance: неопознанный платёж, возврат в ожидании, кассовая невязка
-- Logistics: конфликт слота, срыв доставки, водитель не подтвердил задачу
-- Warehouse: резерв истекает, отрицательный остаток, конфликт отгрузки
-- CEO: критическая невязка сверки, override, сбой интеграции, системный риск
+- `seller`: новый lead, просроченный follow-up, deal без следующего шага
+- `finance`: неопознанный платёж, возврат в ожидании, кассовая невязка
+- `logistics`: конфликт слота, срыв доставки, деньги от водителя не подтверждены в срок
+- `warehouse`: частичный резерв, отрицательный остаток, конфликт отгрузки, расхождение при приёмке поставки
+- `ceo`: критическая невязка сверки, проблемный заказ, деньги у водителя, сбой интеграции, системный риск
+- `finance`: external payment fact rejected/pending control, manual correction waiting approval
+- `seller`: клиент без next contact, deal в stuck состоянии, дефицит по supply summary
+- `warehouse`: low-stock alert, stale reservation alert, receipt discrepancy alert
+- `logistics`: route day перегрузка, partial delivery risk, driver-money control escalation
 
 Уведомления не должны дублировать весь event stream.
 Они должны показывать только то, что требует решения пользователя.
+
+Интеграционные правила для уведомлений:
+- inbound события ATS/Avito должны быть валидированы и идемпотентно обработаны до отображения в user inbox
+- outbound Telegram/MAX маршрутизуются только по permission-safe policy
+- notification center должен показывать статус отправки (queued/sent/failed) без раскрытия запрещённых полей
 
 ---
 
@@ -453,6 +507,9 @@
 ### 13.1 Deal -> Order
 На карточке deal должны быть видны:
 - связанные orders
+- supplier request
+- reserve coverage summary
+- partial coverage / deficits / ETA
 - статус каждого order
 - сумма
 - оплата в агрегированном виде
@@ -462,11 +519,14 @@
 На карточке order должны быть видны:
 - items
 - резерв
+- supplier coverage
 - платежи
 - доставка / самовывоз
 - fulfillment status
+- control flags (`OnControl` / `Problem`)
 - возвраты
 - timeline
+- linked supplier request context и краткий deal supply summary
 
 ### 13.3 Payment -> Context
 На карточке payment должны быть видны:
@@ -475,6 +535,8 @@
 - сумма
 - канал
 - возвраты / корректировки
+- статус external fact control (`pending` / `completed` / `rejected`)
+- явная пометка: `rejected` не создаёт cash/revenue side effects
 
 ### 13.4 Logistics Task -> Context
 На карточке логистической задачи должны быть видны:
@@ -507,11 +569,15 @@
 Это правило применяется к:
 - марже
 - себестоимости
+- `base purchase price` product-supplier matrix
 - закрытым расходам
 - управленческим KPI
 - override-операциям
 - audit-журналам
 - экспортам
+
+Обязательное поле-level правило v1:
+- `base purchase price` полностью скрыт для `seller`, `warehouse`, `logistics`
 
 ---
 

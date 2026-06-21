@@ -3,13 +3,13 @@ import { ErrorState } from "../../components/states/error-state";
 import { LoadingState } from "../../components/states/loading-state";
 import { PageHeader, PageSection, PageShell } from "../../components/shell/page-shell";
 import { StatusBadge } from "../../components/ui/status-badge";
-import type { WorkspaceCode } from "../../contracts/backoffice-shell.contract";
-import { workspace_descriptors } from "../../contracts/backoffice-shell.contract";
+import type { AuthRoleCode } from "../../contracts/backoffice-shell.contract";
+import { role_russian_labels } from "../../contracts/backoffice-shell.contract";
 
 interface EntityShellPageProps {
   title: string;
   subtitle: string;
-  workspace: WorkspaceCode;
+  roleCode: AuthRoleCode;
   statuses: readonly string[];
   columns: readonly string[];
 }
@@ -17,11 +17,11 @@ interface EntityShellPageProps {
 export function EntityShellPage({
   title,
   subtitle,
-  workspace,
+  roleCode,
   statuses,
   columns
 }: EntityShellPageProps) {
-  const descriptor = workspace_descriptors[workspace];
+  const roleLabel = role_russian_labels[roleCode];
 
   return (
     <PageShell>
@@ -44,7 +44,7 @@ export function EntityShellPage({
 
       <PageSection
         title="List Layout Skeleton"
-        description={`Role-aware workspace context: ${descriptor.title}`}
+        description={`Role-aware context: ${roleLabel}`}
       >
         <div className="bo-table-shell" role="table" aria-label={`${title} shell table`}>
           <div className="bo-table-row bo-table-header" role="row">

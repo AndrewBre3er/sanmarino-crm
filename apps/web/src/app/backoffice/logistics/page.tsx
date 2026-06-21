@@ -5,7 +5,7 @@ const logistics_modules = ["Delivery Tasks", "Delivery Calendar (shell)", "Incid
 export default function LogisticsWorkspacePage() {
   return (
     <WorkspaceShellPage
-      workspace="logistics"
+      roleCode="logistics"
       title="Logistics Workspace"
       subtitle="Role-aware shell for delivery operations"
       modules={logistics_modules}

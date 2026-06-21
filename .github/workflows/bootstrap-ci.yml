@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   bootstrap-checks:
@@ -24,6 +24,9 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -37,4 +40,5 @@ jobs:
         run: pnpm test
 
       - name: TODO Note
-        run: echo "TODO: add domain-level checks in implementation phase"
+        run: |
+          echo "TODO: add domain-level checks in implementation phase"

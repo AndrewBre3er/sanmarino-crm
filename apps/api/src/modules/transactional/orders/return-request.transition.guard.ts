@@ -5,10 +5,8 @@ import {
 } from "../shared/transition.guard";
 
 export const return_request_status_transition_matrix = {
-  draft: ["submitted", "rejected"],
-  submitted: ["approved", "rejected"],
-  approved: ["processed", "rejected"],
-  rejected: ["closed"],
+  created: ["confirmed"],
+  confirmed: ["processed"],
   processed: ["closed"],
   closed: []
 } as const satisfies Record<ReturnRequestStatus, readonly ReturnRequestStatus[]>;

@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min
@@ -13,11 +14,21 @@ import {
 import {
   deal_statuses,
   delivery_task_statuses,
+  expense_types,
+  finance_correction_statuses,
+  finance_entry_types,
+  fulfillment_statuses,
+  lead_statuses,
   order_statuses,
   payment_statuses,
   return_request_statuses,
   type DealStatus,
   type DeliveryTaskStatus,
+  type ExpenseType,
+  type FinanceCorrectionStatus,
+  type FinanceEntryType,
+  type FulfillmentStatus,
+  type LeadStatus,
   type OrderStatus,
   type PaymentStatus,
   type ReturnRequestStatus
@@ -155,8 +166,13 @@ export class LeadsReadQueryDto extends BaseReadCollectionQueryDto {
   @IsOptional()
   @Transform(({ value }) => to_string_array(value))
   @IsArray()
-  @IsString({ each: true })
-  status?: string[];
+  @IsIn(lead_statuses, { each: true })
+  status?: LeadStatus[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  responsibleUserId?: string;
 }
 
 export class DealsReadQueryDto extends BaseReadCollectionQueryDto {
@@ -165,6 +181,11 @@ export class DealsReadQueryDto extends BaseReadCollectionQueryDto {
   @IsArray()
   @IsIn(deal_statuses, { each: true })
   status?: DealStatus[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  responsibleUserId?: string;
 }
 
 export class OrdersReadQueryDto extends BaseReadCollectionQueryDto {
@@ -173,6 +194,11 @@ export class OrdersReadQueryDto extends BaseReadCollectionQueryDto {
   @IsArray()
   @IsIn(order_statuses, { each: true })
   status?: OrderStatus[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  responsibleUserId?: string;
 }
 
 export class PaymentsReadQueryDto extends BaseReadCollectionQueryDto {
@@ -181,6 +207,63 @@ export class PaymentsReadQueryDto extends BaseReadCollectionQueryDto {
   @IsArray()
   @IsIn(payment_statuses, { each: true })
   status?: PaymentStatus[];
+}
+
+export class FinanceEntriesReadQueryDto extends BaseReadCollectionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => to_string_array(value))
+  @IsArray()
+  @IsIn(finance_entry_types, { each: true })
+  entryType?: FinanceEntryType[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  orderId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  paymentId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  expenseId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  marketingExpenseId?: string;
+}
+
+export class ExpensesReadQueryDto extends BaseReadCollectionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => to_string_array(value))
+  @IsArray()
+  @IsIn(expense_types, { each: true })
+  expenseType?: ExpenseType[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  relatedOrderId?: string;
+}
+
+export class MarketingExpensesReadQueryDto extends BaseReadCollectionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsString()
+  @MaxLength(128)
+  source?: string;
+}
+
+export class FinanceManualCorrectionsReadQueryDto extends BaseReadCollectionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => to_string_array(value))
+  @IsArray()
+  @IsIn(finance_correction_statuses, { each: true })
+  status?: FinanceCorrectionStatus[];
 }
 
 export class DeliveryTasksReadQueryDto extends BaseReadCollectionQueryDto {
@@ -197,6 +280,19 @@ export class ReturnRequestsReadQueryDto extends BaseReadCollectionQueryDto {
   @IsArray()
   @IsIn(return_request_statuses, { each: true })
   status?: ReturnRequestStatus[];
+}
+
+export class FulfillmentsReadQueryDto extends BaseReadCollectionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => to_string_array(value))
+  @IsArray()
+  @IsIn(fulfillment_statuses, { each: true })
+  status?: FulfillmentStatus[];
+
+  @IsOptional()
+  @Transform(({ value }) => trim_to_undefined(value))
+  @IsUUID()
+  orderId?: string;
 }
 
 export interface BuildReadCollectionQueryOptions {

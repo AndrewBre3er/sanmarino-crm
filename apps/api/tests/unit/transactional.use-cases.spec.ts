@@ -15,6 +15,7 @@ import {
   type LogisticsDeliveryTaskCreateInput,
   type LogisticsDeliveryTaskRecord,
   type LogisticsDeliveryTaskRepositoryContract,
+  type EnsureOrderFromDealInput,
   type LogisticsDeliveryTaskUpdateInput,
   type OrdersOrderCreateInput,
   type OrdersOrderRecord,
@@ -58,6 +59,15 @@ class FakeOrderRepository implements OrdersOrderRepositoryContract {
 
   async create(input: OrdersOrderCreateInput): Promise<OrdersOrderRecord> {
     void input;
+    throw new Error("not needed in test");
+  }
+
+  async ensureFromDeal(
+    input: EnsureOrderFromDealInput,
+    options?: RepositoryUpdateOptions
+  ): Promise<OrdersOrderRecord> {
+    void input;
+    void options;
     throw new Error("not needed in test");
   }
 
@@ -157,17 +167,27 @@ class FakeDeliveryTaskRepository implements LogisticsDeliveryTaskRepositoryContr
 
 function build_order_record(
   fulfillmentType: OrdersOrderRecord["fulfillmentType"],
-  status: OrdersOrderRecord["status"] = "reserved"
+  status: OrdersOrderRecord["status"] = "ready_for_shipment"
 ): OrdersOrderRecord {
   return {
     id: "order_1",
     orderNumber: "ORD-1",
     dealId: "deal_1",
+    clientId: "client_1",
     status,
+    paymentControlStatus: "none",
+    paymentControlDueAt: null,
     fulfillmentType,
     deliveryStatus: "not_scheduled",
     currency: "RUB",
+    subtotalAmount: "0",
+    discountAmount: "0",
     totalAmount: "0",
+    notes: null,
+    readyForPartialShipmentAt: null,
+    readyForShipmentAt: null,
+    partiallyShippedAt: null,
+    shippedAt: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     isDeleted: false,
@@ -186,7 +206,7 @@ describe("transition order status use-case", () => {
     await expect(
       useCase.execute({
         orderId: "order_1",
-        targetStatus: "in_progress"
+        targetStatus: "partially_shipped"
       })
     ).rejects.toThrowError();
   });
@@ -200,10 +220,10 @@ describe("transition order status use-case", () => {
 
     const updated = await useCase.execute({
       orderId: "order_1",
-      targetStatus: "in_progress"
+      targetStatus: "partially_shipped"
     });
 
-    expect(updated.status).toBe("in_progress");
+    expect(updated.status).toBe("partially_shipped");
   });
 
   it("rejects pickup order when active delivery tasks are present", async () => {
@@ -216,7 +236,7 @@ describe("transition order status use-case", () => {
     await expect(
       useCase.execute({
         orderId: "order_1",
-        targetStatus: "in_progress"
+        targetStatus: "partially_shipped"
       })
     ).rejects.toThrowError();
   });

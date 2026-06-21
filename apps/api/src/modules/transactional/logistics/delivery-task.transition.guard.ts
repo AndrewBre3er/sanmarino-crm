@@ -7,8 +7,8 @@ import {
 export const delivery_task_status_transition_matrix = {
   planned: ["assigned", "rescheduled", "failed"],
   assigned: ["in_transit", "rescheduled", "failed"],
-  in_transit: ["delivered", "failed", "rescheduled"],
-  rescheduled: ["assigned", "in_transit", "failed"],
+  in_transit: ["delivered", "failed"],
+  rescheduled: [],
   delivered: [],
   failed: []
 } as const satisfies Record<DeliveryTaskStatus, readonly DeliveryTaskStatus[]>;

@@ -3,8 +3,14 @@
 
 ## Context
 
-Проект находится в pre-start фазе.
-Документация по логике, ролям, безопасности, тестированию и UI/UX уже подготовлена.
+Репозиторий находится не в исходной pre-start точке.
+Фактическое состояние кода уже ушло дальше baseline-этапов `auth skeleton` и `users/roles/permissions`.
+Stage 7 `Returns + Reconciliation + Audit hardening` закрыт как backend baseline после final verification.
+
+Текущая задача — открыть следующий major stage без потери границ:
+- следующий major stage: Stage 8 `KPI / Reporting / Automation layer`
+- Stage 7 deferrable gaps должны идти в целевые этапы, а не переоткрывать backend baseline
+- новый coding slice должен начинаться только из отдельного narrow task-файла
 
 ## Mandatory reading order
 
@@ -27,48 +33,54 @@
    - `23-tech-baseline-and-decision-log.md`
    - `24-mvp-scope-v1.md`
    - `25-development-standards.md`
+   - `38-mvp-v1-functional-realignment.md`
+   - `37-order-flow-pre-coding-requirements.md` (mandatory before coding extended order-commercial features)
 
 ## Current objective
 
-Подготовить проект к безопасному старту разработки в выбранном стеке без нарушения доменной логики.
+Зафиксировать переход после Stage 7:
+- Stage 7 `Returns + Reconciliation + Audit hardening` закрыт как backend baseline
+- deferrable gaps сохранены с target stages
+- следующий major stage — Stage 8 `KPI / Reporting / Automation layer`
+- первая Stage 8 работа должна быть отдельным narrow task на базе accepted docs и repo state
 
 ## What is allowed now
 
 Допустимо:
-- уточнять структуру репозитория
-- добавлять безопасные каркасы каталогов и файлов
-- подготавливать абстрактные интерфейсы
-- подготавливать README / setup / bootstrap документы
-- делать стек-специфичный старт только после утверждения tech baseline
+- синхронизировать status/navigation docs после Stage 7 final verification
+- формулировать следующий narrow task для Stage 8
+- фиксировать deferrable gaps без изменения доменных правил
 
 ## What is not allowed now
 
 Запрещено:
-- придумывать технологический стек без подтверждения
-- смешивать несколько стеков в одном решении
-- добавлять новые статусы, переходы и финансовые правила
-- реализовывать доступы только на frontend
-- реализовывать accrual вместо cash basis
-- делать durable reservation на стадии draft вместо short-lived soft lock
-- делать refund без `ReturnRequest`
+- переоткрывать Stage 7 backend baseline без нового принятого blocker
+- запускать Stage 8 implementation slice без отдельного task-файла
+- придумывать новые доменные решения вне приоритетных docs и `docs/38`
+- ослаблять state machine / idempotency / cash basis / ReturnRequest discipline
 
-## First coding step after stack approval
+## Current implementation framing after repo progress
 
-1. bootstrap проекта под выбранный стек
-2. format/lint/typecheck/test scaffolding
-3. app shell
-4. auth skeleton
-5. users/roles/permissions module
-6. domain skeleton for core modules
+1. Stage 7 закрыт как backend baseline.
+2. Deferrable gaps:
+   - live reconciliation worker-to-API transport/scheduler -> Stage 8 automation hardening
+   - Telegram/MAX providers and broad notification routing -> MVP integrations / Delta 0 Wave D
+   - reconciliation resolution workflow -> Stage 8 reporting/control
+   - external payment intake/control realignment -> Delta 0 Wave A before MVP release
+   - UI/e2e coverage for returns/reconciliation/corrections -> MVP release hardening
+3. Следующий major stage: Stage 8 `KPI / Reporting / Automation layer`.
+4. Первый следующий шаг: сформулировать narrow Stage 8 status/task file before coding.
+
+Примечание:
+- baseline этапы `auth skeleton` и `users/roles/permissions` больше не считаются "первыми ближайшими шагами" для этого репозитория.
 
 ## Acceptance criteria for current phase
 
-Pre-start фаза закрыта, если:
-- стек утверждён
-- MVP v1 утверждён
-- security/testing baseline утверждён
-- структура репозитория готова
-- Codex получает однозначный стартовый контекст
+Текущая status-sync фаза считается закрытой, если:
+- Stage 7 closure status записан в navigation/current-task docs
+- deferrable gaps имеют target stages
+- Stage 8 обозначен как следующий major stage
+- docs не добавляют новых доменных правил
 
 
 ## v8 Architecture Overrides

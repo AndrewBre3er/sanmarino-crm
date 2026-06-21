@@ -1,17 +1,20 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { CrmLead, Prisma } from "@prisma/client";
+import type { CrmLead, LeadStatus as PrismaLeadStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
+import type { LeadStatus } from "../../transactional/shared/status.contract";
 import type {
   ReadCollectionQueryInput,
   ReadCollectionResult
 } from "../shared/read-model.contract";
 import { build_page_pagination_meta } from "../shared/read-query.dto";
-import { to_iso_datetime } from "../shared/prisma-read.mapper";
+import { from_prisma_enum, to_iso_datetime } from "../shared/prisma-read.mapper";
 
 export interface CrmLeadReadModel {
   id: string;
   source: string;
-  status: string;
+  status: LeadStatus;
+  clientId: string | null;
+  contactId: string | null;
   title: string | null;
   notes: string | null;
   responsibleUserId: string | null;
@@ -20,16 +23,39 @@ export interface CrmLeadReadModel {
   version: number;
 }
 
+export interface CrmLeadReadScope {
+  responsibleUserId?: string;
+}
+
 export interface CrmLeadReadRepositoryContract {
-  list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<CrmLeadReadModel>>;
-  getById(leadId: string): Promise<CrmLeadReadModel | null>;
+  list(
+    query: ReadCollectionQueryInput,
+    scope?: CrmLeadReadScope
+  ): Promise<ReadCollectionResult<CrmLeadReadModel>>;
+  getById(leadId: string, scope?: CrmLeadReadScope): Promise<CrmLeadReadModel | null>;
+}
+
+const lead_status_to_prisma: Record<string, PrismaLeadStatus> = {
+  new: "NEW",
+  in_processing: "IN_PROCESSING",
+  cancelled: "CANCELLED"
+};
+
+function map_read_statuses_to_prisma(statuses: readonly string[]): PrismaLeadStatus[] {
+  const mapped = statuses
+    .map((status) => lead_status_to_prisma[status.toLowerCase()])
+    .filter((status): status is PrismaLeadStatus => Boolean(status));
+
+  return Array.from(new Set(mapped));
 }
 
 function map_crm_lead_read_model(record: CrmLead): CrmLeadReadModel {
   return {
     id: record.id,
     source: record.source,
-    status: record.status,
+    status: from_prisma_enum(record.status) as LeadStatus,
+    clientId: record.clientId,
+    contactId: record.contactId,
     title: record.title,
     notes: record.notes,
     responsibleUserId: record.responsibleUserId,
@@ -43,7 +69,10 @@ function map_crm_lead_read_model(record: CrmLead): CrmLeadReadModel {
 export class PrismaCrmLeadReadRepository implements CrmLeadReadRepositoryContract {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
-  async list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<CrmLeadReadModel>> {
+  async list(
+    query: ReadCollectionQueryInput,
+    scope?: CrmLeadReadScope
+  ): Promise<ReadCollectionResult<CrmLeadReadModel>> {
     const where: Prisma.CrmLeadWhereInput = {};
 
     if (query.search) {
@@ -55,12 +84,17 @@ export class PrismaCrmLeadReadRepository implements CrmLeadReadRepositoryContrac
     }
 
     if (query.status && query.status.length > 0) {
-      const [first_status] = query.status;
-      if (query.status.length === 1 && first_status) {
+      const mapped_statuses = map_read_statuses_to_prisma(query.status);
+      const [first_status] = mapped_statuses;
+      if (mapped_statuses.length === 1 && first_status) {
         where.status = first_status;
-      } else {
-        where.status = { in: query.status };
+      } else if (mapped_statuses.length > 1) {
+        where.status = { in: mapped_statuses };
       }
+    }
+
+    if (scope?.responsibleUserId) {
+      where.responsibleUserId = scope.responsibleUserId;
     }
 
     const orderBy = {
@@ -85,9 +119,12 @@ export class PrismaCrmLeadReadRepository implements CrmLeadReadRepositoryContrac
     };
   }
 
-  async getById(leadId: string): Promise<CrmLeadReadModel | null> {
-    const lead = await this.prismaService.crmLead.findUnique({
-      where: { id: leadId }
+  async getById(leadId: string, scope?: CrmLeadReadScope): Promise<CrmLeadReadModel | null> {
+    const lead = await this.prismaService.crmLead.findFirst({
+      where: {
+        id: leadId,
+        ...(scope?.responsibleUserId ? { responsibleUserId: scope.responsibleUserId } : {})
+      }
     });
 
     return lead ? map_crm_lead_read_model(lead) : null;

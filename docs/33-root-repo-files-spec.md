@@ -44,6 +44,23 @@ The repository root must contain exactly these baseline files on bootstrap:
 
 No business code may live at root.
 
+## 1.1 Optional root operational directories
+
+The repository may additionally contain:
+
+```text
+/
+└─ .beads/
+```
+
+Purpose:
+- repo-local issue tracking and execution metadata for development workflow
+
+Rules:
+- optional, not required for bootstrap completion
+- must not store canonical business rules or architecture decisions
+- must not replace accepted documentation in `docs/*`
+
 ---
 
 ## 2. Required root file contracts

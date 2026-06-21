@@ -4,6 +4,7 @@ import {
   build_page_pagination_meta,
   build_read_collection_query,
   type DealsReadQueryDto,
+  type FinanceEntriesReadQueryDto,
   type OrdersReadQueryDto
 } from "../../src/modules/read-side/shared/read-query.dto";
 
@@ -12,7 +13,7 @@ describe("read-side query contracts", () => {
     const dto: DealsReadQueryDto = {
       search: "pipeline",
       sortBy: "unsupported_field",
-      status: ["qualified"]
+      status: ["in_progress"]
     };
 
     const query = build_read_collection_query(dto, {
@@ -26,12 +27,12 @@ describe("read-side query contracts", () => {
     expect(query.pageSize).toBe(20);
     expect(query.sortField).toBe("updatedAt");
     expect(query.sortDirection).toBe("desc");
-    expect(query.status).toEqual(["qualified"]);
+    expect(query.status).toEqual(["in_progress"]);
     expect(query.contract.pagination?.mode).toBe("page");
     expect(query.contract.filters?.[0]).toEqual({
       field: "status",
       operator: "eq",
-      value: "qualified"
+      value: "in_progress"
     });
   });
 
@@ -41,7 +42,7 @@ describe("read-side query contracts", () => {
       pageSize: 10,
       sortBy: "createdAt",
       sortDirection: "asc",
-      status: ["confirmed", "reserved"]
+      status: ["ready_for_partial_shipment", "ready_for_shipment"]
     };
 
     const query = build_read_collection_query(dto, {
@@ -56,7 +57,7 @@ describe("read-side query contracts", () => {
     expect(query.contract.filters?.[0]).toEqual({
       field: "status",
       operator: "in",
-      value: ["confirmed", "reserved"]
+      value: ["ready_for_partial_shipment", "ready_for_shipment"]
     });
   });
 
@@ -68,6 +69,28 @@ describe("read-side query contracts", () => {
       pageSize: 20,
       totalItems: 45,
       totalPages: 3
+    });
+  });
+
+  it("supports finance entries entryType filters in collection query", () => {
+    const dto: FinanceEntriesReadQueryDto = {
+      entryType: ["income"],
+      sortBy: "recognizedAt",
+      sortDirection: "desc"
+    };
+
+    const query = build_read_collection_query(dto, {
+      defaultSortField: "recognizedAt",
+      allowedSortFields: ["recognizedAt", "createdAt", "entryType", "amount"],
+      statusField: "entryType",
+      statusValues: dto.entryType
+    });
+
+    expect(query.status).toEqual(["income"]);
+    expect(query.contract.filters?.[0]).toEqual({
+      field: "entryType",
+      operator: "eq",
+      value: "income"
     });
   });
 });

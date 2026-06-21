@@ -1,3 +1,5 @@
+import { kpi_refresh_queue_default_name, kpi_refresh_queue_key } from "@sanmarino/types";
+
 export interface WorkerQueueContract {
   key: "outbox" | "kpi" | "reservation_expiry" | "reconciliation";
   env_key: string;
@@ -13,9 +15,9 @@ export const worker_queue_contracts: WorkerQueueContract[] = [
     purpose: "Infrastructure outbox dispatch placeholder"
   },
   {
-    key: "kpi",
+    key: kpi_refresh_queue_key,
     env_key: "WORKER_KPI_QUEUE",
-    default_name: "analytics.kpi",
+    default_name: kpi_refresh_queue_default_name,
     purpose: "KPI aggregate refresh placeholder"
   },
   {

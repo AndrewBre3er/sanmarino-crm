@@ -1,1283 +1,553 @@
 # 15. Event Model
 
-
 ## Статус документа
 
-Канонический технический документ для проектирования событийной модели системы.
-
-Документ опирается на уже утверждённые правила проекта и не должен им противоречить:
+Канонический документ по событийным контрактам.
+Согласован с текущей доменной логикой:
 - `Lead -> Deal -> Order(s) -> Fulfillment(s)`
-- `cashBasis`
+- `cash basis`
 - `ReturnRequest` как обязательная точка входа для возвратов
-- `state machine`
-- `idempotency`
-- разделение доменов и источников истины
-- ежедневная `reconciliation`
+- `Order -> DeliveryTask = 1:N`
+- `OnControl/Problem` как overlay-контур контроля денег после отгрузки
+- `idempotency`, `outbox`, `reconciliation`
 
-Документ **не фиксирует**:
-- конкретный брокер сообщений
-- конкретную очередь
-- конкретный transport layer
-- конкретный формат outbox/inbox реализации
-- конкретную гарантию доставки уровня инфраструктуры
-
-Этот документ задаёт **логическую событийную модель**: какие события существуют, когда они возникают, какие поля обязаны содержать и какие домены могут на них реагировать.
+Документ намеренно не фиксирует:
+- конкретный message broker
+- конкретный transport
+- конкретный формат реализации outbox/inbox
 
 ---
 
-## Приоритетные архитектурные поправки
-
-Событийная модель должна отражать `08-architecture-fixes-and-critical-blockers.md`.
-Обязательные последствия:
-- междоменные мутации подтверждения заказа публикуются через outbox
-- частичный успех без compensating action запрещён
-- должны существовать события по soft lock, reservation, delivery task, quarantine и KPI aggregation
-
 ## 1. Назначение событийной модели
 
-Событийная модель нужна для того, чтобы система могла:
-- синхронизировать домены без скрытой связности
-- обеспечивать аудит критических действий
-- запускать вторичные процессы без дублирования бизнес-логики
-- поддерживать идемпотентную обработку
-- строить уведомления, KPI и сверки на основе воспроизводимых фактов
-- отделять первичный факт от производных реакций
+Событийная модель нужна, чтобы:
+- синхронизировать домены без жёсткой связности
+- запускать вторичные реакции (KPI, уведомления, сверки)
+- сохранять воспроизводимый журнал фактов
+- обеспечить идемпотентную обработку и трассировку
 
 Ключевой принцип:
-**событие не заменяет источник истины.**
-Источник истины остаётся в доменной таблице, а событие является зафиксированным фактом изменения или фактом завершения доменного действия.
+событие фиксирует факт, но не подменяет источник истины.
 
 ---
 
 ## 2. Базовые принципы
 
-### 2.1 Событие публикуется только после фиксации первичного факта
+### 2.1 Primary fact first
+Сначала фиксируется первичный факт в доменной таблице, потом публикуется событие.
 
-Сначала система должна зафиксировать первичный факт в домене.
-Только после этого может публиковаться событие.
+### 2.2 Domain boundaries
+Событие одного домена не должно подменять факт другого домена.
+Пример: `delivery_task.delivered` не равен денежному факту.
 
-Примеры:
-- сначала создаётся `payments.payment`, затем публикуется `payment.completed`
-- сначала создаётся `inventory.inventory_movement`, затем публикуется `inventory.issue.recorded`
-- сначала обновляется статус `orders.order`, затем публикуется `order.confirmed`
+### 2.3 Idempotency required
+Повтор доставки одного события не должен создавать повторный бизнес-эффект.
 
----
+### 2.4 Delivery semantics
+Допустима at-least-once доставка, consumer обязан быть идемпотентным.
 
-### 2.2 Событие не должно быть единственным местом хранения бизнес-смысла
-
-Запрещено строить систему так, чтобы:
-- факт оплаты существовал только в событии
-- факт отгрузки существовал только в событии
-- факт возврата существовал только в событии
-
-Событие должно ссылаться на первичный объект.
+### 2.5 Cross-domain safety
+Критические междоменные мутации должны быть атомарны или компенсируемы.
+Публикация после коммита первичного факта должна идти через outbox или эквивалент.
 
 ---
 
-### 2.3 События делятся на доменные и системные
-
-Доменные события отражают бизнес-факты:
-- `order.confirmed`
-- `payment.completed`
-- `return_request.approved`
-
-Системные события отражают технические процессы:
-- `reconciliation.completed`
-- `idempotency.conflict_detected`
-- `integration.delivery_export_failed`
-
-Основной фокус этого документа — **доменные события** и их обязательные системные последствия.
-
----
-
-### 2.4 Идемпотентность обязательна
-
-Повторная доставка одного и того же события не должна приводить к повторному бизнес-эффекту.
-
-Следствия:
-- у каждого события должен быть уникальный `eventId`
-- должен существовать `deduplication key` или эквивалентный механизм обработки
-- consumer обязан уметь безопасно обрабатывать повтор
-
----
-
-### 2.5 События не должны ломать source of truth
-
-Нельзя:
-- по событию `order.confirmed` считать заказ оплаченным
-- по событию `deal.won` считать доставку исполненной
-- по событию `delivery.delivered` напрямую рисовать доход без денежного факта
-
-Каждый домен реагирует на событие только в пределах своей ответственности.
-
----
-
-## 3. Базовая структура события
-
-Минимальная каноническая форма:
+## 3. Канонический envelope
 
 ```json
 {
   "eventId": "evt_...",
-  "eventType": "payment.completed",
+  "eventType": "order.shipped",
   "eventVersion": 1,
-  "occurredAt": "2026-04-03T10:00:00Z",
-  "producer": "payments",
-  "entityType": "Payment",
-  "entityId": "pay_...",
+  "occurredAt": "2026-04-04T10:00:00Z",
+  "producer": "orders",
+  "entityType": "Order",
+  "entityId": "ord_...",
   "correlationId": "corr_...",
   "causationId": "cmd_...",
   "idempotencyKey": "idem_...",
-  "payload": { ... },
-  "meta": { ... }
+  "payload": {},
+  "meta": {
+    "schemaVersion": 1,
+    "actorUserId": "usr_...",
+    "traceId": "trc_...",
+    "sourceRequestId": "req_..."
+  }
 }
 ```
 
----
+Обязательные поля:
+- `eventId`, `eventType`, `eventVersion`
+- `occurredAt`, `producer`
+- `entityType`, `entityId`
+- `payload`
 
-## 4. Обязательные поля события
-
-### 4.1 Идентификация
-
-- `eventId` — уникальный идентификатор события
-- `eventType` — каноническое имя события
-- `eventVersion` — версия контракта события
-
----
-
-### 4.2 Время и источник
-
-- `occurredAt` — момент возникновения бизнес-факта
-- `producer` — домен-источник события
+Рекомендуемые поля:
+- `correlationId`, `causationId`, `idempotencyKey`, `meta`
 
 ---
 
-### 4.3 Привязка к объекту
+## 4. Именование и версия
 
-- `entityType` — тип доменной сущности
-- `entityId` — идентификатор сущности
-
----
-
-### 4.4 Трассировка
-
-- `correlationId` — связывает цепочку процессов
-- `causationId` — указывает непосредственную причину
-- `idempotencyKey` — передаётся, если операция была идемпотентной командой
-
----
-
-### 4.5 Полезная нагрузка
-
-`payload` должен содержать только те поля, которые нужны downstream-обработчикам для безопасной реакции без дополнительной догадки о смысле.
-
-Нельзя:
-- дублировать весь объект без необходимости
-- отправлять поля, не подтверждённые как факт
-- подменять ссылочную связность текстовыми описаниями
-
----
-
-### 4.6 Метаданные
-
-`meta` может содержать:
-- `schemaVersion`
-- `tenantId` — `TBD`, если мультиарендность будет утверждена
-- `actorUserId`
-- `traceId`
-- `sourceRequestId`
-
----
-
-## 5. Правила именования
-
-Рекомендуемый формат:
+Формат имени:
 `<aggregate>.<fact>`
 
-Примеры:
-- `lead.created`
-- `deal.won`
-- `order.confirmed`
-- `reservation.created`
-- `payment.completed`
-- `delivery.delivered`
-- `return_request.approved`
-- `reconciliation.completed`
-
 Требования:
-- имя должно отражать **свершившийся факт**, а не намерение
-- имя не должно описывать UI-действие
-- имя не должно смешивать несколько фактов в одном событии
-
-Нежелательно:
-- `order_button_clicked`
-- `payment_and_delivery_done`
-- `manager_changed_everything`
+- имя описывает свершившийся факт, не UI-действие
+- одно событие = один факт
+- breaking-изменения только через новую `eventVersion`
 
 ---
 
-## 6. Каталог доменных событий
+## 5. Каталог событий
 
-## 6.1 CRM
+## 5.1 CRM
 
 ### `lead.created`
+Когда: создан lead из АТС/сайта/Avito.
+Минимальный payload: `leadId`, `source`, `status`.
 
-Возникает когда:
-- в системе создан новый lead
+### `lead.in_processing`
+Когда: lead переведён в `InProcessing`.
+Минимальный payload: `leadId`, `responsibleUserId`, `changedAt`.
 
-Источник истины:
-- `crm.lead`
+### `lead.cancelled`
+Когда: lead отменён с причиной.
+Минимальный payload: `leadId`, `reason`, `cancelledAt`.
 
-Минимальный payload:
-- `leadId`
-- `source`
-- `status`
-- `clientId` — nullable
-- `contactId` — nullable
-- `responsibleUserId`
+### `deal.created_from_lead`
+Когда: из lead в `InProcessing` создан deal.
+Минимальный payload: `dealId`, `leadId`, `clientId`, `responsibleUserId`.
 
-Потребители:
-- audit
-- analytics
-- notifications — опционально
+### `deal.updated`
+Когда: коммерческие данные deal обновлены (товары/суммы/участники/метаданные).
+Минимальный payload: `dealId`, `changedFields`, `updatedAt`.
 
----
+### `deal.follow_up_updated`
+Когда: обновлён follow-up/next-contact контур сделки.
+Минимальный payload: `dealId`, `nextContactAt`, `reminderAt`, `updatedAt`.
 
-### `lead.converted_to_deal`
+### `deal.lost_reason_set`
+Когда: сделка помечена как lost с причиной.
+Минимальный payload: `dealId`, `lostReason`, `changedAt`.
 
-Возникает когда:
-- lead конвертирован в deal
+### `deal.stuck_flag_changed`
+Когда: сделка помечена как stuck/unstuck.
+Минимальный payload: `dealId`, `isStuck`, `reason`, `changedAt`.
 
-Источник истины:
-- `crm.deal`
+### `deal.communication_logged`
+Когда: добавлена запись в communication history.
+Минимальный payload: `dealId`, `clientId`, `channel`, `occurredAt`, `authorUserId`.
 
-Минимальный payload:
-- `leadId`
-- `dealId`
-- `clientId`
-- `responsibleUserId`
+### `client.address_updated`
+Когда: обновлён адрес клиента.
+Минимальный payload: `clientId`, `updatedAt`.
 
-Потребители:
-- analytics
-- audit
+### `client.merged`
+Когда: выполнен dedup/merge клиентских карточек.
+Минимальный payload: `targetClientId`, `mergedClientId`, `mergedAt`, `actorUserId`.
 
----
+### `deal.cancelled`
+Когда: deal отменён.
+Минимальный payload: `dealId`, `reason`, `cancelledAt`.
 
-### `deal.created`
-
-Возникает когда:
-- создана новая сделка
-
-Источник истины:
-- `crm.deal`
-
-Минимальный payload:
-- `dealId`
-- `clientId`
-- `status`
-- `responsibleUserId`
-
-Потребители:
-- analytics
-- audit
+### `deal.converted_to_order`
+Когда: система автосоздала order из deal по правилам обеспечения товара.
+Минимальный payload: `dealId`, `orderId`, `convertedAt`.
 
 ---
 
-### `deal.won`
-
-Возникает когда:
-- сделка переведена в `Won`
-
-Источник истины:
-- `crm.deal`
-
-Минимальный payload:
-- `dealId`
-- `clientId`
-- `wonAt`
-- `responsibleUserId`
-
-Потребители:
-- analytics
-- audit
-
-Ограничение:
-- событие не создаёт оплату, отгрузку или доход
-
----
-
-### `deal.lost`
-
-Возникает когда:
-- сделка переведена в `Lost`
-
-Источник истины:
-- `crm.deal`
-
-Минимальный payload:
-- `dealId`
-- `lostAt`
-- `reason` — optional / `TBD`
-
-Потребители:
-- analytics
-- audit
-
----
-
-## 6.2 Orders
-
-### `order.created`
-
-Возникает когда:
-- создан order в состоянии `Draft`
-
-Источник истины:
-- `orders.order`
-
-Минимальный payload:
-- `orderId`
-- `dealId`
-- `clientId`
-- `status`
-- `fulfillmentMethod`
-- `itemsSummary`
-
-Потребители:
-- audit
-- analytics
-
-Ограничение:
-- событие не должно запускать резерв или списание
-
----
-
-### `order.confirmed`
-
-Возникает когда:
-- order подтверждён
-
-Источник истины:
-- `orders.order`
-
-Минимальный payload:
-- `orderId`
-- `dealId`
-- `clientId`
-- `confirmedAt`
-- `reservationRequired`
-- `deliveryPlanningRequired`
-- `pickupPlanningRequired`
-
-Потребители:
-- inventory
-- logistics
-- audit
-- analytics
-
-Ожидаемые реакции:
-- inventory может создать `reservation`
-- logistics может создать бронирование слота / задачу
-
-Ограничение:
-- само событие не должно считаться фактом резерва
-
----
-
-### `order.cancelled`
-
-Возникает когда:
-- заказ отменён
-
-Источник истины:
-- `orders.order`
-
-Минимальный payload:
-- `orderId`
-- `cancelledAt`
-- `reason` — optional / `TBD`
-
-Потребители:
-- inventory
-- logistics
-- finance
-- analytics
-- audit
-
-Ожидаемые реакции:
-- снятие резерва
-- освобождение слота
-- финансовая проверка незавершённых денежных последствий
-
----
-
-### `order.completed`
-
-Возникает когда:
-- исполнение заказа завершено
-
-Источник истины:
-- `orders.order`
-
-Минимальный payload:
-- `orderId`
-- `completedAt`
-- `fulfillmentCount`
-
-Потребители:
-- analytics
-- audit
-
-Ограничение:
-- событие не признаёт доход автоматически
-
----
-
-### `order.closed`
-
-Возникает когда:
-- заказ окончательно закрыт после урегулирования последствий
-
-Источник истины:
-- `orders.order`
-
-Минимальный payload:
-- `orderId`
-- `closedAt`
-
-Потребители:
-- analytics
-- audit
-
----
-
-## 6.3 Fulfillment / Logistics
-
-### `fulfillment.created`
-
-Возникает когда:
-- создано исполнение заказа
-
-Источник истины:
-- `orders.fulfillment`
-
-Минимальный payload:
-- `fulfillmentId`
-- `orderId`
-- `type`
-- `status`
-- `plannedDate`
-
-Потребители:
-- logistics
-- audit
-
----
-
-### `delivery.task_created`
-
-Возникает когда:
-- создана задача доставки
-
-Источник истины:
-- `logistics.delivery_task`
-
-Минимальный payload:
-- `deliveryTaskId`
-- `orderId`
-- `fulfillmentId` — nullable, если задача создана до финального исполнения
-- `routeDayId` — nullable
-- `slotId` — nullable
-- `status`
-
-Потребители:
-- notifications
-- analytics
-- audit
-
----
-
-### `delivery.assigned`
-
-Возникает когда:
-- доставка назначена водителю / маршруту
-
-Источник истины:
-- `logistics.delivery_task`
-
-Минимальный payload:
-- `deliveryTaskId`
-- `orderId`
-- `driverId`
-- `vehicleId` — nullable
-- `routeDayId`
-- `assignedAt`
-
-Потребители:
-- notifications
-- analytics
-- audit
-
----
-
-### `delivery.delivered`
-
-Возникает когда:
-- доставка подтверждена как исполненная
-
-Источник истины:
-- `logistics.delivery_task`
-- связанный факт исполнения в `orders.fulfillment`
-
-Минимальный payload:
-- `deliveryTaskId`
-- `orderId`
-- `fulfillmentId`
-- `deliveredAt`
-
-Потребители:
-- inventory
-- analytics
-- audit
-
-Ожидаемые реакции:
-- inventory фиксирует расход товара
-- order/fulfillment может перейти к завершённому исполнению
-
-Ограничение:
-- inventory-расход — отдельный первичный факт, а не implicit часть события
-
----
-
-### `pickup.issued`
-
-Возникает когда:
-- товар выдан при самовывозе
-
-Источник истины:
-- `orders.fulfillment` и/или `logistics`-сущность окна выдачи, если она выделена
-
-Минимальный payload:
-- `pickupWindowId` — nullable, если модель окна выдачи ещё не детализирована
-- `orderId`
-- `fulfillmentId`
-- `issuedAt`
-
-Потребители:
-- inventory
-- analytics
-- audit
-
-Ожидаемые реакции:
-- inventory фиксирует расход
-
----
-
-### `delivery.failed`
-
-Возникает когда:
-- доставка не исполнена
-
-Источник истины:
-- `logistics.delivery_task`
-
-Минимальный payload:
-- `deliveryTaskId`
-- `orderId`
-- `failedAt`
-- `reason`
-
-Потребители:
-- orders
-- notifications
-- analytics
-- audit
-
----
-
-### `delivery.rescheduled`
-
-Возникает когда:
-- доставка перенесена
-
-Источник истины:
-- `logistics.delivery_task`
-
-Минимальный payload:
-- `deliveryTaskId`
-- `orderId`
-- `oldPlannedAt`
-- `newPlannedAt`
-- `reason` — optional
-
-Потребители:
-- notifications
-- analytics
-- audit
-
----
-
-## 6.4 Inventory
+## 5.2 Supply + Inventory
+
+### `stock_lock.created`
+Когда: создан short-lived soft lock/pre-reserve.
+Минимальный payload: `stockLockId`, `dealId`, `warehouseId`, `expiresAt`, `items`.
+
+### `stock_lock.expired`
+Когда: soft lock истёк.
+Минимальный payload: `stockLockId`, `expiredAt`.
 
 ### `reservation.created`
-
-Возникает когда:
-- резерв успешно создан
-
-Источник истины:
-- `inventory.reservation`
-
-Минимальный payload:
-- `reservationId`
-- `orderId`
-- `warehouseId`
-- `expiresAt`
-- `items`
-
-Потребители:
-- orders
-- analytics
-- audit
-
----
+Когда: создан durable reservation для `Order`.
+Минимальный payload: `reservationId`, `orderId`, `warehouseId`, `expiresAt`, `items`.
 
 ### `reservation.released`
+Когда: reservation снят (ручной/авто).
+Минимальный payload: `reservationId`, `orderId`, `releasedAt`, `reason`.
 
-Возникает когда:
-- резерв снят вручную или автоматически
+### `supplier_request.created`
+Когда: сформирована заявка поставщику.
+Минимальный payload: `supplierRequestId`, `dealId`, `initiatorRole`, `items`.
 
-Источник истины:
-- `inventory.reservation`
+### `supplier_request.confirmed_by_supplier`
+Когда: поставщик подтвердил заявку.
+Минимальный payload: `supplierRequestId`, `supplierId`, `expectedReceiptAt`.
 
-Минимальный payload:
-- `reservationId`
-- `orderId`
-- `releasedAt`
-- `releaseReason`
+### `supplier_request.paid`
+Когда: заявка поставщику фактически оплачена.
+Минимальный payload: `supplierRequestId`, `paidAt`, `paidByRole`.
 
-Потребители:
-- orders
-- analytics
-- audit
+### `supplier_request.stocked`
+Когда: товар по заявке оприходован по receipt flow.
+Минимальный payload: `supplierRequestId`, `purchaseReceiptId`, `stockedAt`.
 
----
+### `product_supplier.matrix_updated`
+Когда: обновлена связь `Product -> Supplier` (priority/base purchase price/active flag).
+Минимальный payload: `productSupplierId`, `productId`, `supplierId`, `changedFields`, `updatedAt`.
 
 ### `inventory.receipt.recorded`
+Когда: проведён приход на склад.
+Минимальный payload: `movementId`, `warehouseId`, `items`, `recordedAt`.
 
-Возникает когда:
-- на склад проведён приход
-
-Источник истины:
-- `inventory.purchase_receipt`
-- `inventory.inventory_movement`
-
-Минимальный payload:
-- `receiptId`
-- `warehouseId`
-- `items`
-- `recordedAt`
-
-Потребители:
-- finance
-- analytics
-- audit
-
-Ожидаемые реакции:
-- finance отражает закупочный расход на основании утверждённых правил учёта
-- inventory пересчитывает среднюю себестоимость
-
----
+### `inventory.receipt_discrepancy_detected`
+Когда: при приходе зафиксировано расхождение.
+Минимальный payload: `purchaseReceiptId`, `supplierRequestId`, `discrepancy`, `detectedAt`.
 
 ### `inventory.issue.recorded`
+Когда: проведён расход по факту исполнения/отгрузки.
+Минимальный payload: `movementId`, `orderId`, `warehouseId`, `items`, `recordedAt`.
 
-Возникает когда:
-- проведён расход товара
+### `inventory.returned_to_quarantine`
+Когда: возврат зачислен в `quarantine`.
+Минимальный payload: `movementId`, `returnRequestId`, `warehouseId`, `items`, `recordedAt`.
 
-Источник истины:
-- `inventory.inventory_movement`
-
-Минимальный payload:
-- `movementId`
-- `warehouseId`
-- `orderId`
-- `fulfillmentId`
-- `items`
-- `recordedAt`
-
-Потребители:
-- finance
-- analytics
-- audit
-
-Ожидаемые реакции:
-- finance может отражать себестоимость, если это утверждено прикладной моделью
+### `inventory.quarantine_released_to_available`
+Когда: товар после дефектовки переведён из `quarantine` в `available`.
+Минимальный payload: `movementId`, `warehouseId`, `items`, `recordedAt`.
 
 ---
 
-### `inventory.return_received`
+## 5.3 Orders + Fulfillment
 
-Возникает когда:
-- возвратный товар принят обратно на склад
+### `order.auto_created`
+Когда: order автоматически создан из deal.
+Минимальный payload: `orderId`, `dealId`, `status` (`Assembling`), `fulfillmentMethod`, `itemsSummary`.
 
-Источник истины:
-- `inventory.inventory_movement`
-- связанный `orders.return_request`
+### `order.status_changed`
+Когда: изменён основной статус order.
+Минимальный payload: `orderId`, `fromStatus`, `toStatus`, `changedAt`.
 
-Минимальный payload:
-- `movementId`
-- `returnRequestId`
-- `warehouseId`
-- `items`
-- `receivedAt`
+Поддерживаемые значения `toStatus`:
+- `Assembling`
+- `ReadyForPartialShipment`
+- `ReadyForShipment`
+- `PartiallyShipped`
+- `Shipped`
 
-Потребители:
-- finance
-- analytics
-- audit
+### `order.partially_shipped`
+Когда: order перешёл в частичную отгрузку.
+Минимальный payload: `orderId`, `shippedItems`, `remainingItems`, `changedAt`.
+
+### `order.shipped`
+Когда: order полностью отгружен/выдан и закрыты связанные delivery/self-pickup операции.
+Минимальный payload: `orderId`, `shippedAt`.
+
+### `order.on_control_enabled`
+Когда: order помечен `OnControl` (отгружено, но деньги не подтверждены).
+Минимальный payload: `orderId`, `enabledAt`, `reason`.
+
+### `order.problem_enabled`
+Когда: order автоматически помечен `Problem` (деньги не подтверждены до следующего рабочего дня).
+Минимальный payload: `orderId`, `enabledAt`, `escalationTargetRole`.
+
+### `order.problem_cleared`
+Когда: флаг `Problem` снят после подтверждения денег финансистом/директором.
+Минимальный payload: `orderId`, `clearedAt`, `confirmedByRole`.
+
+### `order.delivery_status_aggregated`
+Когда: агрегированный delivery-статус order пересчитан из delivery task.
+Минимальный payload: `orderId`, `deliveryStatus`, `changedAt`.
+
+### `order.auto_creation_failed`
+Когда: автосоздание order/supply-комбинации завершилось ошибкой и операция откатена/скомпенсирована.
+Минимальный payload: `dealId`, `failureCode`, `failedAt`.
+
+Примечание:
+для совместимости может временно использоваться alias `order.confirmation_failed` (deprecated).
 
 ---
 
-### `inventory.writeoff.recorded`
+## 5.4 Logistics
 
-Возникает когда:
-- товар по возврату или иной причине списан, а не возвращён в остаток
+### `delivery_task.created`
+Когда: создана задача доставки.
+Минимальный payload: `deliveryTaskId`, `orderId`, `status`, `plannedAt`.
 
-Источник истины:
-- `inventory.inventory_movement`
+### `delivery_task.assigned`
+Когда: задача назначена водителю/маршруту.
+Минимальный payload: `deliveryTaskId`, `driverId`, `routeDayId`, `assignedAt`.
 
-Минимальный payload:
-- `movementId`
-- `returnRequestId` — nullable
-- `warehouseId`
-- `items`
-- `recordedAt`
-- `reason`
+### `delivery_task.in_transit`
+Когда: задача перешла в доставку.
+Минимальный payload: `deliveryTaskId`, `startedAt`.
 
-Потребители:
-- finance
-- analytics
-- audit
+### `delivery_task.delivered`
+Когда: доставка подтверждена.
+Минимальный payload: `deliveryTaskId`, `orderId`, `deliveredAt`.
+
+### `delivery_task.failed`
+Когда: доставка не исполнена.
+Минимальный payload: `deliveryTaskId`, `orderId`, `reason`, `failedAt`.
+
+### `delivery_task.rescheduled`
+Когда: задача перенесена.
+Минимальный payload: `deliveryTaskId`, `oldPlannedAt`, `newPlannedAt`, `reason`.
+
+### `pickup.issued`
+Когда: товар выдан клиенту при самовывозе.
+Минимальный payload: `orderId`, `pickupWindowId`, `issuedAt`.
 
 ---
 
-## 6.5 Payments / Finance
+## 5.5 Payments + Finance
+
+### `payment.external_fact_intaked`
+Когда: внешний payment факт принят в CRM контур контроля.
+Минимальный payload: `paymentId`, `orderId`, `externalSource`, `externalEventId`, `intakedAt`.
+
+Правило:
+`externalSource` описывает внешний платёжный канал/провайдера (`bank`, `acquiring`, `cash_register`, `manual_import`, `other`), а не inbound lead-интеграции `ATS`/`Avito`.
+
+### `payment.external_fact_confirmed`
+Когда: внешний payment факт подтверждён после контроля.
+Минимальный payload: `paymentId`, `orderId`, `amount`, `confirmedAt`, `confirmedByRole`.
+
+### `payment.external_fact_rejected`
+Когда: внешний payment факт отклонён при контроле.
+Минимальный payload: `paymentId`, `orderId`, `reason`, `rejectedAt`, `toStatus` (`rejected`).
 
 ### `payment.completed`
-
-Возникает когда:
-- оплата успешно завершена
-
-Источник истины:
-- `payments.payment`
-- `payments.cash_operation`
-
-Минимальный payload:
-- `paymentId`
-- `orderId`
-- `clientId`
-- `amount`
-- `currency` — `TBD`, если мультивалютность ещё не утверждена
-- `completedAt`
-- `paymentMethod` — optional / `TBD`
-
-Потребители:
-- finance
-- orders
-- analytics
-- audit
-
-Ожидаемые реакции:
-- finance признаёт доход по `cashBasis`
-- order UI может показать факт полученной оплаты как производный признак
+Когда: подтверждено поступление денег.
+Минимальный payload: `paymentId`, `orderId`, `amount`, `completedAt`, `paymentMethod`.
 
 Критично:
-- именно это событие, а не `order.confirmed` и не `delivery.delivered`, является основанием для признания дохода от продажи
-
----
+именно это событие (или alias `payment.external_fact_confirmed`) является основанием для cash-basis выручки, а не `order.shipped`.
 
 ### `payment.refund_completed`
-
-Возникает когда:
-- возврат денег успешно проведён
-
-Источник истины:
-- `payments.payment` / `payments.refund` — точная модель `TBD`
-- связанный `payments.cash_operation`
-
-Минимальный payload:
-- `refundId` — `TBD`, если сущность выделяется отдельно
-- `paymentId`
-- `orderId`
-- `returnRequestId`
-- `amount`
-- `completedAt`
-
-Потребители:
-- finance
-- orders
-- analytics
-- audit
+Когда: подтверждён возврат денег.
+Минимальный payload: `paymentId`, `returnRequestId`, `orderId`, `amount`, `completedAt`.
 
 Ограничение:
-- событие допустимо только при наличии `ReturnRequest`
-
----
+допустимо только при наличии `ReturnRequest`.
 
 ### `finance.revenue_recognized`
-
-Возникает когда:
-- finance зафиксировал доход на базе денежного события
-
-Источник истины:
-- `finance.finance_entry`
-
-Минимальный payload:
-- `financeEntryId`
-- `paymentId`
-- `orderId`
-- `amount`
-- `recognizedAt`
-
-Потребители:
-- analytics
-- audit
-
-Ограничение:
-- это вторичный финансовый факт, а не исходное основание оплаты
-
----
+Когда: в finance отражена выручка по денежному факту.
+Минимальный payload: `financeEntryId`, `paymentId`, `orderId`, `amount`, `recognizedAt`.
 
 ### `finance.expense_recorded`
+Когда: подтверждён расход.
+Минимальный payload: `expenseId`, `expenseType`, `amount`, `recordedAt`.
 
-Возникает когда:
-- finance зафиксировал расход
+### `finance.correction_created`
+Когда: создана ручная финансовая корректировка.
+Минимальный payload: `correctionId`, `reason`, `requestedByUserId`, `createdAt`.
 
-Источник истины:
-- `finance.expense`
-- или `finance.finance_entry`, в зависимости от финальной модели
+### `finance.correction_submitted_for_approval`
+Когда: корректировка отправлена на согласование.
+Минимальный payload: `correctionId`, `submittedAt`.
 
-Минимальный payload:
-- `expenseId`
-- `relatedEntityType` — optional
-- `relatedEntityId` — optional
-- `amount`
-- `recordedAt`
-- `expenseType`
+### `finance.correction_approved`
+Когда: корректировка согласована.
+Минимальный payload: `correctionId`, `approvedAt`, `approvedByUserId`.
 
-Потребители:
-- analytics
-- audit
+### `finance.correction_rejected`
+Когда: корректировка отклонена.
+Минимальный payload: `correctionId`, `rejectedAt`, `reason`.
+
+### `finance.correction_applied`
+Когда: корректировка применена и связана с `finance_entry`.
+Минимальный payload: `correctionId`, `financeEntryId`, `appliedAt`.
 
 ---
 
-## 6.6 Returns
+## 5.6 Returns
 
 ### `return_request.created`
+Минимальный payload: `returnRequestId`, `orderId`, `reason`, `items`, `status`.
 
-Возникает когда:
-- создан запрос на возврат
+### `return_request.confirmed`
+Минимальный payload: `returnRequestId`, `confirmedAt`, `realizationAnchorAt`, `realizationAnchorType`, `requiresCeoApproval`, `confirmedByRole`.
 
-Источник истины:
-- `orders.return_request`
-
-Минимальный payload:
-- `returnRequestId`
-- `orderId`
-- `clientId`
-- `reason`
-- `items`
-- `status`
-
-Потребители:
-- payments
-- inventory
-- finance
-- analytics
-- audit
-
----
-
-### `return_request.submitted`
-
-Возникает когда:
-- возврат отправлен на рассмотрение
-
-Источник истины:
-- `orders.return_request`
-
-Минимальный payload:
-- `returnRequestId`
-- `orderId`
-- `submittedAt`
-
-Потребители:
-- notifications
-- analytics
-- audit
-
----
-
-### `return_request.approved`
-
-Возникает когда:
-- возврат одобрен
-
-Источник истины:
-- `orders.return_request`
-
-Минимальный payload:
-- `returnRequestId`
-- `orderId`
-- `approvedAt`
-- `decisionScope`
-
-Потребители:
-- inventory
-- payments
-- finance
-- analytics
-- audit
-
-Ожидаемые реакции:
-- inventory готовит возврат на склад или списание
-- payments может инициировать возврат денег
-- finance готовит корректировку
-
----
-
-### `return_request.rejected`
-
-Возникает когда:
-- возврат отклонён
-
-Источник истины:
-- `orders.return_request`
-
-Минимальный payload:
-- `returnRequestId`
-- `orderId`
-- `rejectedAt`
-- `reason`
-
-Потребители:
-- notifications
-- analytics
-- audit
-
----
+Правило anchor для 14-day gating:
+- `realizationAnchorType = min_fulfillment_fulfilled_at_for_return_items`
+- `realizationAnchorAt` строится от `MIN(orders.fulfillments.fulfilled_at)` по возвращаемым позициям через `orders.fulfillment_items`
+- `orders.orders.shipped_at` / `orders.orders.partially_shipped_at` не используются как anchor для этого правила
 
 ### `return_request.processed`
-
-Возникает когда:
-- все обязательные последствия возврата обработаны
-
-Источник истины:
-- `orders.return_request`
-
-Минимальный payload:
-- `returnRequestId`
-- `orderId`
-- `processedAt`
-- `inventoryHandled`
-- `paymentHandled`
-- `financeHandled`
-
-Потребители:
-- analytics
-- audit
-
----
+Минимальный payload: `returnRequestId`, `processedAt`, `inventoryHandled`, `paymentHandled`.
 
 ### `return_request.closed`
-
-Возникает когда:
-- возврат окончательно закрыт
-
-Источник истины:
-- `orders.return_request`
-
-Минимальный payload:
-- `returnRequestId`
-- `orderId`
-- `closedAt`
-
-Потребители:
-- analytics
-- audit
+Минимальный payload: `returnRequestId`, `closedAt`.
 
 ---
 
-## 6.7 Audit / Reconciliation / System
+## 5.7 System / Audit / Reconciliation / KPI
 
 ### `audit.override_performed`
+Минимальный payload: `auditEventId`, `entityType`, `entityId`, `actorUserId`, `reason`, `performedAt`.
 
-Возникает когда:
-- выполнен `admin override`
-
-Источник истины:
-- `audit.audit_event`
-
-Минимальный payload:
-- `auditEventId`
-- `entityType`
-- `entityId`
-- `actorUserId`
-- `reason`
-- `performedAt`
-
-Потребители:
-- security
-- analytics
-
----
+### `idempotency.conflict_detected`
+Минимальный payload: `idempotencyKey`, `entityType`, `entityId`, `detectedAt`.
 
 ### `reconciliation.completed`
-
-Возникает когда:
-- ежедневная сверка завершена
-
-Источник истины:
-- `audit.reconciliation_report` или выделенный домен `reconciliation` — `TBD`
-
-Минимальный payload:
-- `reportId`
-- `periodStart`
-- `periodEnd`
-- `status`
-- `mismatchCount`
-- `completedAt`
-
-Потребители:
-- notifications
-- analytics
-- audit
-
----
+Минимальный payload: `reportId`, `periodStart`, `periodEnd`, `mismatchCount`, `completedAt`.
 
 ### `reconciliation.mismatch_detected`
+Минимальный payload: `reportId`, `pair`, `leftEntityRef`, `rightEntityRef`, `actualDifference`, `recommendedAction`, `detectedAt`.
 
-Возникает когда:
-- сверка нашла расхождение вне допуска
+Допустимые значения `pair` (v1 baseline):
+- `orders_payments`
+- `orders_driver_money`
+- `orders_inventory`
+- `inventory_finance`
+- `logistics_orders`
 
-Источник истины:
-- `reconciliation report`
+### `kpi.live_aggregate_refreshed`
+Минимальный payload: `metricKey`, `period`, `refreshedAt`.
 
-Минимальный payload:
-- `reportId`
-- `pair`
-- `tolerance`
-- `actualDifference`
-- `detectedAt`
+Rules:
+- produced after a successful write to `analytics.live_kpi_metrics`
+- must be enqueued through `system.outbox_events` in the same database transaction as the live KPI upsert and idempotency completion
+- `aggregate_type = analytics.live_kpi_metrics`
+- `aggregate_id` is the affected live KPI row id
+- payload remains limited to `metricKey`, `period`, and `refreshedAt`
+- `scopeType`, `scopeId`, and `idempotencyKey` are not part of the event payload until this event contract explicitly expands
+- `period` is an event/idempotency grouping value for live KPI and does not define snapshot `period_start` / `period_end`
+- this event reports a refreshed derived read model and must not mutate CRM, Orders, Inventory, Payments, Logistics, Finance, Returns, Audit, or Reconciliation facts
 
-Потребители:
-- notifications
-- operations
-- finance
-- audit
+### `kpi.department_plan_set`
+Минимальный payload: `planId`, `departmentId`, `metricKey`, `periodStart`, `periodEnd`, `planValue`, `setByUserId`, `setAt`.
 
----
+### `kpi.department_plan_updated`
+Минимальный payload: `planId`, `changedFields`, `updatedAt`, `updatedByUserId`.
 
-## 7. Матрица реакций по доменам
+### `integration.ats_event_received`
+Минимальный payload: `integrationEventId`, `externalEventId`, `receivedAt`.
 
-## 7.1 Order confirmed
+### `integration.avito_event_received`
+Минимальный payload: `integrationEventId`, `externalEventId`, `receivedAt`.
 
-Событие:
-- `order.confirmed`
+### `notification.telegram_sent`
+Минимальный payload: `notificationId`, `eventType`, `targetRef`, `sentAt`, `status`.
 
-Типичные реакции:
-- `inventory` -> попытка создать резерв
-- `logistics` -> подготовка слота/задачи
-- `audit` -> журналирование
-- `analytics` -> обновление воронки
-
-Нельзя:
-- признавать доход
-- списывать товар
-
----
-
-## 7.2 Delivery delivered / Pickup issued
-
-События:
-- `delivery.delivered`
-- `pickup.issued`
-
-Типичные реакции:
-- `inventory` -> создать расход
-- `orders` -> обновить прогресс исполнения
-- `analytics` -> обновить показатели исполнения
-
-Нельзя:
-- считать событие расходом само по себе без `inventory_movement`
-- признавать доход
+### `notification.max_sent`
+Минимальный payload: `notificationId`, `eventType`, `targetRef`, `sentAt`, `status`.
 
 ---
 
-## 7.3 Payment completed
+## 6. Матрица обязательных реакций
 
-Событие:
-- `payment.completed`
-
-Типичные реакции:
-- `finance` -> признать доход по cash basis
-- `orders` -> показать оплаченный объём как производную информацию
-- `analytics` -> обновить выручку и денежные KPI
-
-Нельзя:
-- трактовать это как факт доставки
-- менять складские остатки
-
----
-
-## 7.4 Return request approved
-
-Событие:
-- `return_request.approved`
-
-Типичные реакции:
-- `inventory` -> обработка возвратного товара
-- `payments` -> возврат денег
-- `finance` -> корректировка
-- `analytics` -> обновление возвратных метрик
-
-Нельзя:
-- закрывать возврат до обработки обязательных последствий
-
----
-
-## 8. Правила версионирования событий
-
-### 8.1 Версия обязательна
-
-Каждое событие должно иметь `eventVersion`.
-
----
-
-### 8.2 Эволюция контракта
-
-Разрешено:
-- добавлять новые необязательные поля
-- добавлять новые метаданные
-
-Требует новой версии:
-- удаление обязательного поля
-- изменение смысла существующего поля
-- изменение структуры payload так, что старый consumer не сможет безопасно обработать событие
-
----
-
-### 8.3 Параллельная поддержка
-
-Если событие критично для нескольких интеграций, при миграции должна поддерживаться параллельная совместимость на период перехода.
-
----
-
-## 9. Требования к доставке и обработке
-
-Этот раздел логический, не инфраструктурный.
-
-Обязательные свойства системы обработки:
-- at-least-once обработка допустима
-- consumer должен быть идемпотентным
-- публикация событий не должна теряться после успешной фиксации первичного факта
-- ошибки downstream не должны откатывать уже зафиксированный первичный факт задним числом
-
-Рекомендуемый паттерн реализации:
-- `outbox` для producer
-- `inbox` / deduplication registry для consumer
-
-Конкретная реализация — `TBD`.
-
----
-
-## 10. Связь с аудитом
-
-Не каждое доменное событие заменяет полноценный аудит.
-
-Аудит должен отдельно уметь фиксировать:
-- кто выполнил действие
-- какие поля были изменены
-- был ли это override
-- откуда пришла команда
-- был ли системный retry
-
-Доменные события и аудит связаны, но не тождественны.
-
----
-
-## 11. Что нельзя делать
+### `order.shipped` / `delivery_task.delivered` / `pickup.issued`
+Разрешённые реакции:
+- обновление исполнения заказа
+- создание `inventory.issue.recorded`
+- обновление KPI исполнения
 
 Запрещено:
-- строить критическую бизнес-логику на неканонических именах событий
-- публиковать событие до фиксации первичного факта
-- обрабатывать одно и то же событие без идемпотентной защиты
-- использовать событие одного домена как замену первичного факта другого домена
-- смешивать в одном событии несколько независимых бизнес-фактов
-- признавать доход по событиям исполнения без денежного факта
-- проводить refund event без `ReturnRequest`
+- признавать выручку без `payment.completed`
+
+### `payment.external_fact_confirmed` / `payment.completed`
+Разрешённые реакции:
+- `finance.revenue_recognized`
+- снятие денежных блоков контроля при выполнении условий
+- обновление денежных KPI
+
+Запрещено:
+- изменять складские остатки
+
+### `payment.external_fact_rejected`
+Разрешённые реакции:
+- аудит/trace отклонения
+- уведомления ответственным ролям
+
+Запрещено:
+- `finance.revenue_recognized`
+- создание `cash_in` операции
+
+### `return_request.confirmed`
+Разрешённые реакции:
+- возвратный поток inventory/payments/finance
+- quarantine-обработка
+
+Запрещено:
+- закрывать возврат до обработки обязательных последствий
+- использовать order-level shipment timestamps как anchor для 14-day CEO-gate
 
 ---
 
-## 12. Минимальный MVP-набор событий
+## 7. Минимальный обязательный набор v1
 
-Если проект запускается поэтапно, минимально обязательный набор:
 - `lead.created`
-- `deal.created`
-- `deal.won`
-- `order.created`
-- `order.confirmed`
-- `order.cancelled`
-- `delivery.task_created`
-- `delivery.delivered`
-- `pickup.issued`
+- `lead.in_processing`
+- `lead.cancelled`
+- `deal.created_from_lead`
+- `deal.converted_to_order`
+- `stock_lock.created`
+- `stock_lock.expired`
+- `supplier_request.created`
+- `supplier_request.confirmed_by_supplier`
+- `supplier_request.paid`
+- `supplier_request.stocked`
 - `reservation.created`
 - `reservation.released`
+- `order.auto_created`
+- `order.status_changed`
+- `order.partially_shipped`
+- `order.shipped`
+- `order.on_control_enabled`
+- `order.problem_enabled`
+- `delivery_task.created`
+- `delivery_task.delivered`
+- `pickup.issued`
 - `inventory.receipt.recorded`
+- `inventory.receipt_discrepancy_detected`
 - `inventory.issue.recorded`
+- `inventory.returned_to_quarantine`
+- `payment.external_fact_intaked`
+- `payment.external_fact_confirmed`
+- `payment.external_fact_rejected`
 - `payment.completed`
 - `payment.refund_completed`
 - `return_request.created`
-- `return_request.approved`
+- `return_request.confirmed`
+- `return_request.processed`
 - `return_request.closed`
+- `finance.correction_approved`
+- `finance.correction_applied`
 - `reconciliation.completed`
 - `reconciliation.mismatch_detected`
-
-Этот набор достаточен, чтобы:
-- держать связность между доменами
-- поддерживать cash basis
-- обеспечить возвраты
-- сделать аудит и сверку воспроизводимыми
+- `kpi.live_aggregate_refreshed`
+- `kpi.department_plan_set`
+- `integration.ats_event_received`
+- `integration.avito_event_received`
+- `notification.telegram_sent`
+- `notification.max_sent`
 
 ---
 
-## 13. Связь с другими документами
+## 8. Явно отложено (TODO)
 
-Этот документ должен использоваться совместно с:
+- конкретный broker/transport и QoS-конфигурация
+- schema registry политика
+- детальная payload-схема и подписи провайдеров для inbound adapters
+- детальный SLA retry/backoff по каждому consumer
+
+---
+
+## 9. Связь с другими документами
+
+Использовать вместе с:
 - `01-system-logic.md`
 - `04-state-machines.md`
 - `05-process-flows.md`
 - `06-data-integrity-rules.md`
+- `08-architecture-fixes-and-critical-blockers.md`
 - `13-database-architecture.md`
 - `14-api-contracts.md`
 
-Если между документами возникает конфликт, приоритет такой:
-1. `01-system-logic.md`
-2. `06-data-integrity-rules.md`
-3. `04-state-machines.md`
-4. этот документ
-5. API и инфраструктурные документы
-
-
-## v8 Architecture Overrides
-
-Обязательные дополнительные события:
-- `draft_order.soft_lock_created`
-- `draft_order.soft_lock_expired`
-- `order.confirmation_failed`
-- `delivery_task.created`
-- `order.delivery_status_aggregated`
-- `inventory.returned_to_quarantine`
-- `inventory.quarantine_released_to_available`
-- `kpi.live_aggregate_refreshed`
-
-Публикация междоменных событий должна идти через outbox или эквивалентную надёжную схему.
+Если возникает конфликт:
+1. `08-architecture-fixes-and-critical-blockers.md`
+2. `01-system-logic.md`
+3. `06-data-integrity-rules.md`
+4. `04-state-machines.md`
+5. этот документ

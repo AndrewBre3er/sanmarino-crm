@@ -131,6 +131,37 @@
 - переходы проверяются прикладным слоем
 - вне схемы разрешён только `admin override` с обязательным событием в `audit`
 
+### 2.8 Current business alignment overrides
+
+Если нижележащие секции этого документа конфликтуют с правилами ниже, для текущего v1-потока приоритет у этого раздела.
+
+Зафиксированные правила:
+- `Lead` — входящая заявка из `АТС`, сайта или `Avito`
+- `Lead -> Deal` происходит при переводе заявки в `in_processing`
+- отменённый lead не переходит в `Deal`
+- `Deal` в текущем бизнес-контуре является коммерческим заказом менеджера на первом этапе
+- отдельная сущность `Invoice` в v1 не создаётся; термин "счёт" допускается только как коммерческое представление
+- CRM productivity в v1 включает `follow-up`, `next_contact_at`, reminders, lost reasons, communication history и контроль stuck deals
+- client master в v1 включает адрес, dedup/merge workflow и явный referral context (`installer` / `designer`)
+- `ClientParticipant` (`монтажник` / `дизайнер`) должен моделироваться отдельно от `Client` и `Contact`
+- `Supplier` и `SupplierRequest` относятся к логике обеспечения товара и не должны напрямую менять складские остатки
+- один `Product` в v1 может быть связан с несколькими `Supplier`
+- связь `Product -> Supplier` должна хранить `supplier_priority` и `base_purchase_price`
+- `base_purchase_price` относится к чувствительным полям и требует field-level ограничения видимости
+- `SupplierRequest` обязан хранить трассируемую связку источника `business_source_type + business_source_id`
+- строки `SupplierRequest` обязаны хранить `source_line_ref` как line-level linkage
+- `PurchaseReceipt` должен хранить `supplier_id`; при связи с заявкой поставщику дополнительно хранится `supplier_request_id`
+- жизненный цикл `SupplierRequest`: `formed -> confirmed_by_supplier -> paid -> stocked`
+- durable reservation не живёт без `Order`; если резерв инициируется из `Deal`, система должна создавать `Order` и `Reservation` атомарно
+- `Order` создаётся автоматически после клиентского подтверждения условий и обеспечения товара через резерв и/или подтверждённый `SupplierRequest`
+- контрольные состояния `OnControl` и `Problem` являются overlay-флагами поверх `Order`, а не заменой его основного статуса
+- жизненный цикл `ReturnRequest`: `created -> confirmed -> processed -> closed`
+- payment-контур v1 работает как intake/control внешнего payment факта; CRM не инициирует создание оплаты
+- финансы поддерживают manual correction с approval workflow
+- KPI планы вводятся менеджером вручную, KPI факты остаются производными от доменных источников истины
+- интеграции v1: inbound `ATS`/`Avito`, outbound уведомления `Telegram`/`MAX`
+- для order-commercial flow v1 список единиц измерения фиксирован: `шт`, `кв.м`, `п.м`, `услуга`
+
 ---
 
 ## 3. Общие требования к таблицам
@@ -235,6 +266,10 @@
 - `type` — `TBD` при необходимости детализировать физлицо / юрлицо
 - `name`
 - `primary_contact_id` — nullable
+- `address_text` — nullable
+- `address_comment` — nullable
+- `installer_referral_comment` — nullable
+- `designer_referral_comment` — nullable
 - `created_at`
 - `updated_at`
 
@@ -260,12 +295,33 @@
 - `created_at`
 - `updated_at`
 
+### 4.1.3a `crm.client_participant`
+
+Назначение:
+внешний участник клиентского контура, связанный с клиентом / сделкой / заказом.
+
+Минимальные поля:
+- `id`
+- `client_id`
+- `deal_id` — nullable
+- `order_id` — nullable
+- `role_type` — `installer` / `designer`
+- `name`
+- `phone` — optional
+- `comment` — optional
+- `created_at`
+- `updated_at`
+
+Правила:
+- участник не заменяет `client` или `contact`
+- связь участника должна быть трассируема минимум до `client` и при необходимости до `deal` / `order`
+
 ---
 
 ### 4.1.4 `crm.deal`
 
 Назначение:
-коммерческий контейнер.
+коммерческий заказ менеджера на первом этапе.
 
 Минимальные поля:
 - `id`
@@ -277,22 +333,91 @@
 - `source`
 - `commercial_terms` — structured/TBD
 - `notes` — optional
+- `delivery_mode` — `delivery` / `pickup` / `TBD`
+- `client_price_confirmed_at` — nullable/TBD
+- `next_contact_at` — nullable
+- `lost_reason_code` — nullable
+- `stuck_reason_code` — nullable
 - `created_at`
 - `updated_at`
 
 Статусы:
-- `Draft`
-- `Qualified`
-- `Proposal`
-- `Negotiation`
-- `Won`
-- `Lost`
+- `InProgress`
+- `ConvertedToOrder`
+- `Cancelled`
 
 Связи:
 - одна deal имеет много orders
 
 Правило:
-`crm.deal` не хранит первичные факты по оплате, доставке и остаткам.
+`crm.deal` не хранит первичные факты по оплате, доставке и остаткам, но может инициировать supply coverage и auto-order flow.
+
+---
+
+### 4.1.5 `crm.deal_follow_up`
+
+Назначение:
+операционный контур follow-up и напоминаний по сделке.
+
+Минимальные поля:
+- `id`
+- `deal_id`
+- `owner_user_id`
+- `next_contact_at`
+- `reminder_at` — nullable
+- `status` — `open` / `done` / `cancelled`
+- `comment` — optional
+- `created_at`
+- `updated_at`
+
+Правила:
+- follow-up не подменяет статус сделки, а дополняет CRM productivity слой
+- для `lost`/`stuck` сценариев должна оставаться трассировка к `deal_id`
+
+---
+
+### 4.1.6 `crm.deal_communication`
+
+Назначение:
+история коммуникаций по клиенту/сделке.
+
+Минимальные поля:
+- `id`
+- `deal_id`
+- `client_id`
+- `channel` — `call` / `chat` / `meeting` / `other`
+- `direction` — `inbound` / `outbound`
+- `summary`
+- `occurred_at`
+- `created_by_user_id`
+- `created_at`
+- `updated_at`
+
+Правила:
+- коммуникация должна быть привязана минимум к `deal` и `client`
+- payload коммуникации не должен подменять факты заказа, оплаты, логистики или склада
+
+---
+
+### 4.1.7 `crm.client_dedup_case`
+
+Назначение:
+workflow дедупликации и merge клиентских карточек.
+
+Минимальные поля:
+- `id`
+- `primary_client_id`
+- `candidate_client_id`
+- `status` — `open` / `merged` / `rejected`
+- `reason` — optional
+- `reviewed_by_user_id` — nullable
+- `reviewed_at` — nullable
+- `created_at`
+- `updated_at`
+
+Правила:
+- merge допускается только через явный workflow-кейс
+- после merge должна сохраняться трассировка исходных client-id для аудита и связанного контекста
 
 ---
 
@@ -301,34 +426,33 @@
 ### 4.2.1 `orders.order`
 
 Назначение:
-операционный объект исполнения сделки.
+операционный объект исполнения сделки, создаваемый системой автоматически из `Deal`.
 
 Минимальные поля:
 - `id`
 - `deal_id`
 - `client_id` — допускается как денормализованная ссылка для операционного доступа, если это будет утверждено; иначе `TBD`
 - `status`
+- `control_flag` — `none` / `on_control` / `problem`
+- `control_due_at` — nullable
 - `fulfillment_mode` — `delivery` / `pickup` / `TBD`
+- `delivery_status` — агрегированное значение от delivery tasks
 - `currency` — `TBD`, если включается мультивалютность
 - `total_amount` — расчётное или фиксируемое поле, физическая стратегия расчёта = `TBD`
 - `comment` — optional
-- `confirmed_at` — nullable
-- `completed_at` — nullable
-- `closed_at` — nullable
-- `cancelled_at` — nullable
+- `ready_for_partial_shipment_at` — nullable
+- `ready_for_shipment_at` — nullable
+- `partially_shipped_at` — nullable
+- `shipped_at` — nullable
 - `created_at`
 - `updated_at`
 
 Статусы:
-- `Draft`
-- `Confirmed`
-- `Reserved`
-- `InProgress`
-- `Completed`
-- `Closed`
-- `Cancelled`
-- `PartialReturn`
-- `FullReturn`
+- `Assembling`
+- `ReadyForPartialShipment`
+- `ReadyForShipment`
+- `PartiallyShipped`
+- `Shipped`
 
 Связи:
 - один order имеет много order_items
@@ -339,10 +463,106 @@
 - один order может иметь много delivery task
 
 Правила:
-- `Draft` не создаёт durable reservation, но может иметь soft lock
-- `Confirmed` разрешает резерв и логистическое бронирование
-- `Completed` не равен `Closed`
+- заказ создаётся системой автоматически после клиентского подтверждения условий и обеспечения товара
+- durable reservation не существует без `Order`
+- short-lived soft lock используется в pre-order/commercial preparation и не подменяет reservation
+- если резерв инициируется из `Deal`, `Order + Reservation` должны появляться согласованно в одной логической операции
+- `ReadyForShipment` означает, что весь товар есть на складе и поставлен в резерв
+- `ReadyForPartialShipment` означает частичный резерв и допустимость частичной отгрузки
+- `Shipped` требует и факт передачи товара, и закрытие всех связанных delivery/self-pickup операций
 - `delivery_status` должен агрегироваться из связанных delivery task
+
+### 4.2.1a `orders.deal_supply_summary`
+
+Назначение:
+read-model сводки обеспечения сделки для seller workflow.
+
+Минимальные поля:
+- `id`
+- `deal_id`
+- `coverage_status` — `none` / `partial` / `full`
+- `covered_qty`
+- `deficit_qty`
+- `eta_from` — nullable
+- `eta_to` — nullable
+- `linked_supplier_request_count`
+- `updated_at`
+
+Правила:
+- сводка формируется из фактов `reservation`, `supplier_request`, `purchase_receipt`
+- сводка не является источником истины и не заменяет первичные складские/снабженческие факты
+- для одного `deal` допускается максимум одна актуальная summary-запись (`0..1` по наличию)
+
+### 4.3.0 `inventory.supplier`
+
+Назначение:
+справочник поставщиков.
+
+Минимальные поля:
+- `id`
+- `name`
+- `phone` — optional
+- `email` — optional
+- `comment` — optional
+- `created_at`
+- `updated_at`
+
+### 4.3.0a `inventory.supplier_request`
+
+Назначение:
+заявка поставщику на недостающий товар.
+
+Минимальные поля:
+- `id`
+- `supplier_id`
+- `business_source_type` — `deal` / `order`
+- `business_source_id`
+- `status`
+- `expected_supply_date`
+- `requested_by_user_id`
+- `confirmed_by_user_id` — nullable
+- `paid_by_user_id` — nullable
+- `paid_at` — nullable
+- `stocked_by_user_id` — nullable
+- `stocked_at` — nullable
+- `supplier_document_ref` — optional
+- `created_at`
+- `updated_at`
+
+Статусы:
+- `formed`
+- `confirmed_by_supplier`
+- `paid`
+- `stocked`
+
+Правила:
+- supplier request может быть инициирован из коммерческого или складского контура
+- supplier request обязан хранить трассируемую связь с бизнес-источником через `business_source_type + business_source_id`
+- supplier request не создаёт складской остаток напрямую
+- `paid` выставляется только после фактической оплаты
+- `stocked` выставляется только после фактического прихода по receipt flow
+- поступление товара оформляется только через `purchase_receipt` и `inventory_movement`
+
+### 4.3.0b `inventory.supplier_request_item`
+
+Назначение:
+позиция заявки поставщику с line-level трассировкой.
+
+Минимальные поля:
+- `id`
+- `supplier_request_id`
+- `product_id`
+- `quantity`
+- `unit` — одно из: `шт`, `кв.м`, `п.м`, `услуга`
+- `source_line_ref` — обязательный идентификатор исходной строки
+- `source_line_context` — optional structured payload для диагностики/аудита
+- `created_at`
+- `updated_at`
+
+Правила:
+- каждая позиция supplier request должна быть трассируема до исходной бизнес-строки
+- `source_line_ref` не должен быть пустым
+- `source_line_context` не должен подменять первичную ссылку `source_line_ref`
 
 ---
 
@@ -383,7 +603,7 @@
 - `type` — `delivery` / `pickup` / `TBD`
 - `status`
 - `planned_at` — optional
-- `executed_at` — nullable
+- `fulfilled_at` — nullable
 - `logistics_task_id` — nullable
 - `created_at`
 - `updated_at`
@@ -407,28 +627,46 @@
 - `status`
 - `reason`
 - `comment` — optional
-- `submitted_at` — nullable
+- `realization_anchor_at` — nullable; фиксируется при `confirmed` как канонический момент реализации для 14-day правила
+- `confirmed_at` — nullable
 - `processed_at` — nullable
 - `closed_at` — nullable
 - `created_at`
 - `updated_at`
 
 Статусы:
-- `Draft`
-- `Submitted`
-- `Approved`
-- `Rejected`
-- `Processed`
-- `Closed`
+- `created`
+- `confirmed`
+- `processed`
+- `closed`
 
 Правила:
 - возврат денег без `return_request_id` запрещён
 - возврат товара без `return_request_id` запрещён
 - финансовая коррекция без `return_request_id` запрещена, если операция относится к возврату
+- `confirmed` для кейсов старше 14 дней требует согласования `ceo` по правилу `confirmed_at - realization_anchor_at > 14 days`
+- `realization_anchor_at` вычисляется как `MIN(orders.fulfillments.fulfilled_at)` по возвращаемым позициям (`return_request_items` через linkage к `orders.fulfillment_items`) и должен опираться только на подтверждённые execution-факты
+- неканонично для этого правила: `orders.orders.shipped_at`, `orders.orders.partially_shipped_at`, любые timestamp планирования/маршрутизации в `logistics`
+- `processed` не закрывает request автоматически без завершения обязательных последствий
 
-Дополнение:
-состав возвращаемых позиций должен храниться в дочерней детализации `TBD`.
-Если отдельная таблица нужна на физическом уровне, она должна ссылаться только на `orders.return_request`.
+### 4.2.4a `orders.return_request_item`
+
+Назначение:
+позиционный состав `ReturnRequest` для возврата денег/товара и вычисления `realization_anchor_at`.
+
+Минимальные поля:
+- `id`
+- `return_request_id`
+- `order_item_id`
+- `qty`
+- `resolution` — `return_to_quarantine` / `writeoff` / `refund_only`
+- `created_at`
+- `updated_at`
+
+Правила:
+- это обязательная дочерняя logical structure для `orders.return_request` (physical mapping: `orders.return_request_items`)
+- anchor-вычисление использует linkage `orders.return_request_item.order_item_id -> orders.fulfillment_items.order_item_id -> orders.fulfillments.fulfilled_at`
+- `realization_anchor_at` фиксируется как `MIN(orders.fulfillments.fulfilled_at)` только по fulfillment-фактам, связанным с возвращаемыми позициями
 
 ---
 
@@ -446,6 +684,30 @@
 - `status` — `TBD`
 - `created_at`
 - `updated_at`
+
+---
+
+### 4.3.1a `inventory.product_supplier`
+
+Назначение:
+матрица обеспечения `Product -> multiple Supplier` для sourcing-контуров.
+
+Минимальные поля:
+- `id`
+- `product_id`
+- `supplier_id`
+- `supplier_priority` — чем меньше значение, тем выше приоритет
+- `base_purchase_price`
+- `currency` — `TBD` при мультивалютности
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Правила:
+- один product может иметь несколько supplier связей
+- для одной пары `product_id + supplier_id` должна быть одна активная запись
+- `base_purchase_price` является чувствительным полем и должен подчиняться field-level visibility rule
+- `base_purchase_price` не должен отдаваться ролям `seller`, `warehouse`, `logistics`
 
 ---
 
@@ -489,19 +751,19 @@
 
 ---
 
-### 4.3.4 `inventory.soft_lock`
+### 4.3.4 `inventory.stock_lock`
 
 Назначение:
-краткоживущая предварительная блокировка под draft order.
+краткоживущая предварительная блокировка для pre-order/commercial preparation.
 
 Минимальные поля:
 - `id`
-- `draft_order_id` — nullable/TBD
-- `order_id` — nullable/TBD
+- `deal_id` — nullable
+- `order_id` — nullable
 - `warehouse_id`
 - `product_id`
 - `quantity`
-- `status` — `active` / `expired` / `released`
+- `status` — `active` / `expired` / `released` / `promoted`
 - `expires_at`
 - `created_at`
 - `updated_at`
@@ -511,13 +773,14 @@
 - не является durable reservation
 - не создаёт товарный расход
 - должен автоматически истекать по TTL
+- при materialization в durable reservation должен оставлять трассируемую ссылку на созданный reservation
 
 ---
 
 ### 4.3.5 `inventory.reservation`
 
 Назначение:
-резерв под подтверждённый заказ.
+durable reservation под `Order`.
 
 Минимальные поля:
 - `id`
@@ -533,8 +796,8 @@
 - `updated_at`
 
 Правила:
-- резерв создаётся только для `Confirmed` order
-- резерв не создаётся для `Draft`
+- резерв создаётся только вместе с существующим `Order`
+- резерв не может жить на `Deal` без materialized `Order`
 - резерв должен иметь TTL
 - просроченный резерв должен быть видим для reconciliation/операционного контроля
 
@@ -584,8 +847,9 @@
 Минимальные поля:
 - `id`
 - `warehouse_id`
+- `supplier_id`
+- `supplier_request_id` — nullable
 - `received_at`
-- `supplier_ref` — optional/TBD
 - `document_number` — optional/TBD
 - `created_at`
 - `updated_at`
@@ -593,10 +857,30 @@
 Правила:
 - после поступления должны создаваться движения `receipt`
 - средняя себестоимость пересчитывается по правилу `weighted average`
+- `supplier_request_id` используется, если поступление связано с конкретной заявкой поставщику
+- если `supplier_request_id` задан, поставщик в receipt должен совпадать с поставщиком заявки
 
-Детализация состава поступления:
-- физическая таблица позиций поступления = `TBD`
-- до её фиксации нельзя подменять поступление только summary-полем, если теряется воспроизводимость
+### 4.3.7a `inventory.purchase_receipt_item`
+
+Назначение:
+позиция поступления товара.
+
+Минимальные поля:
+- `id`
+- `purchase_receipt_id`
+- `product_id`
+- `quantity`
+- `unit` — одно из: `шт`, `кв.м`, `п.м`, `услуга`
+- `unit_cost`
+- `line_total`
+- `supplier_request_item_id` — nullable
+- `created_at`
+- `updated_at`
+
+Правила:
+- для v1 `unit` обязателен в каждой строке поступления
+- при наличии `supplier_request_item_id` должна соблюдаться line-level трассировка к заявке поставщику
+- детализация поступления не может подменяться только summary-полями
 
 ---
 
@@ -605,7 +889,7 @@
 ### 4.4.1 `payments.payment`
 
 Назначение:
-факт оплаты по заказу.
+учёт внешнего payment факта и его контроль в CRM.
 
 Минимальные поля:
 - `id`
@@ -613,20 +897,29 @@
 - `status`
 - `amount`
 - `payment_method`
-- `paid_at` — nullable до завершения
+- `external_source` — `bank` / `acquiring` / `cash_register` / `manual_import` / `other` / `TBD`
+- `external_event_id`
+- `intake_at`
+- `confirmed_at` — nullable
 - `external_ref` — optional
 - `created_at`
 - `updated_at`
 
 Статусы:
-- `Pending`
-- `Completed`
-- `Refunded`
+- `pending`
+- `completed`
+- `refunded`
+- `rejected`
 
 Правила:
 - одна order может иметь много payments
 - частичная оплата допустима
 - частичный возврат отражается через сумму возврата, а не отдельным неутверждённым статусом
+- `external_source` относится к платёжному провайдеру/каналу внешнего денежного факта
+- `ATS` и `Avito` не являются payment-source в этом контуре и остаются только integration inbound контекстом
+- отклонение внешнего payment факта должно переводить запись в статус `rejected` без генерации cash/finance последствий
+- CRM не должна инициировать hosted checkout / payment-link creation в v1
+- запись `payments.payment` создаётся через intake внешнего факта, а не из CRM-side сценария "создать оплату"
 
 ---
 
@@ -837,6 +1130,29 @@
 
 ---
 
+### 4.6.4 `finance.manual_correction`
+
+Назначение:
+ручная финансовая корректировка с обязательным approval workflow.
+
+Минимальные поля:
+- `id`
+- `status` — `draft` / `pending_approval` / `approved` / `rejected` / `applied`
+- `reason`
+- `requested_by_user_id`
+- `approved_by_user_id` — nullable
+- `approved_at` — nullable
+- `applied_entry_id` — nullable (ссылка на итоговую `finance_entry`)
+- `created_at`
+- `updated_at`
+
+Правила:
+- корректировка не подменяет первичный денежный/складской факт
+- применение корректировки допускается только после `approved`
+- все переходы approval workflow должны попадать в `audit`
+
+---
+
 ## 4.7 `analytics`
 
 ### 4.7.1 `analytics.live_kpi`
@@ -858,6 +1174,30 @@
 
 ---
 
+### 4.7.1a `analytics.department_plan`
+
+Назначение:
+ручные планы подразделений для plan/fact KPI контура.
+
+Минимальные поля:
+- `id`
+- `department_id`
+- `metric_key`
+- `period_type`
+- `period_start`
+- `period_end`
+- `plan_value`
+- `set_by_user_id`
+- `set_at`
+- `created_at`
+- `updated_at`
+
+Правила:
+- плановые значения вводятся менеджером вручную
+- plan-таблица не может подменять фактические KPI из доменных источников истины
+
+---
+
 ### 4.7.2 `analytics.snapshot_kpi`
 
 Назначение:
@@ -875,6 +1215,7 @@
 
 Правило:
 старый snapshot не переписывается задним числом без отдельной корректировочной логики.
+`snapshot/live` факты KPI остаются производными и должны строиться из первичных доменных фактов.
 
 ---
 
@@ -1019,18 +1360,69 @@
 
 ---
 
+### 4.10.2 `system.integration_inbound_event`
+
+Назначение:
+inbox фактов из внешних источников (`ATS`, `Avito`) до доменной обработки.
+
+Минимальные поля:
+- `id`
+- `source_system` — `ats` / `avito`
+- `external_event_id`
+- `payload`
+- `received_at`
+- `processed_at` — nullable
+- `status` — `received` / `processed` / `rejected`
+- `created_at`
+
+Правила:
+- inbound событие должно проходить server-side validation до доменных side effects
+- обработка inbound event обязана быть идемпотентной
+
+---
+
+### 4.10.3 `system.notification_dispatch`
+
+Назначение:
+журнал outbound уведомлений по каналам `Telegram` и `MAX`.
+
+Минимальные поля:
+- `id`
+- `channel` — `telegram` / `max`
+- `event_type`
+- `target_ref`
+- `payload`
+- `status` — `queued` / `sent` / `failed`
+- `sent_at` — nullable
+- `error` — nullable
+- `created_at`
+- `updated_at`
+
+Правила:
+- outbound уведомления не должны обходить permission boundaries при формировании контента
+- критичные уведомления должны оставлять трассировку для аудита и отладки
+
+---
+
 ## 5. Ключевые связи между сущностями
 
 ## 5.1 Коммерческий контур
 - `crm.lead 1 -> N crm.deal`
 - `crm.client 1 -> N crm.contact`
 - `crm.client 1 -> N crm.deal`
+- `crm.deal 1 -> N crm.deal_follow_up`
+- `crm.deal 1 -> N crm.deal_communication`
+- `crm.client 1 -> N crm.client_dedup_case` (как `primary` или `candidate`)
 - `crm.deal 1 -> N orders.order`
+- `crm.deal 1 -> 0..1 orders.deal_supply_summary`
 
 ## 5.2 Операционный контур
 - `orders.order 1 -> N orders.order_item`
 - `orders.order 1 -> N orders.fulfillment`
 - `orders.order 1 -> N orders.return_request`
+- `orders.return_request 1 -> N orders.return_request_item` (physical: `orders.return_request_items`)
+- `orders.order_item 1 -> N orders.return_request_item`
+- для 14-day anchor: `orders.return_request_item.order_item_id` связывается с `orders.fulfillment_items.order_item_id`, далее используется `orders.fulfillments.fulfilled_at`
 - `orders.order 1 -> N inventory.reservation`
 - `orders.order 1 -> N payments.payment`
 - `orders.order 1 -> N logistics.delivery_task`
@@ -1038,6 +1430,8 @@
 ## 5.3 Складской контур
 - `inventory.product 1 -> N inventory.stock_balance`
 - `inventory.warehouse 1 -> N inventory.stock_balance`
+- `inventory.product 1 -> N inventory.product_supplier`
+- `inventory.supplier 1 -> N inventory.product_supplier`
 - `inventory.product 1 -> N inventory.inventory_movement`
 - `inventory.warehouse 1 -> N inventory.inventory_movement`
 - `inventory.purchase_receipt 1 -> N inventory.inventory_movement` по ссылке источника
@@ -1047,6 +1441,7 @@
 - `payments.payment 1 -> N finance.finance_entry`
 - `finance.expense 1 -> N finance.finance_entry` — если финансовая запись деталирует расход
 - `finance.marketing_expense 1 -> N finance.finance_entry`
+- `finance.manual_correction 1 -> 0..1 finance.finance_entry`
 - `orders.return_request 1 -> N payments.cash_operation` для возвратов
 - `orders.return_request 1 -> N finance.finance_entry` для корректировок
 
@@ -1056,14 +1451,19 @@
 - `logistics.driver 1 -> N logistics.route_day`
 - `logistics.vehicle 1 -> N logistics.route_day`
 
+## 5.6 Интеграции, уведомления и KPI планирование
+- `system.integration_inbound_event` связывается с доменными фактами через `correlationId`/`entity references`
+- `system.notification_dispatch` связывается с доменными фактами через `event_type + target_ref`
+- `analytics.department_plan.department_id` должен ссылаться на утверждённый справочник подразделений (конкретный FK источник = `TBD`)
+
 ---
 
 ## 6. Транзакционные границы
 
-## 6.1 Подтверждение заказа
+## 6.1 Materialization `Order + Reservation`
 
 Одна логическая операция должна обеспечивать согласованность как минимум между:
-- `orders.order`
+- `orders.order` (auto-created from `crm.deal`)
 - `inventory.reservation` и/или reservation movements
 - логистическим бронированием, если оно создаётся сразу
 - `audit.audit_event`
@@ -1073,7 +1473,7 @@
 
 ---
 
-## 6.2 Подтверждение оплаты
+## 6.2 Подтверждение внешнего payment факта
 
 Одна логическая операция должна обеспечивать согласованность как минимум между:
 - `payments.payment`
@@ -1111,12 +1511,12 @@
 ## 7. Инварианты данных
 
 ## 7.1 Заказ и резерв
-- у `Draft` order не может существовать активный резерв
-- активный резерв допустим только для подтверждённого заказа
+- у `Deal` без materialized `Order` не может существовать активный durable reservation
+- активный durable reservation допустим только для существующего `Order`
 - просроченный резерв не должен оставаться невидимым для контроля
 
 ## 7.2 Заказ и товарный расход
-- order в `Confirmed` или `Reserved` не создаёт расход автоматически
+- order в `Assembling` / `ReadyForPartialShipment` / `ReadyForShipment` не создаёт расход автоматически
 - расход по продаже должен иметь ссылку на исполнение заказа
 
 ## 7.3 Оплата и доход
@@ -1132,6 +1532,22 @@
 
 ## 7.6 Audit
 - операции `admin override` и ручные критические вмешательства обязаны оставлять audit trail
+
+## 7.7 Purchase price visibility
+- `inventory.product_supplier.base_purchase_price` не должен отдаваться ролям `seller`, `warehouse`, `logistics`
+- запрет видимости должен применяться на серверном field-level permission слое
+
+## 7.8 KPI plan/fact separation
+- ручной `department_plan` не может подменять KPI fact-агрегаты
+- KPI факт должен вычисляться из первичных доменных фактов, а не из вручную введённых планов
+
+## 7.9 External payment intake/control
+- CRM не должна создавать оплату как первичный денежный факт
+- подтверждение денег и признание дохода должно опираться на intake/control внешнего payment факта
+
+## 7.10 Integrations and notifications
+- inbound события `ATS`/`Avito` должны быть валидированы и идемпотентно обработаны до доменных side effects
+- outbound уведомления `Telegram`/`MAX` должны иметь трассируемый статус доставки (`queued/sent/failed`)
 
 ---
 
@@ -1163,11 +1579,11 @@
 - мультивалютность
 - soft delete policy по конкретным сущностям
 - физическая детализация поступлений и возвратов по позициям
-- модель адресов клиента и доставки
+- детальная нормализация адресов клиента и доставки
 - налоговые поля
 - модель документов и файловых вложений
 - стратегия распределённых транзакций и компенсаций
-- event/outbox модель, если она будет нужна
+- SLA/retry политика для outbox/inbox и notification dispatch
 
 ---
 
@@ -1176,8 +1592,10 @@
 До начала физического проектирования БД должны быть соблюдены следующие правила:
 - проектировать БД по доменам, а не вокруг одной общей CRM-таблицы
 - не смешивать cash basis и accrual basis в базовой модели
-- не делать расход товара на подтверждении заказа
+- не делать расход товара на materialization/readiness-переходах заказа
 - не обходить `ReturnRequest`
+- не возвращать lifecycle `ReturnRequest` и `SupplierRequest` к устаревшим статусным цепочкам
+- не проектировать CRM-side создание оплаты; для v1 допустим только intake/control внешнего payment факта
 - не хранить KPI как первичный факт
 - не допускать критические мутации без `idempotency`
 - не разрешать произвольные статусы вне state machine
@@ -1186,17 +1604,17 @@
 
 ## v8 Architecture Overrides
 
-- В `Draft` допускается `inventory.soft_lock` с коротким TTL.
-- Durable reservation создаётся только в confirm-операции.
+- В pre-order/commercial preparation допускается `inventory.stock_lock` с коротким TTL.
+- Durable reservation создаётся только для materialized `Order`.
 - `orders.order` должен поддерживать агрегированный `delivery_status`.
 - Связь `orders.order -> logistics.delivery_task` обязательна как `1:N`.
 - Для `Order`, `Deal`, `Payment`, `ReturnRequest` обязателен soft delete.
 - Возвратный товар по умолчанию идёт в `quarantine`, а не в `available`.
 - Live KPI должны читаться из агрегатов.
-- Для междоменных подтверждений должен существовать `system.outbox_event` или эквивалентный механизм rollback/compensation.
+- Для междоменных критичных операций должен существовать `system.outbox_event` или эквивалентный механизм rollback/compensation.
 
 
-### 4.10.2 `system.outbox_event`
+### 4.10.4 `system.outbox_event`
 
 Назначение:
 надёжная публикация междоменных событий после фиксации первичного факта.

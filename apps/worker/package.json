@@ -19,6 +19,7 @@
     "ready": "pnpm exec tsx src/cli/ready.ts"
   },
   "dependencies": {
+    "@sanmarino/types": "workspace:*",
     "bullmq": "^5.0.0"
   },
   "devDependencies": {

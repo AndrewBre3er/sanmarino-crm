@@ -12,9 +12,29 @@ import {
   api_openapi_extensions,
   api_openapi_tags
 } from "./contracts/openapi.contract";
+import { get_env } from "./config/env";
+
+function resolve_cors_origin(value: string): string | string[] {
+  const origins = value
+    .split(",")
+    .map(origin => origin.trim())
+    .filter(origin => origin.length > 0);
+
+  if (origins.length === 0) {
+    return "http://localhost:3000";
+  }
+
+  return origins.length === 1 ? origins[0] ?? "http://localhost:3000" : origins;
+}
 
 async function bootstrap(): Promise<void> {
+  const env = get_env();
   const app = await NestFactory.create(AppModule);
+  app.enableCors({
+    origin: resolve_cors_origin(env.API_CORS_ORIGIN),
+    credentials: true
+  });
+
   app.setGlobalPrefix(api_openapi_contract.globalPrefix);
   app.useGlobalPipes(
     new ValidationPipe(http_shell_validation_conventions)
@@ -35,10 +55,15 @@ async function bootstrap(): Promise<void> {
     .addTag(api_openapi_tags.health.name, api_openapi_tags.health.description)
     .addTag(api_openapi_tags.infra.name, api_openapi_tags.infra.description)
     .addTag(api_openapi_tags.crmRead.name, api_openapi_tags.crmRead.description)
+    .addTag(api_openapi_tags.crmLeads.name, api_openapi_tags.crmLeads.description)
+    .addTag(api_openapi_tags.crmRelations.name, api_openapi_tags.crmRelations.description)
     .addTag(api_openapi_tags.ordersRead.name, api_openapi_tags.ordersRead.description)
     .addTag(api_openapi_tags.paymentsRead.name, api_openapi_tags.paymentsRead.description)
     .addTag(api_openapi_tags.logisticsRead.name, api_openapi_tags.logisticsRead.description)
     .addTag(api_openapi_tags.returnsRead.name, api_openapi_tags.returnsRead.description)
+    .addTag(api_openapi_tags.kpiAnalytics.name, api_openapi_tags.kpiAnalytics.description)
+    .addTag(api_openapi_tags.supply.name, api_openapi_tags.supply.description)
+    .addTag(api_openapi_tags.auth.name, api_openapi_tags.auth.description)
     .addExtension(
       "x-platform-contracts-package",
       api_openapi_extensions.platformContractsPackage
@@ -60,10 +85,7 @@ async function bootstrap(): Promise<void> {
   const document = SwaggerModule.createDocument(app, swagger);
   SwaggerModule.setup(api_openapi_contract.docsPath, app, document);
 
-  const port = Number(process.env.API_PORT ?? 4000);
-  const host = process.env.API_HOST ?? "0.0.0.0";
-
-  await app.listen(port, host);
+  await app.listen(env.API_PORT, env.API_HOST);
 }
 
 void bootstrap();

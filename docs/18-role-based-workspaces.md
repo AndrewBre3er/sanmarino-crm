@@ -16,17 +16,27 @@
 
 ## 2. Канонический набор ролей
 
-Роли стартовой версии:
-- Sales
-- Marketing
-- Finance
-- Logistics
-- Warehouse
-- CEO / Management
-- Driver
-- Administrator
+Технические role codes:
+- `admin`
+- `seller`
+- `warehouse`
+- `logistics`
+- `finance`
+- `ceo`
+- optional: `driver`
+- optional: `marketing`
 
-Если позже появятся дополнительные роли, они должны быть добавлены через отдельное обновление документа.
+UI labels (русские названия):
+- `admin` -> `Админ`
+- `seller` -> `Продавец`
+- `warehouse` -> `Кладовщик`
+- `logistics` -> `Логист`
+- `finance` -> `Финансист`
+- `ceo` -> `Исполнительный директор`
+- `driver` -> `Водитель` (optional)
+- `marketing` -> `Маркетинг` (optional)
+
+`marketing` не считается обязательным стартовым workspace.
 
 ---
 
@@ -35,6 +45,9 @@
 ### 3.1 Не показывать лишнее
 
 Если раздел не нужен роли, он не должен отображаться в сайдбаре.
+
+Исключение для v1:
+- список и статус `Supplier Requests` и `Return Requests` доступны всем ролям (read-only visibility)
 
 ### 3.2 Не подменять архитектуру запретами
 
@@ -53,18 +66,19 @@
 Даже если объект связан с другим доменом, роль получает только релевантный для неё срез.
 
 Пример:
-- Sales видит статус оплаты заказа, но не полный финансовый журнал компании
-- Logistics видит состав доставки и адрес, но не видит финансовые статьи
-- Warehouse видит резерв и фактический расход, но не видит маркетинговый источник лида
+- `seller` видит статус оплаты заказа, но не полный финансовый журнал компании
+- `logistics` видит состав доставки и адрес, но не видит финансовые статьи
+- `warehouse` видит резерв и фактический расход, но не видит маркетинговый источник лида
+- `seller` / `warehouse` / `logistics` не видят `base purchase price` в product-supplier matrix
 
 ---
 
 ## 4. Матрица рабочих пространств
 
-### 4.1 Sales Workspace
+### 4.1 Продавец Workspace (`seller`)
 
 #### Основная задача
-Вести лида, переводить его в сделку, формировать заказ, сопровождать клиента до исполнения.
+Вести лид, переводить его в коммерческий `Deal`, сопровождать клиента до обеспечения товара и отслеживать auto-created `Order`.
 
 #### Видит разделы
 - Home
@@ -72,6 +86,9 @@
 - Deals
 - Orders
 - Clients
+- Supplier Requests (mandatory MVP screen)
+- Return Requests (status visibility)
+- Follow-up Queue
 - My KPI
 
 #### Не видит разделы
@@ -90,20 +107,25 @@
 - статус доставки
 - возвраты по своему заказу
 - timeline по своему заказу
+- deal supply summary: partial coverage, deficits, ETA, linked supplier request context
 
 #### Не видит в карточке order
 - средневзвешенную себестоимость
 - скрытую маржу компании
 - закрытые финансовые статьи
 - системную сверку по кассе
+- `base purchase price` из product-supplier matrix
 
 #### Может делать
 - создавать lead
 - обновлять lead
 - переводить lead в deal
-- создавать draft order
-- инициировать подтверждение order при выполнении предусловий
+- оформлять supplier request
+- запускать коммерческий сценарий обеспечения товара
 - оставлять комментарии и follow-up
+- ставить next contact date и reminders
+- фиксировать lost reason и communication history
+- инициировать dedup/merge workflow для client card
 - инициировать запрос на возврат
 
 #### Не может делать
@@ -115,53 +137,7 @@
 
 ---
 
-### 4.2 Marketing Workspace
-
-#### Основная задача
-Анализировать источники, качество лидов, расходы и эффективность каналов.
-
-#### Видит разделы
-- Home
-- Channels
-- Lead Attribution
-- Marketing Expenses
-- Funnel Analytics
-- Reports
-
-#### Не видит разделы
-- Warehouse
-- Delivery Tasks
-- Full Payments Ledger
-- Full Finance
-- Full Audit
-
-#### Видит
-- лиды по источникам
-- сделки в агрегированном виде
-- доход по каналам в разрешённом разрезе
-- маркетинговые расходы
-- CPL/CAC/ROMI
-
-#### Не видит
-- персональные финансовые операции вне маркетинга
-- себестоимость SKU
-- операционные складские события
-- детали внутренней кассовой сверки
-
-#### Может делать
-- заводить и корректировать marketing expense в рамках прав
-- работать с каналами и метками атрибуции
-- строить отчёты по маркетингу
-
-#### Не может делать
-- менять order
-- менять payment
-- менять delivery execution
-- менять inventory movements
-
----
-
-### 4.3 Finance Workspace
+### 4.2 Финансист Workspace (`finance`)
 
 #### Основная задача
 Фиксировать поступления, возвраты, расходы и проводить сверку.
@@ -169,33 +145,45 @@
 #### Видит разделы
 - Home
 - Payments
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Refunds
 - Expenses
 - Reconciliation
 - Finance Reports
 
 #### Не видит разделы
-- Sales pipeline as primary workspace
-- Warehouse operational screens
-- Driver screens
+- `seller` pipeline as primary workspace
+- `warehouse` operational screens
+- `driver` screens
 
 #### Видит
 - payment ledger
 - refund ledger
 - расходы
 - cash basis доход
+- supplier payables
+- деньги у водителей
 - сверку по доменам
 - проблемные финансовые операции
+- external payment intake/control queue (pending/completed/rejected)
+- mismatch reports
+- manual correction workflow queue
 
 #### Видит ограниченно
 - карточку order только в части финансового контекста
 - deal только в части привязки оплаты
 
 #### Может делать
-- регистрировать оплату
+- регистрировать внешний payment fact intake/linkage в рамках доступных каналов
+- подтверждать или отклонять external payment fact (`completed` / `rejected`)
 - подтверждать или отклонять проведение
 - оформлять возврат денег в рамках процесса
 - вести расходы
+- прикреплять файл к supplier request
+- переводить supplier request в `paid` (UI: `Оплачено`) после фактической оплаты
+- создавать/отправлять на согласование manual corrections
+- применять approved manual corrections
 - запускать и закрывать сверку
 
 #### Не может делать
@@ -206,7 +194,7 @@
 
 ---
 
-### 4.4 Logistics Workspace
+### 4.3 Логист Workspace (`logistics`)
 
 #### Основная задача
 Планировать доставку и фиксировать исполнение логистики.
@@ -215,6 +203,8 @@
 - Home
 - Delivery Calendar
 - Tasks
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Drivers
 - Route Days
 - Incidents
@@ -223,27 +213,33 @@
 - Finance Reports
 - Marketing Analytics
 - Inventory Costing
-- Full Sales CRM
+- Full `seller` CRM
 
 #### Видит
 - delivery tasks
 - слоты
+- route day
 - адреса
 - контакты доставки
 - статус заказа в части готовности к отгрузке
+- заказы `OnControl` / `Problem`
 - причины срывов
+- контекст денег от водителя (без доступа к полному финансовому журналу)
 
 #### Не видит
 - закрытые финансовые данные
 - маркетинговый источник
 - управленческую маржу
+- `base purchase price`
 
 #### Может делать
 - назначать задачу на слот
 - менять водителя
 - переносить доставку в рамках правил
 - фиксировать исход доставки
+- фиксировать partial delivery исход по своим delivery task
 - регистрировать проблему доставки
+- быть ответственным за проблемный заказ при просроченных деньгах от водителя
 
 #### Не может делать
 - подтверждать оплату
@@ -253,7 +249,7 @@
 
 ---
 
-### 4.5 Warehouse Workspace
+### 4.4 Кладовщик Workspace (`warehouse`)
 
 #### Основная задача
 Управлять остатками, резервами и фактическими движениями товара.
@@ -262,8 +258,12 @@
 - Home
 - Stock
 - Reservations
+- Supplier Requests (mandatory MVP screen)
+- Return Requests (status visibility)
 - Movements
 - Receipts
+- Product Matrix
+- ABC Report
 - Returns
 - Write-offs
 
@@ -280,6 +280,9 @@
 - расходы
 - возвраты на склад
 - списания
+- low-stock alerts
+- stale reservation alerts
+- receipt discrepancy cases
 
 #### Видит ограниченно
 - order только в части товарного состава и статуса готовности к сборке/отгрузке
@@ -288,12 +291,16 @@
 - маркетинговые данные
 - полную финансовую отчётность
 - управленческие KPI вне склада
+- `base purchase price`
 
 #### Может делать
 - создавать и подтверждать складские движения в рамках процесса
 - работать с резервами
+- прикреплять файл к supplier request
+- переводить supplier request в `stocked` (UI: `Оприходовано`) после фактического прихода товара
 - фиксировать возврат на склад
 - делать списание в рамках прав
+- фиксировать и эскалировать расхождения при приёмке
 
 #### Не может делать
 - подтверждать лиды и сделки
@@ -303,7 +310,7 @@
 
 ---
 
-### 4.6 CEO / Management Workspace
+### 4.5 Исполнительный директор Workspace (`ceo`)
 
 #### Основная задача
 Контролировать сквозную картину бизнеса и узкие места.
@@ -311,6 +318,8 @@
 #### Видит разделы
 - Home
 - Executive Dashboard
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Sales
 - Orders
 - Inventory
@@ -325,12 +334,19 @@
 - агрегированные показатели по всем доменам
 - критические карточки и drill-down
 - междоменные расхождения
+- деньги у водителей
+- supplier payables
 - override-действия
 - качество данных
+- manual correction approval queue
+- integration health (ATS/Avito inbound, Telegram/MAX outbound)
 
 #### Может делать
 - просматривать полную картину
 - утверждать ограниченный набор критических действий
+- прикреплять файл к supplier request
+- переводить supplier request в `paid` (UI: `Оплачено`) после фактической оплаты
+- подтверждать/отклонять manual corrections в рамках approval workflow
 - инициировать проверки и разбор инцидентов
 
 #### Не должен делать как основной сценарий
@@ -340,7 +356,7 @@ UI для CEO должен быть обзорным и decision-oriented, а н
 
 ---
 
-### 4.7 Driver Workspace
+### 4.6 Водитель Workspace (`driver`)
 
 #### Основная задача
 Исполнить назначенные задачи доставки и зафиксировать результат.
@@ -349,6 +365,8 @@ UI для CEO должен быть обзорным и decision-oriented, а н
 - Today
 - My Route
 - Delivery Tasks
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Issues
 - Completed
 
@@ -389,7 +407,7 @@ UI для CEO должен быть обзорным и decision-oriented, а н
 
 ---
 
-### 4.8 Administrator Workspace
+### 4.7 Админ Workspace (`admin`)
 
 #### Основная задача
 Управление пользователями, ролями, настройками и техническими политиками.
@@ -398,6 +416,8 @@ UI для CEO должен быть обзорным и decision-oriented, а н
 - Users
 - Roles
 - Permissions
+- Supplier Requests (status visibility)
+- Return Requests (status visibility)
 - Settings
 - Audit
 - System Health
@@ -409,7 +429,7 @@ UI для CEO должен быть обзорным и decision-oriented, а н
 - просматривать технический аудит
 
 #### Ограничение
-Administrator не должен автоматически получать право на все бизнес-операции. Техническое администрирование и бизнес-override должны разделяться.
+`admin` не должен автоматически получать право на все бизнес-операции. Техническое администрирование и бизнес-override должны разделяться.
 
 ---
 
@@ -423,8 +443,8 @@ Administrator не должен автоматически получать пр
 
 ### 5.3 Поле скрывается или редактируется условно
 Пример:
-- Sales видит сумму заказа, но не видит скрытую себестоимость
-- Warehouse видит SKU и количество, но не видит маркетинговую атрибуцию
+- `seller` видит сумму заказа, но не видит скрытую себестоимость
+- `warehouse` видит SKU и количество, но не видит маркетинговую атрибуцию
 
 ### 5.4 Кнопка действия зависит от роли и статуса
 Даже при видимости карточки кнопка действия показывается только если:
@@ -434,6 +454,32 @@ Administrator не должен автоматически получать пр
 
 ### 5.5 Экспорт подчиняется отдельному праву
 Право видеть экран не означает право экспортировать данные.
+
+### 5.6 Supplier request / return request access baseline
+- список и статус `Supplier Requests` и `Return Requests` видят все роли
+- attach file в `Supplier Requests` доступен только `warehouse`, `finance`, `ceo`
+- attach file в `Supplier Requests` видят только `warehouse`, `finance`, `ceo`
+- статус `paid` в `Supplier Requests` меняют только `finance`, `ceo`
+- статус `stocked` в `Supplier Requests` меняет только `warehouse`
+- `Return Requests` используют статусы `created`, `confirmed`, `processed`, `closed` (UI: `Оформлена`, `Подтверждена`, `Обработана`, `Закрыта`)
+- если прошло более `14` дней после реализации, `ReturnRequest.confirmed` требует согласования `ceo`
+- канонический anchor реализации: `realizationAnchorAt = MIN(orders.fulfillments.fulfilled_at)` по возвращаемым позициям через linkage к `orders.fulfillment_items`
+- `orders.orders.shipped_at` / `orders.orders.partially_shipped_at` не являются каноническим anchor для этого правила
+
+### 5.7 External payment intake/control baseline
+- UI не должен предоставлять CRM-side payment creation/checkout/payment-link действия
+- `finance`/`ceo` работают с confirm/reject входящего external payment fact
+- `rejected` фиксируется как terminal статус факта и не создаёт cash/revenue side effects
+
+### 5.8 Manual correction and audit baseline
+- corrections проходят только workflow `draft -> pending_approval -> approved/rejected -> applied`
+- UI не должен позволять apply до approval
+- approval/apply/reject actions обязаны оставлять audit trail
+
+### 5.9 Workspace productivity baseline
+- каждый workspace обязан иметь role home dashboard, saved filters и role notifications
+- список уведомлений формируется по permission-safe routing
+- KPI widgets остаются derived/read-only и не могут менять доменные факты
 
 ---
 
@@ -447,10 +493,10 @@ Administrator не должен автоматически получать пр
 
 Пример для order:
 - Common: клиент, items, статус, timeline
-- Sales-specific: follow-up, коммерческие комментарии
-- Logistics-specific: доставка, окно времени, маршрут
-- Warehouse-specific: резерв, сборка, движения
-- Finance-specific: оплаты, возвраты, cash status
+- seller-specific: follow-up, коммерческие комментарии
+- logistics-specific: доставка, окно времени, маршрут
+- warehouse-specific: резерв, сборка, движения
+- finance-specific: оплаты, возвраты, cash status
 - Sensitive: себестоимость, маржа, override history
 
 ---
@@ -464,12 +510,12 @@ Administrator не должен автоматически получать пр
 - executive
 
 По умолчанию:
-- Sales получает operational + personal analytical
-- Marketing получает marketing analytical
-- Finance получает financial + reconciliation
-- Logistics получает operational logistics + KPI logistics
-- Warehouse получает stock operational + warehouse KPI
-- CEO получает все executive reports и drill-down
+- `seller` получает operational + personal analytical
+- `marketing` получает marketing analytical (optional)
+- `finance` получает financial + reconciliation
+- `logistics` получает operational logistics + KPI logistics
+- `warehouse` получает stock operational + warehouse KPI
+- `ceo` получает все executive reports и drill-down
 
 ---
 

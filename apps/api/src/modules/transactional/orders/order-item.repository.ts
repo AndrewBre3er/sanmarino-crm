@@ -13,9 +13,10 @@ import { throw_deferred_skeleton } from "../shared/deferred-skeleton.error";
 export interface OrdersOrderItemRecord extends PersistenceRecordBase {
   orderId: string;
   lineNo: number;
-  productRef: string;
+  productId: string;
   productNameSnapshot: string;
   qty: string;
+  unit: string;
   retailPrice: string;
   discountAmount: string;
   lineTotal: string;
@@ -26,9 +27,10 @@ export interface OrdersOrderItemRecord extends PersistenceRecordBase {
 export interface OrdersOrderItemCreateInput {
   orderId: string;
   lineNo: number;
-  productRef: string;
+  productId: string;
   productNameSnapshot: string;
   qty: string;
+  unit: string;
   retailPrice: string;
   discountAmount?: string;
   lineTotal: string;
@@ -37,6 +39,7 @@ export interface OrdersOrderItemCreateInput {
 }
 
 export interface OrdersOrderItemUpdateInput {
+  unit?: string;
   qty?: string;
   retailPrice?: string;
   discountAmount?: string;

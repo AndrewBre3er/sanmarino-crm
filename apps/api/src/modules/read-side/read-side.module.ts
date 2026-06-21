@@ -2,16 +2,18 @@ import { Module } from "@nestjs/common";
 import { DealsReadController } from "./crm/deal.read.controller";
 import { PrismaCrmDealReadRepository } from "./crm/deal.read.repository";
 import { GetDealDetailUseCase, ListDealsUseCase } from "./crm/deal.read.use-cases";
-import { LeadsReadController } from "./crm/lead.read.controller";
-import { PrismaCrmLeadReadRepository } from "./crm/lead.read.repository";
-import { GetLeadDetailUseCase, ListLeadsUseCase } from "./crm/lead.read.use-cases";
+import { FinanceEntriesReadController } from "./finance/finance-entry.read.controller";
+import { PrismaFinanceEntryReadRepository } from "./finance/finance-entry.read.repository";
+import {
+  GetFinanceEntryDetailUseCase,
+  ListFinanceEntriesUseCase
+} from "./finance/finance-entry.read.use-cases";
 import { DeliveryTasksReadController } from "./logistics/delivery-task.read.controller";
 import { PrismaLogisticsDeliveryTaskReadRepository } from "./logistics/delivery-task.read.repository";
 import {
   GetDeliveryTaskDetailUseCase,
   ListDeliveryTasksUseCase
 } from "./logistics/delivery-task.read.use-cases";
-import { OrdersReadController } from "./orders/order.read.controller";
 import { PrismaOrdersOrderReadRepository } from "./orders/order.read.repository";
 import { GetOrderDetailUseCase, ListOrdersUseCase } from "./orders/order.read.use-cases";
 import { PaymentsReadController } from "./payments/payment.read.controller";
@@ -26,28 +28,27 @@ import {
 
 @Module({
   controllers: [
-    LeadsReadController,
     DealsReadController,
-    OrdersReadController,
     PaymentsReadController,
+    FinanceEntriesReadController,
     DeliveryTasksReadController,
     ReturnRequestsReadController
   ],
   providers: [
-    PrismaCrmLeadReadRepository,
     PrismaCrmDealReadRepository,
     PrismaOrdersOrderReadRepository,
     PrismaPaymentsPaymentReadRepository,
+    PrismaFinanceEntryReadRepository,
     PrismaLogisticsDeliveryTaskReadRepository,
     PrismaOrdersReturnRequestReadRepository,
-    ListLeadsUseCase,
-    GetLeadDetailUseCase,
     ListDealsUseCase,
     GetDealDetailUseCase,
     ListOrdersUseCase,
     GetOrderDetailUseCase,
     ListPaymentsUseCase,
     GetPaymentDetailUseCase,
+    ListFinanceEntriesUseCase,
+    GetFinanceEntryDetailUseCase,
     ListDeliveryTasksUseCase,
     GetDeliveryTaskDetailUseCase,
     ListReturnRequestsUseCase,

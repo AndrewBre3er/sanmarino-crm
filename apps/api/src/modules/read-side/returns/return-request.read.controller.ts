@@ -1,6 +1,9 @@
-import { Controller, Get, Inject, NotFoundException, Param, Query } from "@nestjs/common";
+import { Controller, Get, Inject, NotFoundException, Param, Query, UseGuards } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { api_openapi_tags } from "../../../contracts/openapi.contract";
+import { require_roles } from "../../auth/auth.access.decorator";
+import { AuthAccessGuard } from "../../auth/auth.access.guard";
+import { bootstrap_role_codes } from "../../auth/auth.contract";
 import {
   build_read_collection_query,
   ReturnRequestsReadQueryDto
@@ -12,6 +15,8 @@ import {
 } from "./return-request.read.use-cases";
 
 @ApiTags(api_openapi_tags.returnsRead.name)
+@UseGuards(AuthAccessGuard)
+@require_roles(...bootstrap_role_codes)
 @Controller("return-requests")
 export class ReturnRequestsReadController {
   private static readonly query_dto = ReturnRequestsReadQueryDto;
@@ -29,7 +34,7 @@ export class ReturnRequestsReadController {
   async list(@Query() query: ReturnRequestsReadQueryDto) {
     const readQuery = build_read_collection_query(query, {
       defaultSortField: "createdAt",
-      allowedSortFields: ["createdAt", "updatedAt", "status", "submittedAt", "processedAt"],
+      allowedSortFields: ["createdAt", "updatedAt", "status", "confirmedAt", "processedAt"],
       statusField: "status",
       statusValues: query.status
     });

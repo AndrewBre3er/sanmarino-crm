@@ -4,59 +4,46 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   backoffice_shell_todo_note,
-  get_workspace_navigation,
-  resolve_workspace_from_path,
-  workspace_codes,
-  workspace_descriptors,
-  type WorkspaceCode
+  get_user_navigation,
+  role_russian_labels
 } from "../../contracts/backoffice-shell.contract";
+import type { AuthUserView } from "../../lib/auth/auth-session";
 
 interface BackofficeShellProps {
   children: React.ReactNode;
+  viewer: AuthUserView;
 }
 
-function WorkspaceSwitcher({ activeWorkspace }: { activeWorkspace: WorkspaceCode }) {
-  return (
-    <nav aria-label="Workspace switcher" className="bo-workspace-switcher">
-      {workspace_codes.map(workspaceCode => {
-        const workspace = workspace_descriptors[workspaceCode];
-        const isActive = workspaceCode === activeWorkspace;
-
-        return (
-          <Link
-            key={workspace.code}
-            href={workspace.homePath}
-            className={`bo-workspace-chip${isActive ? " bo-workspace-chip-active" : ""}`}
-            aria-current={isActive ? "page" : undefined}
-          >
-            {workspace.title}
-          </Link>
-        );
-      })}
-    </nav>
-  );
-}
-
-function WorkspaceNavigation({ activeWorkspace }: { activeWorkspace: WorkspaceCode }) {
-  const items = get_workspace_navigation(activeWorkspace);
+function RoleNavigation({ viewer }: { viewer: AuthUserView }) {
+  const pathname = usePathname();
+  const items = get_user_navigation(viewer.roleCodes, viewer.allowedWorkspaces);
 
   return (
     <nav aria-label="Role-aware navigation" className="bo-sidebar-nav">
       <ul>
-        {items.map(item => (
-          <li key={item.key}>
-            <Link href={item.path}>{item.title}</Link>
-          </li>
-        ))}
+        {items.map(item => {
+          const isActive = pathname === item.path;
+
+          return (
+            <li key={item.key}>
+              <Link
+                href={item.path}
+                className={isActive ? "bo-nav-link bo-nav-link-active" : "bo-nav-link"}
+                aria-current={isActive ? "page" : undefined}
+              >
+                {item.title}
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </nav>
   );
 }
 
-export function BackofficeShell({ children }: BackofficeShellProps) {
-  const pathname = usePathname();
-  const activeWorkspace = resolve_workspace_from_path(pathname);
-  const activeWorkspaceDescriptor = workspace_descriptors[activeWorkspace];
+export function BackofficeShell({ children, viewer }: BackofficeShellProps) {
+  const primaryRoleLabel = role_russian_labels[viewer.primaryRole];
+  const allRoleLabels = viewer.roleCodes.map(roleCode => role_russian_labels[roleCode]).join(", ");
 
   return (
     <div className="bo-shell-root">
@@ -64,15 +51,25 @@ export function BackofficeShell({ children }: BackofficeShellProps) {
         <div className="bo-topbar-title-wrap">
           <p className="bo-kicker">Backoffice Shell</p>
           <h1>Sanmarino CRM/ERP</h1>
-          <p className="bo-muted">{activeWorkspaceDescriptor.subtitle}</p>
+          <p className="bo-muted">Primary role: {primaryRoleLabel}</p>
+          <p className="bo-muted">Роли: {allRoleLabels}</p>
         </div>
-        <WorkspaceSwitcher activeWorkspace={activeWorkspace} />
+
+        <div className="bo-user-box">
+          <p className="bo-user-name">{viewer.displayName}</p>
+          <p className="bo-user-login">{viewer.email}</p>
+          <form action="/logout" method="post">
+            <button type="submit" className="bo-logout-button">
+              Выйти
+            </button>
+          </form>
+        </div>
       </header>
 
       <div className="bo-shell-frame">
         <aside className="bo-sidebar">
-          <h2>{activeWorkspaceDescriptor.title}</h2>
-          <WorkspaceNavigation activeWorkspace={activeWorkspace} />
+          <h2>{primaryRoleLabel}</h2>
+          <RoleNavigation viewer={viewer} />
           <p className="bo-sidebar-note">{backoffice_shell_todo_note}</p>
         </aside>
 

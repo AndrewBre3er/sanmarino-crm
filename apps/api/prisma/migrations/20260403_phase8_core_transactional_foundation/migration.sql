@@ -1,3 +1,15 @@
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "crm";
+
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "orders";
+
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "logistics";
+
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "payments";
+
 -- CreateEnum
 CREATE TYPE "crm"."DealStatus" AS ENUM ('draft', 'qualified', 'proposal', 'negotiation', 'won', 'lost');
 

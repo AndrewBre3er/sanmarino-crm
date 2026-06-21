@@ -12,10 +12,15 @@ import type {
 } from "../shared/read-model.contract";
 import { build_page_pagination_meta } from "../shared/read-query.dto";
 import { from_prisma_enum, to_iso_datetime, to_prisma_enum } from "../shared/prisma-read.mapper";
+import type { DeliveryTaskReadScope } from "./delivery-task.read.scope";
 
 export interface LogisticsDeliveryTaskReadModel {
   id: string;
   orderId: string;
+  routeDayId: string | null;
+  deliverySlotId: string | null;
+  driverId: string | null;
+  vehicleId: string | null;
   status: DeliveryTaskStatus;
   sequenceNo: number | null;
   plannedDate: string | null;
@@ -24,7 +29,7 @@ export interface LogisticsDeliveryTaskReadModel {
   addressText: string | null;
   recipientName: string | null;
   recipientPhone: string | null;
-  createdBy: string | null;
+  createdBy: string;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -32,15 +37,20 @@ export interface LogisticsDeliveryTaskReadModel {
 
 export interface LogisticsDeliveryTaskReadRepositoryContract {
   list(
-    query: ReadCollectionQueryInput
+    query: ReadCollectionQueryInput,
+    scope?: DeliveryTaskReadScope
   ): Promise<ReadCollectionResult<LogisticsDeliveryTaskReadModel>>;
-  getById(taskId: string): Promise<LogisticsDeliveryTaskReadModel | null>;
+  getById(taskId: string, scope?: DeliveryTaskReadScope): Promise<LogisticsDeliveryTaskReadModel | null>;
 }
 
 function map_delivery_task_read_model(record: LogisticsDeliveryTask): LogisticsDeliveryTaskReadModel {
   return {
     id: record.id,
     orderId: record.orderId,
+    routeDayId: record.routeDayId,
+    deliverySlotId: record.deliverySlotId,
+    driverId: record.driverId,
+    vehicleId: record.vehicleId,
     status: from_prisma_enum(record.status) as DeliveryTaskStatus,
     sequenceNo: record.sequenceNo,
     plannedDate: to_iso_datetime(record.plannedDate),
@@ -63,16 +73,19 @@ export class PrismaLogisticsDeliveryTaskReadRepository
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
   async list(
-    query: ReadCollectionQueryInput
+    query: ReadCollectionQueryInput,
+    scope?: DeliveryTaskReadScope
   ): Promise<ReadCollectionResult<LogisticsDeliveryTaskReadModel>> {
-    const where: Prisma.LogisticsDeliveryTaskWhereInput = {};
+    const and_clauses: Prisma.LogisticsDeliveryTaskWhereInput[] = [];
 
     if (query.search) {
-      where.OR = [
+      and_clauses.push({
+        OR: [
         { addressText: { contains: query.search, mode: "insensitive" } },
         { recipientName: { contains: query.search, mode: "insensitive" } },
         { recipientPhone: { contains: query.search, mode: "insensitive" } }
-      ];
+        ]
+      });
     }
 
     if (query.status && query.status.length > 0) {
@@ -81,11 +94,24 @@ export class PrismaLogisticsDeliveryTaskReadRepository
       );
       const [first_status] = mapped;
       if (mapped.length === 1 && first_status) {
-        where.status = first_status;
+        and_clauses.push({ status: first_status });
       } else {
-        where.status = { in: mapped };
+        and_clauses.push({ status: { in: mapped } });
       }
     }
+
+    if (scope?.responsibleUserId) {
+      and_clauses.push({
+        order: {
+          deal: {
+            responsibleUserId: scope.responsibleUserId
+          }
+        }
+      });
+    }
+
+    const where: Prisma.LogisticsDeliveryTaskWhereInput =
+      and_clauses.length > 0 ? { AND: and_clauses } : {};
 
     const orderBy = {
       [query.sortField]: query.sortDirection
@@ -109,9 +135,22 @@ export class PrismaLogisticsDeliveryTaskReadRepository
     };
   }
 
-  async getById(taskId: string): Promise<LogisticsDeliveryTaskReadModel | null> {
-    const task = await this.prismaService.logisticsDeliveryTask.findUnique({
-      where: { id: taskId }
+  async getById(taskId: string, scope?: DeliveryTaskReadScope): Promise<LogisticsDeliveryTaskReadModel | null> {
+    const and_clauses: Prisma.LogisticsDeliveryTaskWhereInput[] = [{ id: taskId }];
+    if (scope?.responsibleUserId) {
+      and_clauses.push({
+        order: {
+          deal: {
+            responsibleUserId: scope.responsibleUserId
+          }
+        }
+      });
+    }
+
+    const task = await this.prismaService.logisticsDeliveryTask.findFirst({
+      where: {
+        AND: and_clauses
+      }
     });
 
     return task ? map_delivery_task_read_model(task) : null;

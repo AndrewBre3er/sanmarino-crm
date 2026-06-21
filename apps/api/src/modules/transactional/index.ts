@@ -6,6 +6,7 @@ export * from "./shared/use-case.contract";
 
 export * from "./crm/lead.repository";
 export * from "./crm/deal.repository";
+export * from "./crm/lead.transition.guard";
 export * from "./crm/deal.transition.guard";
 export * from "./crm/lead.use-cases";
 export * from "./crm/deal.use-cases";

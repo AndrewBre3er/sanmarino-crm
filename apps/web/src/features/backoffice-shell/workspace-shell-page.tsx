@@ -1,24 +1,27 @@
-import type { WorkspaceCode } from "../../contracts/backoffice-shell.contract";
-import { workspace_descriptors } from "../../contracts/backoffice-shell.contract";
+import type { AuthRoleCode } from "../../contracts/backoffice-shell.contract";
+import { role_russian_labels } from "../../contracts/backoffice-shell.contract";
 import { EmptyState } from "../../components/states/empty-state";
 import { ErrorState } from "../../components/states/error-state";
 import { LoadingState } from "../../components/states/loading-state";
 import { PageHeader, PageSection, PageShell } from "../../components/shell/page-shell";
 
 interface WorkspaceShellPageProps {
-  workspace: WorkspaceCode;
+  roleCode: AuthRoleCode;
   modules: readonly string[];
   title: string;
   subtitle: string;
 }
 
+const saved_filter_labels = ["Open actions", "Problem items", "Updated today"] as const;
+const role_notification_labels = ["Needs review", "Blocked by policy", "Due today"] as const;
+
 export function WorkspaceShellPage({
-  workspace,
+  roleCode,
   modules,
   title,
   subtitle
 }: WorkspaceShellPageProps) {
-  const descriptor = workspace_descriptors[workspace];
+  const roleLabel = role_russian_labels[roleCode];
 
   return (
     <PageShell>
@@ -39,9 +42,25 @@ export function WorkspaceShellPage({
         </ul>
       </PageSection>
 
+      <PageSection title="Saved Filters" description="Role-scoped queues for repeated work">
+        <ul className="bo-list-grid">
+          {saved_filter_labels.map(filterName => (
+            <li key={filterName}>{filterName}</li>
+          ))}
+        </ul>
+      </PageSection>
+
+      <PageSection title="Role Notifications" description="Actionable role-routed inbox surface">
+        <ul className="bo-list-grid">
+          {role_notification_labels.map(notificationName => (
+            <li key={notificationName}>{notificationName}</li>
+          ))}
+        </ul>
+      </PageSection>
+
       <PageSection
         title="Operational Frame"
-        description={`Current route is mapped to ${descriptor.title}.`}
+        description={`Current route is mapped to role "${roleLabel}".`}
       >
         <div className="bo-state-grid">
           <LoadingState label="Loading state component for workspace-level widgets." />

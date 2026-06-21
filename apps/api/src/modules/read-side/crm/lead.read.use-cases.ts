@@ -1,6 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ReadCollectionQueryInput } from "../shared/read-model.contract";
-import { PrismaCrmLeadReadRepository } from "./lead.read.repository";
+import {
+  PrismaCrmLeadReadRepository,
+  type CrmLeadReadScope
+} from "./lead.read.repository";
 
 @Injectable()
 export class ListLeadsUseCase {
@@ -9,8 +12,8 @@ export class ListLeadsUseCase {
     private readonly leadRepository: PrismaCrmLeadReadRepository
   ) {}
 
-  async execute(query: ReadCollectionQueryInput) {
-    return this.leadRepository.list(query);
+  async execute(query: ReadCollectionQueryInput, scope?: CrmLeadReadScope) {
+    return this.leadRepository.list(query, scope);
   }
 }
 
@@ -21,7 +24,7 @@ export class GetLeadDetailUseCase {
     private readonly leadRepository: PrismaCrmLeadReadRepository
   ) {}
 
-  async execute(leadId: string) {
-    return this.leadRepository.getById(leadId);
+  async execute(leadId: string, scope?: CrmLeadReadScope) {
+    return this.leadRepository.getById(leadId, scope);
   }
 }

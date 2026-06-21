@@ -7,6 +7,7 @@ import type {
 } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
 import type {
+  OrderControlOverlayStatus,
   OrderDeliveryStatus,
   OrderFulfillmentType,
   OrderStatus
@@ -26,9 +27,10 @@ import {
 export interface OrdersOrderItemReadModel {
   id: string;
   lineNo: number;
-  productRef: string;
+  productId: string;
   productNameSnapshot: string;
   qty: string;
+  unit: string;
   retailPrice: string;
   discountAmount: string;
   lineTotal: string;
@@ -43,15 +45,21 @@ export interface OrdersOrderReadModel {
   id: string;
   orderNumber: string;
   dealId: string;
+  clientId: string;
   status: OrderStatus;
+  paymentControlStatus: OrderControlOverlayStatus;
+  paymentControlDueAt: string | null;
   fulfillmentType: OrderFulfillmentType;
   deliveryStatus: OrderDeliveryStatus;
   currency: string;
+  subtotalAmount: string;
+  discountAmount: string;
   totalAmount: string;
-  confirmedAt: string | null;
-  completedAt: string | null;
-  closedAt: string | null;
-  cancelledAt: string | null;
+  notes: string | null;
+  readyForPartialShipmentAt: string | null;
+  readyForShipmentAt: string | null;
+  partiallyShippedAt: string | null;
+  shippedAt: string | null;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -69,17 +77,29 @@ export interface OrdersOrderDetailReadModel extends OrdersOrderReadModel {
 }
 
 export interface OrdersOrderReadRepositoryContract {
-  list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<OrdersOrderReadModel>>;
-  getById(orderId: string, includeDeleted?: boolean): Promise<OrdersOrderDetailReadModel | null>;
+  list(
+    query: ReadCollectionQueryInput,
+    scope?: OrdersOrderReadScope
+  ): Promise<ReadCollectionResult<OrdersOrderReadModel>>;
+  getById(
+    orderId: string,
+    includeDeleted?: boolean,
+    scope?: OrdersOrderReadScope
+  ): Promise<OrdersOrderDetailReadModel | null>;
+}
+
+export interface OrdersOrderReadScope {
+  responsibleUserId?: string;
 }
 
 function map_order_item_read_model(record: OrdersOrderItem): OrdersOrderItemReadModel {
   return {
     id: record.id,
     lineNo: record.lineNo,
-    productRef: record.productRef,
+    productId: record.productId,
     productNameSnapshot: record.productNameSnapshot,
     qty: to_decimal_string(record.qty) ?? "0",
+    unit: from_prisma_enum(record.unit),
     retailPrice: to_decimal_string(record.retailPrice) ?? "0",
     discountAmount: to_decimal_string(record.discountAmount) ?? "0",
     lineTotal: to_decimal_string(record.lineTotal) ?? "0",
@@ -96,15 +116,21 @@ function map_order_read_model(record: OrdersOrder): OrdersOrderReadModel {
     id: record.id,
     orderNumber: record.orderNumber,
     dealId: record.dealId,
+    clientId: record.clientId,
     status: from_prisma_enum(record.status) as OrderStatus,
+    paymentControlStatus: from_prisma_enum(record.paymentControlStatus) as OrderControlOverlayStatus,
+    paymentControlDueAt: to_iso_datetime(record.paymentControlDueAt),
     fulfillmentType: from_prisma_enum(record.fulfillmentType) as OrderFulfillmentType,
     deliveryStatus: from_prisma_enum(record.deliveryStatus) as OrderDeliveryStatus,
     currency: record.currency,
+    subtotalAmount: to_decimal_string(record.subtotalAmount) ?? "0",
+    discountAmount: to_decimal_string(record.discountAmount) ?? "0",
     totalAmount: to_decimal_string(record.totalAmount) ?? "0",
-    confirmedAt: to_iso_datetime(record.confirmedAt),
-    completedAt: to_iso_datetime(record.completedAt),
-    closedAt: to_iso_datetime(record.closedAt),
-    cancelledAt: to_iso_datetime(record.cancelledAt),
+    notes: record.notes,
+    readyForPartialShipmentAt: to_iso_datetime(record.readyForPartialShipmentAt),
+    readyForShipmentAt: to_iso_datetime(record.readyForShipmentAt),
+    partiallyShippedAt: to_iso_datetime(record.partiallyShippedAt),
+    shippedAt: to_iso_datetime(record.shippedAt),
     createdAt: to_iso_datetime(record.createdAt) ?? "",
     updatedAt: to_iso_datetime(record.updatedAt) ?? "",
     version: record.version,
@@ -119,7 +145,10 @@ function map_order_read_model(record: OrdersOrder): OrdersOrderReadModel {
 export class PrismaOrdersOrderReadRepository implements OrdersOrderReadRepositoryContract {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
-  async list(query: ReadCollectionQueryInput): Promise<ReadCollectionResult<OrdersOrderReadModel>> {
+  async list(
+    query: ReadCollectionQueryInput,
+    scope?: OrdersOrderReadScope
+  ): Promise<ReadCollectionResult<OrdersOrderReadModel>> {
     const where: Prisma.OrdersOrderWhereInput = {};
 
     if (!query.includeDeleted) {
@@ -141,6 +170,12 @@ export class PrismaOrdersOrderReadRepository implements OrdersOrderReadRepositor
       } else {
         where.status = { in: mapped };
       }
+    }
+
+    if (scope?.responsibleUserId) {
+      where.deal = {
+        responsibleUserId: scope.responsibleUserId
+      };
     }
 
     const orderBy = {
@@ -165,9 +200,24 @@ export class PrismaOrdersOrderReadRepository implements OrdersOrderReadRepositor
     };
   }
 
-  async getById(orderId: string, includeDeleted = false): Promise<OrdersOrderDetailReadModel | null> {
-    const order = await this.prismaService.ordersOrder.findUnique({
-      where: { id: orderId },
+  async getById(
+    orderId: string,
+    includeDeleted = false,
+    scope?: OrdersOrderReadScope
+  ): Promise<OrdersOrderDetailReadModel | null> {
+    const and_clauses: Prisma.OrdersOrderWhereInput[] = [{ id: orderId }];
+    if (scope?.responsibleUserId) {
+      and_clauses.push({
+        deal: {
+          responsibleUserId: scope.responsibleUserId
+        }
+      });
+    }
+
+    const order = await this.prismaService.ordersOrder.findFirst({
+      where: {
+        AND: and_clauses
+      },
       include: {
         items: {
           orderBy: { lineNo: "asc" }

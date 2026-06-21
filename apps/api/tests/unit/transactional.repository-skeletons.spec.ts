@@ -3,7 +3,6 @@ import { PrismaService } from "../../src/prisma/prisma.service";
 import {
   DeferredSkeletonError,
   PrismaCrmDealRepository,
-  PrismaCrmLeadRepository,
   PrismaLogisticsDeliveryTaskRepository,
   PrismaOrdersOrderItemRepository,
   PrismaOrdersOrderRepository,
@@ -14,18 +13,7 @@ import {
 describe("transactional repository skeletons", () => {
   const prismaService = new PrismaService();
 
-  it("throws deferred error for crm lead skeleton methods", async () => {
-    const repository = new PrismaCrmLeadRepository(prismaService);
-
-    await expect(
-      repository.create({
-        source: "manual",
-        status: "draft"
-      })
-    ).rejects.toBeInstanceOf(DeferredSkeletonError);
-  });
-
-  it("keeps all core transactional repositories in deferred skeleton mode", async () => {
+  it("keeps deferred skeleton mode for domains outside lead baseline", async () => {
     const dealRepository = new PrismaCrmDealRepository(prismaService);
     const orderRepository = new PrismaOrdersOrderRepository(prismaService);
     const orderItemRepository = new PrismaOrdersOrderItemRepository(prismaService);
@@ -34,14 +22,20 @@ describe("transactional repository skeletons", () => {
     const paymentRepository = new PrismaPaymentsPaymentRepository(prismaService);
 
     await expect(
-      dealRepository.create({ status: "draft", title: "Deal skeleton" })
+      dealRepository.create({
+        clientId: "client_1",
+        status: "in_progress",
+        title: "Deal skeleton",
+        responsibleUserId: "user_1"
+      })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
 
     await expect(
       orderRepository.create({
         orderNumber: "ORD-SKELETON",
         dealId: "deal_1",
-        status: "draft",
+        clientId: "client_1",
+        status: "assembling",
         fulfillmentType: "manual"
       })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
@@ -50,9 +44,10 @@ describe("transactional repository skeletons", () => {
       orderItemRepository.create({
         orderId: "order_1",
         lineNo: 1,
-        productRef: "product_1",
+        productId: "product_1",
         productNameSnapshot: "Product",
         qty: "1",
+        unit: "шт",
         retailPrice: "100.00",
         lineTotal: "100.00"
       })
@@ -61,14 +56,15 @@ describe("transactional repository skeletons", () => {
     await expect(
       deliveryTaskRepository.create({
         orderId: "order_1",
-        status: "planned"
+        status: "planned",
+        createdBy: "user_1"
       })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
 
     await expect(
       returnRequestRepository.create({
         orderId: "order_1",
-        status: "draft",
+        status: "created",
         reason: "Need return"
       })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
@@ -78,8 +74,12 @@ describe("transactional repository skeletons", () => {
         paymentNumber: "PAY-SKELETON",
         orderId: "order_1",
         status: "pending",
+        sourceType: "external_fact",
+        externalSource: "manual_import",
+        externalEventId: "manual_evt_skeleton",
         paymentMethod: "cash",
-        amount: "100.00"
+        amount: "100.00",
+        createdBy: "user_1"
       })
     ).rejects.toBeInstanceOf(DeferredSkeletonError);
   });
