@@ -46,7 +46,7 @@ export class DealsReadController {
     const access = get_authenticated_access(request);
     const readQuery = build_read_collection_query(query, {
       defaultSortField: "updatedAt",
-      allowedSortFields: ["createdAt", "updatedAt", "status", "title"],
+      allowedSortFields: ["createdAt", "updatedAt", "status", "title", "nextContactAt"],
       statusField: "status",
       statusValues: query.status
     });

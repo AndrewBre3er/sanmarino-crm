@@ -5,6 +5,7 @@ import { RequestContextMiddleware } from "./common/request-context/request-conte
 import { RequestContextPropagationInterceptor } from "./common/request-context/request-context.propagation.interceptor";
 import { RequestContextStore } from "./common/request-context/request-context.store";
 import { AnalyticsModule } from "./modules/analytics";
+import { CrmProductivityModule } from "./modules/crm-productivity/crm-productivity.module";
 import { CrmRelationsModule } from "./modules/crm-relations/crm-relations.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { FinanceModule } from "./modules/finance/finance.module";
@@ -33,6 +34,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     FinanceModule,
     LogisticsModule,
     CrmRelationsModule,
+    CrmProductivityModule,
     TransactionalReadModule,
     SupplyModule
   ],

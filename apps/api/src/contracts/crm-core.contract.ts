@@ -3,7 +3,10 @@ export const crm_core_entities = [
   "deal",
   "client",
   "contact",
-  "client_participant"
+  "client_participant",
+  "deal_follow_up",
+  "deal_communication",
+  "client_merge_case"
 ] as const;
 
 export const crm_core_status_contract = {
@@ -12,8 +15,16 @@ export const crm_core_status_contract = {
 } as const;
 
 export const crm_core_read_side_contract = {
-  implementedCollections: ["leads", "deals"] as const,
-  deferredCollections: ["clients", "contacts", "client-participants"] as const,
-  freezePhase: "crm-step-1-contract-freeze"
+  implementedCollections: [
+    "leads",
+    "deals",
+    "clients",
+    "contacts",
+    "client-participants",
+    "deal-follow-ups",
+    "deal-communications",
+    "client-dedup-candidates"
+  ] as const,
+  deferredCollections: [] as const,
+  freezePhase: "delta0-crm-productivity-baseline"
 } as const;
-

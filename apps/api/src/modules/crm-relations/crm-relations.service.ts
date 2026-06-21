@@ -16,7 +16,9 @@ import {
 import {
   PrismaCrmClientRepository,
   type CrmClientAccessScope,
-  type CrmClientCreateInput
+  type CrmClientCreateInput,
+  type CrmClientMergeInput,
+  type CrmClientUpdateInput
 } from "./clients.repository";
 import {
   PrismaCrmContactRepository,
@@ -26,6 +28,12 @@ import {
 } from "./contacts.repository";
 import { PrismaCrmDealRepository } from "../transactional/crm/deal.repository";
 import type { ReadCollectionQueryInput } from "../read-side/shared/read-model.contract";
+
+export interface MergeClientPayload {
+  sourceClientId: string;
+  targetClientId: string;
+  reason?: string | null;
+}
 
 @Injectable()
 export class CrmRelationsService {
@@ -65,8 +73,96 @@ export class CrmRelationsService {
       ...(input.phone !== undefined ? { phone: input.phone?.trim() ?? null } : {}),
       ...(input.email !== undefined ? { email: input.email?.trim() ?? null } : {}),
       ...(input.taxId !== undefined ? { taxId: input.taxId?.trim() ?? null } : {}),
+      ...(input.addressText !== undefined
+        ? { addressText: normalize_optional_text(input.addressText) }
+        : {}),
+      ...(input.addressComment !== undefined
+        ? { addressComment: normalize_optional_text(input.addressComment) }
+        : {}),
+      ...(input.installerReferralComment !== undefined
+        ? { installerReferralComment: normalize_optional_text(input.installerReferralComment) }
+        : {}),
+      ...(input.designerReferralComment !== undefined
+        ? { designerReferralComment: normalize_optional_text(input.designerReferralComment) }
+        : {}),
       ...(input.notes !== undefined ? { notes: input.notes?.trim() ?? null } : {})
     });
+  }
+
+  async patchClient(clientId: string, input: CrmClientUpdateInput, actor: AuthPrincipal) {
+    this.assert_crm_write_access(actor);
+    const scope = resolve_crm_access_scope(actor);
+    const updateInput: CrmClientUpdateInput = {
+      ...(input.clientType !== undefined ? { clientType: input.clientType.trim() } : {}),
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.legalName !== undefined ? { legalName: normalize_optional_text(input.legalName) } : {}),
+      ...(input.phone !== undefined ? { phone: normalize_optional_text(input.phone) } : {}),
+      ...(input.email !== undefined ? { email: normalize_optional_text(input.email) } : {}),
+      ...(input.taxId !== undefined ? { taxId: normalize_optional_text(input.taxId) } : {}),
+      ...(input.addressText !== undefined ? { addressText: normalize_optional_text(input.addressText) } : {}),
+      ...(input.addressComment !== undefined
+        ? { addressComment: normalize_optional_text(input.addressComment) }
+        : {}),
+      ...(input.installerReferralComment !== undefined
+        ? { installerReferralComment: normalize_optional_text(input.installerReferralComment) }
+        : {}),
+      ...(input.designerReferralComment !== undefined
+        ? { designerReferralComment: normalize_optional_text(input.designerReferralComment) }
+        : {}),
+      ...(input.notes !== undefined ? { notes: normalize_optional_text(input.notes) } : {})
+    };
+
+    if (Object.keys(updateInput).length === 0) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Client patch payload must include at least one mutable field"
+      });
+    }
+
+    const updated = await this.clientRepository.updateById(clientId, updateInput, scope);
+    if (!updated) {
+      throw new NotFoundException(`Client '${clientId}' was not found`);
+    }
+
+    return updated;
+  }
+
+  async listClientDedupCandidates(query: ReadCollectionQueryInput, actor: AuthPrincipal) {
+    const scope = resolve_crm_access_scope(actor);
+    return this.clientRepository.listDedupCandidates(query, scope);
+  }
+
+  async mergeClient(pathClientId: string, input: MergeClientPayload, actor: AuthPrincipal) {
+    this.assert_crm_write_access(actor);
+    const sourceClientId = input.sourceClientId.trim();
+    const targetClientId = input.targetClientId.trim();
+
+    if (pathClientId !== targetClientId) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Client merge path id must match targetClientId"
+      });
+    }
+
+    if (sourceClientId === targetClientId) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "Client merge requires distinct sourceClientId and targetClientId"
+      });
+    }
+
+    const scope = resolve_crm_access_scope(actor);
+    await this.assert_client_exists(sourceClientId, scope);
+    await this.assert_client_exists(targetClientId, scope);
+
+    const mergeInput: CrmClientMergeInput = {
+      sourceClientId,
+      targetClientId,
+      reason: normalize_optional_text(input.reason),
+      actorUserId: actor.userId
+    };
+
+    return this.clientRepository.mergeClients(mergeInput);
   }
 
   async listContacts(
@@ -204,4 +300,13 @@ function resolve_crm_access_scope(
   }
 
   return { responsibleUserId: actor.userId };
+}
+
+function normalize_optional_text(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
 }

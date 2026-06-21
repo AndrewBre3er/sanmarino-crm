@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 import { auth_access_metadata_key } from "../../src/modules/auth/auth.access.contract";
+import { CrmProductivityController } from "../../src/modules/crm-productivity/crm-productivity.controller";
 import { ClientParticipantsController } from "../../src/modules/crm-relations/client-participants.controller";
 import { ClientsController } from "../../src/modules/crm-relations/clients.controller";
 import { ContactsController } from "../../src/modules/crm-relations/contacts.controller";
@@ -12,6 +13,7 @@ describe("crm relations access baseline", () => {
       ClientsController,
       ContactsController,
       ClientParticipantsController,
+      CrmProductivityController,
       DealsReadController
     ];
 

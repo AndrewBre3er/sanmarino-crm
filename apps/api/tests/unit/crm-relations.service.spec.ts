@@ -48,8 +48,11 @@ function make_service() {
   const clientRepository = {
     list: vi.fn(),
     findById: vi.fn(),
-    create: vi.fn()
-  } as unknown as PrismaCrmClientRepository;
+    create: vi.fn(),
+    updateById: vi.fn(),
+    listDedupCandidates: vi.fn(),
+    mergeClients: vi.fn()
+  };
 
   const contactRepository = {
     list: vi.fn(),
@@ -69,7 +72,7 @@ function make_service() {
 
   return {
     service: new CrmRelationsService(
-      clientRepository,
+      clientRepository as unknown as PrismaCrmClientRepository,
       contactRepository,
       participantRepository,
       dealRepository
@@ -94,6 +97,10 @@ describe("crm relations service", () => {
       phone: null,
       email: null,
       taxId: null,
+      addressText: null,
+      addressComment: null,
+      installerReferralComment: null,
+      designerReferralComment: null,
       notes: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -116,6 +123,122 @@ describe("crm relations service", () => {
     expect(detail.id).toBe("client_1");
     expect(clientRepository.list).toHaveBeenCalledWith(query, { responsibleUserId: "seller_1" });
     expect(clientRepository.findById).toHaveBeenCalledWith("client_1", { responsibleUserId: "seller_1" });
+  });
+
+  it("persists client master address and referral context on create and patch", async () => {
+    const { service, clientRepository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+    const clientRecord = {
+      id: "client_1",
+      clientType: "individual",
+      name: "Client",
+      legalName: null,
+      phone: null,
+      email: null,
+      taxId: null,
+      addressText: "Main street 1",
+      addressComment: "Gate 2",
+      installerReferralComment: "Installer Ivan",
+      designerReferralComment: "Designer Anna",
+      notes: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    vi.mocked(clientRepository.create).mockResolvedValue(clientRecord);
+    vi.mocked(clientRepository.updateById).mockResolvedValue({
+      ...clientRecord,
+      addressComment: "Gate 3"
+    });
+
+    await service.createClient(
+      {
+        clientType: " individual ",
+        name: " Client ",
+        addressText: " Main street 1 ",
+        addressComment: " Gate 2 ",
+        installerReferralComment: " Installer Ivan ",
+        designerReferralComment: " Designer Anna "
+      },
+      seller
+    );
+    const updated = await service.patchClient(
+      "client_1",
+      { addressComment: " Gate 3 " },
+      seller
+    );
+
+    expect(clientRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        addressText: "Main street 1",
+        addressComment: "Gate 2",
+        installerReferralComment: "Installer Ivan",
+        designerReferralComment: "Designer Anna"
+      })
+    );
+    expect(clientRepository.updateById).toHaveBeenCalledWith(
+      "client_1",
+      expect.objectContaining({
+        addressComment: "Gate 3"
+      }),
+      { responsibleUserId: "seller_1" }
+    );
+    expect(updated.addressComment).toBe("Gate 3");
+  });
+
+  it("merges clients only through explicit workflow command", async () => {
+    const { service, clientRepository } = make_service();
+    const admin = make_user(["admin"], "admin_1");
+    const mergeCase = {
+      id: "merge_case_1",
+      primaryClientId: "client_target",
+      candidateClientId: "client_source",
+      status: "merged" as const,
+      reason: "duplicate",
+      reviewedByUserId: "admin_1",
+      reviewedAt: new Date().toISOString(),
+      mergedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    vi.mocked(clientRepository.findById).mockResolvedValue({
+      id: "client_target",
+      clientType: "individual",
+      name: "Client",
+      legalName: null,
+      phone: null,
+      email: null,
+      taxId: null,
+      addressText: null,
+      addressComment: null,
+      installerReferralComment: null,
+      designerReferralComment: null,
+      notes: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    vi.mocked(clientRepository.mergeClients).mockResolvedValue(mergeCase);
+
+    const merged = await service.mergeClient(
+      "client_target",
+      {
+        sourceClientId: "client_source",
+        targetClientId: "client_target",
+        reason: " duplicate "
+      },
+      admin
+    );
+
+    expect(clientRepository.mergeClients).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceClientId: "client_source",
+        targetClientId: "client_target",
+        reason: "duplicate",
+        actorUserId: "admin_1"
+      })
+    );
+    expect(merged.status).toBe("merged");
   });
 
   it("supports create/list/detail for contact in seller contour", async () => {

@@ -53,7 +53,7 @@ export const api_openapi_tags = {
   crmRead: {
     name: "crm-read",
     description:
-      "Read-only CRM endpoints: deals (clients/contacts/client-participants remain implementation-deferred)"
+      "CRM read/productivity endpoints: deals, follow-ups, communications, and role-scoped CRM productivity views"
   },
   crmLeads: {
     name: "crm-leads",

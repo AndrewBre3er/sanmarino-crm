@@ -317,6 +317,9 @@ model UsersUser {
   crmLeadsResponsible                CrmLead[]                    @relation("CrmLeadResponsibleUser")
   crmDealsResponsible                CrmDeal[]                    @relation("CrmDealResponsibleUser")
   crmDealsDeleted                    CrmDeal[]                    @relation("CrmDealDeletedByUser")
+  crmDealFollowUpsOwned              CrmDealFollowUp[]            @relation("CrmDealFollowUpOwnerUser")
+  crmDealCommunicationsAuthored      CrmDealCommunication[]       @relation("CrmDealCommunicationAuthorUser")
+  crmClientMergeCasesReviewed        CrmClientMergeCase[]         @relation("CrmClientMergeCaseReviewedByUser")
   ordersDeleted                      OrdersOrder[]                @relation("OrdersOrderDeletedByUser")
   fulfillmentsCreated                OrdersFulfillment[]          @relation("OrdersFulfillmentCreatedByUser")
   logisticsDriverProfiles            LogisticsDriver[]            @relation("LogisticsDriverUser")
@@ -372,6 +375,10 @@ model CrmClient {
   phone              String?                @db.VarChar(64)
   email              String?                @db.VarChar(320)
   taxId              String?                @map("tax_id") @db.VarChar(64)
+  addressText        String?                @map("address_text") @db.Text
+  addressComment     String?                @map("address_comment") @db.Text
+  installerReferralComment String?          @map("installer_referral_comment") @db.Text
+  designerReferralComment  String?          @map("designer_referral_comment") @db.Text
   notes              String?                @db.Text
   createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -380,6 +387,9 @@ model CrmClient {
   deals              CrmDeal[]              @relation("CrmDealClient")
   orders             OrdersOrder[]          @relation("OrdersOrderClient")
   clientParticipants CrmClientParticipant[] @relation("CrmClientParticipantClient")
+  dealCommunications CrmDealCommunication[] @relation("CrmDealCommunicationClient")
+  mergeCasesAsPrimary   CrmClientMergeCase[] @relation("CrmClientMergeCasePrimaryClient")
+  mergeCasesAsCandidate CrmClientMergeCase[] @relation("CrmClientMergeCaseCandidateClient")
 
   @@index([name])
   @@index([phone])
@@ -445,6 +455,10 @@ model CrmDeal {
   deliveryMode       String?                @map("delivery_mode") @db.VarChar(32)
   notes              String?                @db.Text
   expectedValue      Decimal?               @map("expected_value") @db.Decimal(14, 2)
+  nextContactAt      DateTime?              @map("next_contact_at") @db.Timestamptz(6)
+  lostReasonCode     String?                @map("lost_reason_code") @db.VarChar(64)
+  stuckReasonCode    String?                @map("stuck_reason_code") @db.VarChar(64)
+  isStuck            Boolean                @default(false) @map("is_stuck")
   responsibleUserId  String                 @map("responsible_user_id") @db.Uuid
   responsibleUser    UsersUser              @relation("CrmDealResponsibleUser", fields: [responsibleUserId], references: [id], onDelete: Restrict)
   createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -456,6 +470,8 @@ model CrmDeal {
   deleteReason       String?                @map("delete_reason") @db.Text
   isDeleted          Boolean                @default(false) @map("is_deleted")
   clientParticipants CrmClientParticipant[] @relation("CrmClientParticipantDeal")
+  followUps          CrmDealFollowUp[]
+  communications     CrmDealCommunication[]
   orders             OrdersOrder[]
   stockLocks         InventoryStockLock[]
 
@@ -463,6 +479,8 @@ model CrmDeal {
   @@index([clientId])
   @@index([status])
   @@index([responsibleUserId])
+  @@index([nextContactAt])
+  @@index([isStuck, status])
   @@index([isDeleted])
   @@map("deals")
   @@schema("crm")
@@ -488,6 +506,67 @@ model CrmClientParticipant {
   @@index([orderId])
   @@index([roleType])
   @@map("client_participants")
+  @@schema("crm")
+}
+
+model CrmDealFollowUp {
+  id            String    @id @default(uuid()) @db.Uuid
+  dealId        String    @map("deal_id") @db.Uuid
+  deal          CrmDeal   @relation(fields: [dealId], references: [id], onDelete: Restrict)
+  ownerUserId   String    @map("owner_user_id") @db.Uuid
+  ownerUser     UsersUser @relation("CrmDealFollowUpOwnerUser", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  nextContactAt DateTime  @map("next_contact_at") @db.Timestamptz(6)
+  reminderAt    DateTime? @map("reminder_at") @db.Timestamptz(6)
+  status        String    @default("open") @db.VarChar(32)
+  comment       String?   @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([dealId, status])
+  @@index([ownerUserId, nextContactAt])
+  @@map("deal_follow_ups")
+  @@schema("crm")
+}
+
+model CrmDealCommunication {
+  id           String    @id @default(uuid()) @db.Uuid
+  dealId       String    @map("deal_id") @db.Uuid
+  deal         CrmDeal   @relation(fields: [dealId], references: [id], onDelete: Restrict)
+  clientId     String    @map("client_id") @db.Uuid
+  client       CrmClient @relation("CrmDealCommunicationClient", fields: [clientId], references: [id], onDelete: Restrict)
+  channel      String    @db.VarChar(32)
+  direction    String    @db.VarChar(16)
+  summary      String    @db.Text
+  occurredAt   DateTime  @map("occurred_at") @db.Timestamptz(6)
+  authorUserId String    @map("author_user_id") @db.Uuid
+  authorUser   UsersUser @relation("CrmDealCommunicationAuthorUser", fields: [authorUserId], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([dealId, occurredAt])
+  @@index([clientId, occurredAt])
+  @@map("deal_communications")
+  @@schema("crm")
+}
+
+model CrmClientMergeCase {
+  id                 String    @id @default(uuid()) @db.Uuid
+  primaryClientId    String    @map("primary_client_id") @db.Uuid
+  primaryClient      CrmClient @relation("CrmClientMergeCasePrimaryClient", fields: [primaryClientId], references: [id], onDelete: Restrict)
+  candidateClientId  String    @map("candidate_client_id") @db.Uuid
+  candidateClient    CrmClient @relation("CrmClientMergeCaseCandidateClient", fields: [candidateClientId], references: [id], onDelete: Restrict)
+  status             String    @default("open") @db.VarChar(32)
+  reason             String?   @db.Text
+  reviewedByUserId   String?   @map("reviewed_by_user_id") @db.Uuid
+  reviewedByUser     UsersUser? @relation("CrmClientMergeCaseReviewedByUser", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedAt         DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  mergedAt           DateTime? @map("merged_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([primaryClientId, status])
+  @@index([candidateClientId, status])
+  @@map("client_merge_cases")
   @@schema("crm")
 }
 

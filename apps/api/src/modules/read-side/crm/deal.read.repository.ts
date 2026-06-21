@@ -21,6 +21,10 @@ export interface CrmDealReadModel {
   status: DealStatus;
   title: string;
   notes: string | null;
+  nextContactAt: string | null;
+  lostReason: string | null;
+  isStuck: boolean;
+  stuckReason: string | null;
   responsibleUserId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -56,6 +60,10 @@ function map_crm_deal_read_model(record: CrmDeal): CrmDealReadModel {
     status: from_prisma_enum(record.status) as DealStatus,
     title: record.title,
     notes: record.notes,
+    nextContactAt: to_iso_datetime(record.nextContactAt),
+    lostReason: record.lostReasonCode,
+    isStuck: record.isStuck,
+    stuckReason: record.stuckReasonCode,
     responsibleUserId: record.responsibleUserId,
     createdAt: to_iso_datetime(record.createdAt) ?? "",
     updatedAt: to_iso_datetime(record.updatedAt) ?? "",

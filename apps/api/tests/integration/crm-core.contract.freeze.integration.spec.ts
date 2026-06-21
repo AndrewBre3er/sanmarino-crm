@@ -16,7 +16,10 @@ describe("crm core contract freeze", () => {
       "deal",
       "client",
       "contact",
-      "client_participant"
+      "client_participant",
+      "deal_follow_up",
+      "deal_communication",
+      "client_merge_case"
     ]);
   });
 
@@ -25,14 +28,20 @@ describe("crm core contract freeze", () => {
     expect(crm_core_status_contract.deal).toEqual(deal_statuses);
   });
 
-  it("marks read-side resources as implemented vs deferred for CRM Step 1", () => {
-    expect(crm_core_read_side_contract.freezePhase).toBe("crm-step-1-contract-freeze");
-    expect(crm_core_read_side_contract.implementedCollections).toEqual(["leads", "deals"]);
-    expect(crm_core_read_side_contract.deferredCollections).toEqual([
+  it("marks read-side resources as implemented vs deferred for CRM productivity baseline", () => {
+    expect(crm_core_read_side_contract.freezePhase).toBe(
+      "delta0-crm-productivity-baseline"
+    );
+    expect(crm_core_read_side_contract.implementedCollections).toEqual([
+      "leads",
+      "deals",
       "clients",
       "contacts",
-      "client-participants"
+      "client-participants",
+      "deal-follow-ups",
+      "deal-communications",
+      "client-dedup-candidates"
     ]);
+    expect(crm_core_read_side_contract.deferredCollections).toEqual([]);
   });
 });
-
