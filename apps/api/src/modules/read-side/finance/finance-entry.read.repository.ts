@@ -161,10 +161,12 @@ export class PrismaFinanceEntryReadRepository implements FinanceEntryReadReposit
 
   async getById(
     financeEntryId: string,
-    _includeDeleted = false,
+    includeDeleted = false,
     scope?: FinanceEntryReadScope
   ): Promise<FinanceEntryReadModel | null> {
     const and_clauses: Prisma.FinanceFinanceEntryWhereInput[] = [{ id: financeEntryId }];
+    void includeDeleted;
+
     if (scope?.responsibleUserId) {
       and_clauses.push({
         order: {

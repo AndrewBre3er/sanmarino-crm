@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Post,
   Query,
@@ -73,7 +74,10 @@ class CreateContactDto {
 @require_roles("seller", "admin", "ceo")
 @Controller("contacts")
 export class ContactsController {
-  constructor(private readonly crmRelationsService: CrmRelationsService) {}
+  constructor(
+    @Inject(CrmRelationsService)
+    private readonly crmRelationsService: CrmRelationsService
+  ) {}
 
   @Get()
   async list(

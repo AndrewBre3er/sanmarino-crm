@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Patch,
   Post,
@@ -27,9 +28,11 @@ import {
 } from "../auth/auth.access.helpers";
 import { lead_statuses, type LeadStatus } from "../transactional/shared/status.contract";
 import { LeadsService } from "./leads.service";
-import {
-  build_read_collection_query,
+import type {
   LeadsReadQueryDto
+} from "../read-side/shared/read-query.dto";
+import {
+  build_read_collection_query
 } from "../read-side/shared/read-query.dto";
 import { to_read_collection_response } from "../read-side/shared/read-response";
 
@@ -77,7 +80,7 @@ class UpdateLeadStatusDto {
 @require_roles("seller", "admin", "ceo")
 @Controller("leads")
 export class LeadsController {
-  constructor(private readonly leadsService: LeadsService) {}
+  constructor(@Inject(LeadsService) private readonly leadsService: LeadsService) {}
 
   @Get()
   async list(@Query() query: LeadsReadQueryDto, @Req() request: AuthenticatedRequestLike) {

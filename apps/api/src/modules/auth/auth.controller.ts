@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Post,
   Req,
   Res,
@@ -73,7 +74,7 @@ function require_cookie(request: CookieRequestLike, cookieName: string): string 
 @ApiTags(api_openapi_tags.auth.name)
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
 
   @Post("login")
   async login(

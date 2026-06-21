@@ -1,9 +1,10 @@
 import {
+  Body,
   Controller,
   Get,
+  Inject,
   Param,
   Patch,
-  Body,
   UseGuards
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
@@ -25,7 +26,7 @@ class PatchUserRolesDto {
 @require_roles("admin")
 @Controller()
 export class UsersAdminController {
-  constructor(private readonly usersAdminService: UsersAdminService) {}
+  constructor(@Inject(UsersAdminService) private readonly usersAdminService: UsersAdminService) {}
 
   @Get("users")
   async listUsers() {

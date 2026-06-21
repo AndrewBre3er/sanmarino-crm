@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Patch,
   Post,
@@ -362,7 +363,10 @@ interface LogisticsResourceCommandRequest extends AuthenticatedRequestLike {
 @require_roles("logistics", "admin", "ceo")
 @Controller()
 export class LogisticsResourcesController {
-  constructor(private readonly logisticsResourcesService: LogisticsResourcesService) {}
+  constructor(
+    @Inject(LogisticsResourcesService)
+    private readonly logisticsResourcesService: LogisticsResourcesService
+  ) {}
 
   @Get("delivery-slots")
   async listDeliverySlots(

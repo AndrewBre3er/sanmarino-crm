@@ -1,7 +1,7 @@
+import type { CanActivate, ExecutionContext } from "@nestjs/common";
 import {
-  CanActivate,
-  ExecutionContext,
   ForbiddenException,
+  Inject,
   Injectable,
   UnauthorizedException
 } from "@nestjs/common";
@@ -37,7 +37,9 @@ function to_forbidden(message: string): ForbiddenException {
 @Injectable()
 export class AuthAccessGuard implements CanActivate {
   constructor(
+    @Inject(Reflector)
     private readonly reflector: Reflector,
+    @Inject(AuthService)
     private readonly authService: AuthService
   ) {}
 

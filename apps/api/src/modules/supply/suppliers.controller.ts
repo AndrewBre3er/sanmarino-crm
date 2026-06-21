@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { api_openapi_tags } from "../../contracts/openapi.contract";
@@ -43,7 +43,7 @@ class CreateSupplierDto {
 @require_roles(...bootstrap_role_codes)
 @Controller("suppliers")
 export class SuppliersController {
-  constructor(private readonly supplyService: SupplyService) {}
+  constructor(@Inject(SupplyService) private readonly supplyService: SupplyService) {}
 
   @Get()
   async list(@Query() query: SuppliersReadQueryDto) {

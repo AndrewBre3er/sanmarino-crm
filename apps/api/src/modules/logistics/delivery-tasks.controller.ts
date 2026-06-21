@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Inject,
   Param,
   Post,
   Req,
@@ -151,7 +152,7 @@ interface DeliveryTaskCommandRequest extends AuthenticatedRequestLike {
 @require_roles("logistics", "admin", "ceo")
 @Controller("delivery-tasks")
 export class DeliveryTasksController {
-  constructor(private readonly logisticsService: LogisticsService) {}
+  constructor(@Inject(LogisticsService) private readonly logisticsService: LogisticsService) {}
 
   @Post()
   async create(@Body() payload: CreateDeliveryTaskDto, @Req() request: DeliveryTaskCommandRequest) {
@@ -295,4 +296,3 @@ function get_command_context(request: DeliveryTaskCommandRequest): DeliveryTaskC
     ...(shellContext?.correlationId ? { correlationId: shellContext.correlationId } : {})
   };
 }
-

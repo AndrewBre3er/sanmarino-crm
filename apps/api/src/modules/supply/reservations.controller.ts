@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Inject, Param, Query, UseGuards } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { IsArray, IsIn, IsOptional } from "class-validator";
 import { api_openapi_tags } from "../../contracts/openapi.contract";
@@ -52,7 +52,7 @@ class ReservationsReadQueryDto extends BaseReadCollectionQueryDto {
 @require_roles(...bootstrap_role_codes)
 @Controller("reservations")
 export class ReservationsController {
-  constructor(private readonly supplyService: SupplyService) {}
+  constructor(@Inject(SupplyService) private readonly supplyService: SupplyService) {}
 
   @Get()
   async list(@Query() query: ReservationsReadQueryDto) {

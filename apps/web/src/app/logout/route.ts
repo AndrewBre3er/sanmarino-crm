@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { append_set_cookie_headers, build_auth_api_url } from "../../lib/auth/auth-session";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {

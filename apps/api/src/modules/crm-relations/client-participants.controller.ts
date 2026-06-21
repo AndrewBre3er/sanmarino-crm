@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Post,
   Query,
@@ -78,7 +79,10 @@ class CreateClientParticipantDto {
 @require_roles("seller", "admin", "ceo")
 @Controller("client-participants")
 export class ClientParticipantsController {
-  constructor(private readonly crmRelationsService: CrmRelationsService) {}
+  constructor(
+    @Inject(CrmRelationsService)
+    private readonly crmRelationsService: CrmRelationsService
+  ) {}
 
   @Get()
   async list(

@@ -308,7 +308,6 @@ describe("payments service", () => {
       paymentsPaymentFindFirst,
       paymentsPaymentUpdate,
       paymentsCashOperationCreate,
-      paymentsCashOperationAggregate,
       financeFinanceEntryCreate,
       ordersOrderFindFirst,
       ordersOrderUpdate,

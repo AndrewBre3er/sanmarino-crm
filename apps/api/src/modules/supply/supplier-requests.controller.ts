@@ -1,6 +1,5 @@
 import {
   ArrayMinSize,
-  IsBase64,
   IsArray,
   IsDateString,
   IsIn,
@@ -18,6 +17,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   NotImplementedException,
   Param,
   Post,
@@ -123,28 +123,12 @@ class ConfirmBySupplierDto {
   expectedSupplyDate!: string;
 }
 
-class AttachSupplierRequestFileDto {
-  @IsString()
-  @MinLength(1)
-  @MaxLength(255)
-  fileName!: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(128)
-  contentType!: string;
-
-  @IsString()
-  @IsBase64()
-  contentBase64!: string;
-}
-
 @ApiTags(api_openapi_tags.supply.name)
 @UseGuards(AuthAccessGuard)
 @require_roles(...bootstrap_role_codes)
 @Controller("supplier-requests")
 export class SupplierRequestsController {
-  constructor(private readonly supplyService: SupplyService) {}
+  constructor(@Inject(SupplyService) private readonly supplyService: SupplyService) {}
 
   @Get()
   async list(@Query() query: SupplierRequestsReadQueryDto) {
@@ -211,7 +195,7 @@ export class SupplierRequestsController {
 
   @Get(":id/attachments")
   @require_roles("warehouse", "finance", "ceo")
-  async listAttachments(@Param("id") _id: string) {
+  async listAttachments() {
     throw new NotImplementedException({
       code: "DEFERRED_IMPLEMENTATION",
       message:
@@ -221,10 +205,7 @@ export class SupplierRequestsController {
 
   @Post(":id/attachments")
   @require_roles("warehouse", "finance", "ceo")
-  async attachFile(
-    @Param("id") _id: string,
-    @Body() _payload: AttachSupplierRequestFileDto
-  ) {
+  async attachFile() {
     throw new NotImplementedException({
       code: "DEFERRED_IMPLEMENTATION",
       message:

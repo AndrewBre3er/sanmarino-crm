@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Inject,
   Param,
   Post,
   Query,
@@ -15,9 +16,11 @@ import {
   get_authenticated_access,
   type AuthenticatedRequestLike
 } from "../auth/auth.access.helpers";
-import {
-  build_read_collection_query,
+import type {
   OrdersReadQueryDto
+} from "../read-side/shared/read-query.dto";
+import {
+  build_read_collection_query
 } from "../read-side/shared/read-query.dto";
 import { to_read_collection_response } from "../read-side/shared/read-response";
 import { OrdersService } from "./orders.service";
@@ -27,7 +30,7 @@ import { OrdersService } from "./orders.service";
 @require_roles("seller", "warehouse", "logistics", "finance", "admin", "ceo")
 @Controller("orders")
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(@Inject(OrdersService) private readonly ordersService: OrdersService) {}
 
   @Get()
   async list(@Query() query: OrdersReadQueryDto, @Req() request: AuthenticatedRequestLike) {

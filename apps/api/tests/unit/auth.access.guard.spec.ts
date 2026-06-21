@@ -1,6 +1,6 @@
 import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import type { ExecutionContext } from "@nestjs/common";
-import { Reflector } from "@nestjs/core";
+import type { Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vitest";
 import {
   type AuthAccessRequirements

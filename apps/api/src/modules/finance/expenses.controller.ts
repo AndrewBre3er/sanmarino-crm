@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   NotFoundException,
   Param,
   Patch,
@@ -100,7 +101,7 @@ interface FinanceCommandRequest extends AuthenticatedRequestLike {
 export class ExpensesController {
   private static readonly query_dto = ExpensesReadQueryDto;
 
-  constructor(private readonly financeService: FinanceService) {
+  constructor(@Inject(FinanceService) private readonly financeService: FinanceService) {
     void ExpensesController.query_dto;
   }
 

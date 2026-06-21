@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { resolve_role_home_path } from "../../../contracts/backoffice-shell.contract";
 import {
   append_set_cookie_headers,

@@ -12,7 +12,7 @@ import {
   ValidateNested
 } from "class-validator";
 import { Type } from "class-transformer";
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { api_openapi_tags } from "../../contracts/openapi.contract";
 import { require_roles } from "../auth/auth.access.decorator";
@@ -76,7 +76,7 @@ class CreatePurchaseReceiptDto {
 @require_roles(...bootstrap_role_codes)
 @Controller("purchase-receipts")
 export class PurchaseReceiptsController {
-  constructor(private readonly supplyService: SupplyService) {}
+  constructor(@Inject(SupplyService) private readonly supplyService: SupplyService) {}
 
   @Get()
   async list(@Query() query: PurchaseReceiptsReadQueryDto) {

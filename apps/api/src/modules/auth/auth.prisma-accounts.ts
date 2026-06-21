@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { RecordStatus } from "@prisma/client";
 import { createHash, scryptSync, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -93,7 +93,7 @@ function verify_password_hash(password: string, storedHash: string): boolean {
 
 @Injectable()
 export class AuthPrismaAccountsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async verify_credentials(login: string, password: string): Promise<AuthPrincipal | null> {
     const normalizedLogin = normalize_login(login);

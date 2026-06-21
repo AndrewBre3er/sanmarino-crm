@@ -5,7 +5,7 @@ import { require_roles } from "../auth/auth.access.decorator";
 import { AuthAccessGuard } from "../auth/auth.access.guard";
 import { build_read_collection_query } from "../read-side/shared/read-query.dto";
 import { to_read_collection_response } from "../read-side/shared/read-response";
-import {
+import type {
   KpiDepartmentPlansReadQueryDto,
   KpiLiveMetricsReadQueryDto,
   KpiSnapshotsReadQueryDto

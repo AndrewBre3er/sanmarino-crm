@@ -1,5 +1,5 @@
 import { Transform, Type } from "class-transformer";
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import {
   IsArray,
@@ -81,7 +81,7 @@ class QuarantineMovementDto {
 @require_roles(...bootstrap_role_codes)
 @Controller("inventory-movements")
 export class InventoryMovementsController {
-  constructor(private readonly supplyService: SupplyService) {}
+  constructor(@Inject(SupplyService) private readonly supplyService: SupplyService) {}
 
   @Get()
   async list(@Query() query: InventoryMovementsReadQueryDto) {

@@ -13,6 +13,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Post,
   Query,
@@ -28,9 +29,11 @@ import {
   get_authenticated_access,
   type AuthenticatedRequestLike
 } from "../auth/auth.access.helpers";
-import {
-  build_read_collection_query,
+import type {
   FulfillmentsReadQueryDto
+} from "../read-side/shared/read-query.dto";
+import {
+  build_read_collection_query
 } from "../read-side/shared/read-query.dto";
 import { to_read_collection_response } from "../read-side/shared/read-response";
 import {
@@ -76,7 +79,10 @@ class CreateFulfillmentDto {
 @require_roles("seller", "warehouse", "logistics", "finance", "admin", "ceo")
 @Controller("fulfillments")
 export class FulfillmentsController {
-  constructor(private readonly fulfillmentsService: FulfillmentsService) {}
+  constructor(
+    @Inject(FulfillmentsService)
+    private readonly fulfillmentsService: FulfillmentsService
+  ) {}
 
   @Get()
   async list(@Query() query: FulfillmentsReadQueryDto, @Req() request: AuthenticatedRequestLike) {

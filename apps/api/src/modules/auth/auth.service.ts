@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { get_env } from "../../config/env";
 import {
@@ -51,7 +51,9 @@ export class AuthService {
   private readonly sessions = new Map<string, SessionRecord>();
 
   constructor(
+    @Inject(AuthPrismaAccountsService)
     private readonly accountsService: AuthPrismaAccountsService,
+    @Inject(AuthLoginRateLimitService)
     private readonly loginRateLimitService: AuthLoginRateLimitService
   ) {}
 

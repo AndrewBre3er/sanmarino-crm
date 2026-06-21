@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Inject,
   Param,
   Post,
   Req,
@@ -64,7 +65,7 @@ interface PaymentCommandRequest extends AuthenticatedRequestLike {
 @require_roles("warehouse", "finance", "admin", "ceo")
 @Controller("payments")
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {}
+  constructor(@Inject(PaymentsService) private readonly paymentsService: PaymentsService) {}
 
   @Post()
   @require_roles("warehouse", "finance", "admin", "ceo")

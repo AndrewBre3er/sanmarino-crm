@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { BadRequestException, ForbiddenException, Inject, Injectable } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import type { AuthPrincipal } from "../../auth/auth.contract";
 import { PrismaService } from "../../../prisma/prisma.service";
 
@@ -26,7 +26,7 @@ export interface AdminOverrideAuditInput {
 
 @Injectable()
 export class AdminOverrideAuditService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
   async recordOverride(input: AdminOverrideAuditInput): Promise<unknown> {
     const auditData = build_admin_override_audit_data(input);

@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Post,
   Query,
@@ -102,7 +103,7 @@ class CreateStockLockDto {
 @require_roles(...bootstrap_role_codes)
 @Controller("stock-locks")
 export class StockLocksController {
-  constructor(private readonly supplyService: SupplyService) {}
+  constructor(@Inject(SupplyService) private readonly supplyService: SupplyService) {}
 
   @Get()
   async list(@Query() query: StockLocksReadQueryDto) {

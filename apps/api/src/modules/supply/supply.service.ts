@@ -12,7 +12,6 @@ import type { ReadCollectionQueryInput } from "../read-side/shared/read-model.co
 import type {
   InventoryBucketStatus,
   ProductUnit,
-  StockLockStatus,
   SupplierRequestStatus
 } from "../transactional/shared/status.contract";
 import { StatusTransitionError } from "../transactional/shared/transition.guard";
