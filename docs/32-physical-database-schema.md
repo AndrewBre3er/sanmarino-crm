@@ -1114,13 +1114,14 @@ Columns:
 
 Indexes:
 - unique `(metric_code, scope_type, scope_id)`
+- unique partial `(metric_code, scope_type)` where `scope_id is null` for the accepted `global/null` live refresh scope
 - index on `(as_of)`
 
 Rules:
 - first accepted refresh write target is this table only
 - live refresh writes use upsert semantics on `(metric_code, scope_type, scope_id)`
 - first accepted refresh scope is `scope_type = 'global'` with `scope_id = null`
-- implementation must verify that the Prisma/PostgreSQL index mapping enforces one row for nullable global scope; if not, schema/index alignment is required before live refresh writes
+- implementation must enforce one row for nullable global scope through the accepted partial unique index before live refresh writes
 - live refresh writes set `as_of` from the accepted `refreshedAt` input
 - live refresh writes do not store `period`; `period` is only a refresh command, idempotency, and event grouping value for live KPI
 - `metric_value` must be supplied as an already-computed value; this table contract does not define formulas or source-domain event-to-metric mapping
