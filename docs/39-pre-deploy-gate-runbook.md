@@ -35,7 +35,38 @@ Secrets must not be printed to logs, committed to git, or copied into docs.
 
 ---
 
-## 2. Environment and Secrets Gate
+## 2. Local Docker Staging-Like Gate
+
+Local Docker may be used as a temporary staging-like gate when no VPS staging
+environment is available yet.
+
+Accepted local defaults:
+
+- `STAGING_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/sanmarino_crm?schema=public`
+- `STAGING_WEB_URL=http://127.0.0.1:3000`
+- `STAGING_API_URL=http://127.0.0.1:4000`
+- `BACKUP_STORAGE_PATH` points outside the git repository, for example
+  `/c/Users/USER/sanmarino-crm-local-backups`
+
+This local gate may validate:
+
+- Docker PostgreSQL and Redis health
+- migration deploy/status on the local Docker database
+- backup dump readability for the local Docker database
+- local smoke checks
+
+This local gate is not a replacement for the real VPS staging gate before
+release. Before production release, repeat the gate with real VPS staging URLs,
+real secret storage, real backup storage, and production-like reverse proxy/DNS
+configuration.
+
+If a local backup is created after migrations because an earlier backup command
+failed, record it as `post-migration backup` and do not treat it as a strict
+backup-before-migration proof.
+
+---
+
+## 3. Environment and Secrets Gate
 
 Required checks:
 
@@ -57,7 +88,7 @@ secret matches.
 
 ---
 
-## 3. Migration Gate
+## 4. Migration Gate
 
 Migrations must be reproducible on a clean PostgreSQL database before touching
 staging or production.
@@ -80,7 +111,7 @@ complete.
 
 ---
 
-## 4. Backup Gate
+## 5. Backup Gate
 
 Before applying migrations to staging or production:
 
@@ -102,7 +133,7 @@ sha256sum "$backup_file"
 
 ---
 
-## 5. Rollback Plan
+## 6. Rollback Plan
 
 Rollback must be decided before deployment.
 
@@ -129,7 +160,7 @@ Rollback verification:
 
 ---
 
-## 6. Manual Smoke Gate
+## 7. Manual Smoke Gate
 
 Run smoke on the target staging URL after deploy and before production release.
 
@@ -155,7 +186,7 @@ as a release blocker instead of inventing production-like data during the gate.
 
 ---
 
-## 7. Gate Record Template
+## 8. Gate Record Template
 
 Record the following before approving the release:
 
