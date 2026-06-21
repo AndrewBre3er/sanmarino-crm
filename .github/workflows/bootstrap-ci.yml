@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   bootstrap-checks:
@@ -37,4 +37,5 @@ jobs:
         run: pnpm test
 
       - name: TODO Note
-        run: echo "TODO: add domain-level checks in implementation phase"
+        run: |
+          echo "TODO: add domain-level checks in implementation phase"
