@@ -134,6 +134,7 @@
 - известно, где он хранится
 - понятна restore-процедура
 - rollback plan зафиксирован
+- порядок gate зафиксирован в `docs/39-pre-deploy-gate-runbook.md`
 
 ## Post-deploy verification
 

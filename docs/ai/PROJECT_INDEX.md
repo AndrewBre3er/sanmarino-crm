@@ -18,6 +18,7 @@ If this index conflicts with canonical docs, follow this priority:
 10. `docs/16-implementation-roadmap.md`
 11. `docs/26-current-task-codex.md`
 12. `docs/38-mvp-v1-functional-realignment.md`
+13. `docs/39-pre-deploy-gate-runbook.md`
 
 ## Fast Start For New Agent Windows
 
@@ -94,6 +95,7 @@ Security, roles, tests, release gates:
 - `docs/20-security-architecture.md`
 - `docs/21-testing-strategy.md`
 - `docs/22-qa-release-checklist.md`
+- `docs/39-pre-deploy-gate-runbook.md`
 
 Implementation tasks:
 - `docs/tasks/README.md`
