@@ -19,21 +19,25 @@ import { assert_supplier_request_status_transition } from "./supplier-request.tr
 import {
   type CreateInventoryMovementInput,
   PrismaSupplyRepository,
+  type CreateProductSupplierInput,
   type CreateReservationInput,
   type CreatePurchaseReceiptInput,
   type CreateStockLockInput,
   type CreateSupplierInput,
   type CreateSupplierRequestInput,
   type InventoryMovementReadModel,
+  type ProductSupplierReadModel,
   type PurchaseReceiptReadModel,
   type ReservationReadModel,
   type StockLockListReadModel,
   type StockLockReadModel,
   type SupplierRequestItemReadModel,
-  type SupplierRequestReadModel
+  type SupplierRequestReadModel,
+  type UpdateProductSupplierInput
 } from "./supply.repository";
 
 const supplier_write_role_codes = new Set(["seller", "admin", "ceo"] as const);
+const product_supplier_price_role_codes = new Set(["finance", "admin", "ceo"] as const);
 const supplier_request_create_role_codes = new Set(["seller"] as const);
 const supplier_request_confirm_role_codes = new Set(["seller"] as const);
 const supplier_request_paid_role_codes = new Set(["finance", "ceo"] as const);
@@ -53,6 +57,19 @@ export interface CreateSupplierPayload {
   phone?: string | null;
   email?: string | null;
   notes?: string | null;
+}
+
+export interface CreateProductSupplierPayload {
+  supplierId: string;
+  supplierPriority: number;
+  basePurchasePrice: string;
+  isActive?: boolean;
+}
+
+export interface PatchProductSupplierPayload {
+  supplierPriority?: number;
+  basePurchasePrice?: string;
+  isActive?: boolean;
 }
 
 export interface CreateSupplierRequestItemPayload {
@@ -143,6 +160,79 @@ export class SupplyService {
     this.assert_supplier_write_access(actor);
     const createInput = this.to_create_supplier_input(input);
     return this.supplyRepository.createSupplier(createInput);
+  }
+
+  async listProductSuppliers(productId: string, actor: AuthPrincipal) {
+    await this.get_product_or_throw(productId);
+    const productSuppliers = await this.supplyRepository.listProductSuppliers(productId, true);
+    return productSuppliers.map((productSupplier) =>
+      this.apply_product_supplier_price_visibility(productSupplier, actor)
+    );
+  }
+
+  async createProductSupplier(
+    productId: string,
+    input: CreateProductSupplierPayload,
+    actor: AuthPrincipal
+  ) {
+    this.assert_product_supplier_write_access(actor);
+    await this.get_product_or_throw(productId);
+
+    const supplier = await this.supplyRepository.getSupplierById(input.supplierId);
+    if (!supplier) {
+      throw new NotFoundException(`Supplier '${input.supplierId}' was not found`);
+    }
+
+    const createInput: CreateProductSupplierInput = {
+      productId,
+      supplierId: input.supplierId,
+      supplierPriority: this.normalize_supplier_priority(input.supplierPriority),
+      basePurchasePrice: this.normalize_base_purchase_price(input.basePurchasePrice),
+      currency: "RUB",
+      isActive: input.isActive ?? true
+    };
+
+    const created = await this.supplyRepository.createProductSupplier(createInput);
+    return this.apply_product_supplier_price_visibility(created, actor);
+  }
+
+  async patchProductSupplier(
+    productId: string,
+    productSupplierId: string,
+    input: PatchProductSupplierPayload,
+    actor: AuthPrincipal
+  ) {
+    this.assert_product_supplier_write_access(actor);
+    await this.get_product_or_throw(productId);
+
+    const current = await this.supplyRepository.getProductSupplierById(productSupplierId, true);
+    if (!current || current.productId !== productId) {
+      throw new NotFoundException(`ProductSupplier '${productSupplierId}' was not found`);
+    }
+
+    const updateInput: UpdateProductSupplierInput = {};
+    if (input.supplierPriority !== undefined) {
+      updateInput.supplierPriority = this.normalize_supplier_priority(input.supplierPriority);
+    }
+    if (input.basePurchasePrice !== undefined) {
+      updateInput.basePurchasePrice = this.normalize_base_purchase_price(input.basePurchasePrice);
+    }
+    if (input.isActive !== undefined) {
+      updateInput.isActive = input.isActive;
+    }
+
+    if (Object.keys(updateInput).length === 0) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "ProductSupplier patch payload must include at least one mutable field"
+      });
+    }
+
+    const updated = await this.supplyRepository.updateProductSupplierById(
+      productSupplierId,
+      updateInput
+    );
+    return this.apply_product_supplier_price_visibility(updated, actor);
   }
 
   async listSupplierRequests(query: ReadCollectionQueryInput) {
@@ -689,6 +779,20 @@ export class SupplyService {
     }
   }
 
+  private assert_product_supplier_write_access(actor: AuthPrincipal): void {
+    const isAllowed = actor.roleCodes.some((roleCode) =>
+      product_supplier_price_role_codes.has(roleCode as "finance" | "admin" | "ceo")
+    );
+
+    if (!isAllowed) {
+      throw new ForbiddenException({
+        code: "ACCESS_DENIED",
+        message:
+          "ProductSupplier write access is allowed only for roles that can manage base purchase price"
+      });
+    }
+  }
+
   private assert_supplier_request_create_access(actor: AuthPrincipal): void {
     const isAllowed = actor.roleCodes.some((roleCode) =>
       supplier_request_create_role_codes.has(roleCode as "seller")
@@ -802,6 +906,37 @@ export class SupplyService {
     }
   }
 
+  private normalize_supplier_priority(supplierPriority: number): number {
+    if (!Number.isInteger(supplierPriority) || supplierPriority <= 0) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "ProductSupplier.supplierPriority must be a positive integer"
+      });
+    }
+
+    return supplierPriority;
+  }
+
+  private normalize_base_purchase_price(basePurchasePrice: string): string {
+    const normalized = basePurchasePrice.trim();
+    if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "ProductSupplier.basePurchasePrice must be a positive decimal with scale 2"
+      });
+    }
+
+    const numericPrice = Number(normalized);
+    if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: "ProductSupplier.basePurchasePrice must be greater than zero"
+      });
+    }
+
+    return numericPrice.toFixed(2);
+  }
+
   private assert_supplier_request_transition(
     from: SupplierRequestStatus,
     to: SupplierRequestStatus
@@ -829,6 +964,15 @@ export class SupplyService {
     }
 
     return supplierRequest;
+  }
+
+  private async get_product_or_throw(productId: string) {
+    const product = await this.supplyRepository.getProductById(productId);
+    if (!product) {
+      throw new NotFoundException(`Product '${productId}' was not found`);
+    }
+
+    return product;
   }
 
   private async get_stock_lock_or_throw(stockLockId: string): Promise<StockLockReadModel> {
@@ -958,6 +1102,26 @@ export class SupplyService {
       ...supplierRequest,
       supplierDocumentUrl: null
     };
+  }
+
+  private apply_product_supplier_price_visibility(
+    productSupplier: ProductSupplierReadModel,
+    actor: AuthPrincipal
+  ): ProductSupplierReadModel {
+    if (this.can_view_product_supplier_base_price(actor)) {
+      return productSupplier;
+    }
+
+    return {
+      ...productSupplier,
+      basePurchasePrice: null
+    };
+  }
+
+  private can_view_product_supplier_base_price(actor: AuthPrincipal): boolean {
+    return actor.roleCodes.some((roleCode) =>
+      product_supplier_price_role_codes.has(roleCode as "finance" | "admin" | "ceo")
+    );
   }
 }
 

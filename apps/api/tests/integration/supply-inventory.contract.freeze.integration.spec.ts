@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   movement_quarantine_foundation_contract,
   purchase_receipt_role_matrix_contract,
+  product_supplier_role_matrix_contract,
   reservation_foundation_contract,
   stock_lock_role_matrix_contract,
   supplier_request_file_access_contract,
@@ -28,6 +29,7 @@ describe("supply + inventory contract freeze", () => {
       "purchase_receipt",
       "purchase_receipt_item",
       "product",
+      "product_supplier",
       "warehouse",
       "stock_balance",
       "stock_lock",
@@ -53,6 +55,7 @@ describe("supply + inventory contract freeze", () => {
       "suppliers",
       "supplier-requests",
       "purchase-receipts",
+      "product-suppliers",
       "stock-locks",
       "reservations",
       "inventory-movements"
@@ -75,6 +78,22 @@ describe("supply + inventory contract freeze", () => {
   it("keeps purchase receipt role matrix baseline fixed", () => {
     expect(purchase_receipt_role_matrix_contract.create).toEqual(["warehouse"]);
     expect(purchase_receipt_role_matrix_contract.listAndDetailVisibility).toBe("all_roles");
+  });
+
+  it("keeps product supplier sourcing matrix access fixed", () => {
+    expect(product_supplier_role_matrix_contract.create).toEqual(["finance", "admin", "ceo"]);
+    expect(product_supplier_role_matrix_contract.patch).toEqual(["finance", "admin", "ceo"]);
+    expect(product_supplier_role_matrix_contract.listAndDetailVisibility).toBe("all_roles");
+    expect(product_supplier_role_matrix_contract.basePurchasePriceHiddenFor).toEqual([
+      "seller",
+      "warehouse",
+      "logistics"
+    ]);
+    expect(product_supplier_role_matrix_contract.basePurchasePriceVisibleFor).toEqual([
+      "finance",
+      "ceo",
+      "admin"
+    ]);
   });
 
   it("keeps stock lock role matrix baseline fixed", () => {

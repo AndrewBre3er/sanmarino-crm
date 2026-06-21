@@ -821,6 +821,7 @@ model InventoryProduct {
   updatedAt            DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
   supplierRequestItems InventorySupplierRequestItem[]
   purchaseReceiptItems InventoryPurchaseReceiptItem[]
+  productSuppliers     InventoryProductSupplier[]
   orderItems           OrdersOrderItem[]
   stockBalances        InventoryStockBalance[]
   stockLocks           InventoryStockLock[]
@@ -974,8 +975,29 @@ model InventorySupplier {
   updatedAt        DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
   supplierRequests InventorySupplierRequest[]
   purchaseReceipts InventoryPurchaseReceipt[]
+  productSuppliers InventoryProductSupplier[]
 
   @@map("suppliers")
+  @@schema("inventory")
+}
+
+model InventoryProductSupplier {
+  id                String           @id @default(uuid()) @db.Uuid
+  productId         String           @map("product_id") @db.Uuid
+  product           InventoryProduct @relation(fields: [productId], references: [id], onDelete: Restrict)
+  supplierId        String           @map("supplier_id") @db.Uuid
+  supplier          InventorySupplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplierPriority  Int              @map("supplier_priority")
+  basePurchasePrice Decimal          @map("base_purchase_price") @db.Decimal(14, 2)
+  currency          String           @default("RUB") @db.VarChar(3)
+  isActive          Boolean          @default(true) @map("is_active")
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([productId, supplierId])
+  @@index([productId, supplierPriority])
+  @@index([supplierId, isActive])
+  @@map("product_suppliers")
   @@schema("inventory")
 }
 

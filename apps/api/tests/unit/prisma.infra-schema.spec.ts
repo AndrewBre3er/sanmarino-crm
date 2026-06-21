@@ -52,6 +52,7 @@ describe("prisma schema foundation (infra + users + CRM core + orders + supply i
     expect(schema).toContain("model InventoryPurchaseReceipt");
     expect(schema).toContain("model InventoryPurchaseReceiptItem");
     expect(schema).toContain("model InventoryProduct");
+    expect(schema).toContain("model InventoryProductSupplier");
     expect(schema).toContain("model InventoryWarehouse");
     expect(schema).toContain("model InventoryStockBalance");
     expect(schema).toContain("model InventoryStockLock");
@@ -113,6 +114,13 @@ describe("prisma schema foundation (infra + users + CRM core + orders + supply i
     expect(schema).toContain('@map("driver_id")');
     expect(schema).toContain('@map("vehicle_id")');
     expect(schema).toMatch(/productId\s+String\s+@map\("product_id"\)\s+@db\.Uuid/);
+    expect(schema).toContain("supplierPriority");
+    expect(schema).toContain('@map("supplier_priority")');
+    expect(schema).toContain("basePurchasePrice");
+    expect(schema).toContain('@map("base_purchase_price") @db.Decimal(14, 2)');
+    expect(schema).toContain('@@map("product_suppliers")');
+    expect(schema).toContain("@@unique([productId, supplierId])");
+    expect(schema).toContain("@@index([supplierId, isActive])");
     expect(schema).toMatch(/unit\s+ProductUnit/);
     expect(schema).toMatch(/fulfillmentId\s+String\s+@map\("fulfillment_id"\)\s+@db\.Uuid/);
     expect(schema).toContain("businessSourceType");

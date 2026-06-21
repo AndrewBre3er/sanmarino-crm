@@ -6,6 +6,7 @@ import type {
   InventoryPurchaseReceipt,
   InventoryPurchaseReceiptItem,
   InventoryProduct,
+  InventoryProductSupplier,
   InventoryReservation,
   InventoryStockLock,
   InventorySupplier,
@@ -68,6 +69,19 @@ export interface ProductReadModel {
   sku: string;
   name: string;
   unit: ProductUnit;
+}
+
+export interface ProductSupplierReadModel {
+  id: string;
+  productId: string;
+  supplierId: string;
+  supplierPriority: number;
+  basePurchasePrice: string | null;
+  currency: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  supplier: SupplierRequestSupplierReadModel;
 }
 
 export interface OrderReadModel {
@@ -280,6 +294,22 @@ export interface CreateSupplierInput {
   notes?: string | null;
 }
 
+export interface CreateProductSupplierInput {
+  productId: string;
+  supplierId: string;
+  supplierPriority: number;
+  basePurchasePrice: string;
+  currency: string;
+  isActive: boolean;
+}
+
+export interface UpdateProductSupplierInput {
+  supplierPriority?: number;
+  basePurchasePrice?: string;
+  currency?: string;
+  isActive?: boolean;
+}
+
 export interface CreateSupplierRequestItemInput {
   productId: string;
   quantity: number;
@@ -380,6 +410,10 @@ type SupplierRequestWithItemsRecord = InventorySupplierRequest & {
   items: InventorySupplierRequestItem[];
 };
 
+type ProductSupplierWithSupplierRecord = InventoryProductSupplier & {
+  supplier: InventorySupplier;
+};
+
 type SupplierRequestWithCountRecord = InventorySupplierRequest & {
   supplier: InventorySupplier;
   _count: {
@@ -456,6 +490,29 @@ function map_product_record(record: InventoryProduct): ProductReadModel {
     sku: record.sku,
     name: record.name,
     unit: api_product_unit_by_prisma[record.unit]
+  };
+}
+
+function map_product_supplier_record(
+  record: ProductSupplierWithSupplierRecord,
+  includeBasePurchasePrice: boolean
+): ProductSupplierReadModel {
+  return {
+    id: record.id,
+    productId: record.productId,
+    supplierId: record.supplierId,
+    supplierPriority: record.supplierPriority,
+    basePurchasePrice: includeBasePurchasePrice
+      ? (to_decimal_string(record.basePurchasePrice) ?? "0")
+      : null,
+    currency: record.currency,
+    isActive: record.isActive,
+    createdAt: to_iso_datetime(record.createdAt) ?? "",
+    updatedAt: to_iso_datetime(record.updatedAt) ?? "",
+    supplier: {
+      id: record.supplier.id,
+      name: record.supplier.name
+    }
   };
 }
 
@@ -949,6 +1006,95 @@ export class PrismaSupplyRepository {
     });
 
     return map_supplier_record(created);
+  }
+
+  async listProductSuppliers(
+    productId: string,
+    includeBasePurchasePrice: boolean
+  ): Promise<ProductSupplierReadModel[]> {
+    const productSuppliers = await this.prismaService.inventoryProductSupplier.findMany({
+      where: { productId },
+      orderBy: [{ supplierPriority: "asc" }, { createdAt: "asc" }],
+      include: {
+        supplier: true
+      }
+    });
+
+    return productSuppliers.map((productSupplier) =>
+      map_product_supplier_record(
+        productSupplier as ProductSupplierWithSupplierRecord,
+        includeBasePurchasePrice
+      )
+    );
+  }
+
+  async getProductSupplierById(
+    productSupplierId: string,
+    includeBasePurchasePrice: boolean
+  ): Promise<ProductSupplierReadModel | null> {
+    const productSupplier = await this.prismaService.inventoryProductSupplier.findUnique({
+      where: { id: productSupplierId },
+      include: {
+        supplier: true
+      }
+    });
+
+    if (!productSupplier) {
+      return null;
+    }
+
+    return map_product_supplier_record(
+      productSupplier as ProductSupplierWithSupplierRecord,
+      includeBasePurchasePrice
+    );
+  }
+
+  async createProductSupplier(input: CreateProductSupplierInput): Promise<ProductSupplierReadModel> {
+    const created = await this.prismaService.inventoryProductSupplier.create({
+      data: {
+        productId: input.productId,
+        supplierId: input.supplierId,
+        supplierPriority: input.supplierPriority,
+        basePurchasePrice: input.basePurchasePrice,
+        currency: input.currency,
+        isActive: input.isActive
+      },
+      include: {
+        supplier: true
+      }
+    });
+
+    return map_product_supplier_record(
+      created as ProductSupplierWithSupplierRecord,
+      true
+    );
+  }
+
+  async updateProductSupplierById(
+    productSupplierId: string,
+    input: UpdateProductSupplierInput
+  ): Promise<ProductSupplierReadModel> {
+    const updated = await this.prismaService.inventoryProductSupplier.update({
+      where: { id: productSupplierId },
+      data: {
+        ...(input.supplierPriority !== undefined
+          ? { supplierPriority: input.supplierPriority }
+          : {}),
+        ...(input.basePurchasePrice !== undefined
+          ? { basePurchasePrice: input.basePurchasePrice }
+          : {}),
+        ...(input.currency !== undefined ? { currency: input.currency } : {}),
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {})
+      },
+      include: {
+        supplier: true
+      }
+    });
+
+    return map_product_supplier_record(
+      updated as ProductSupplierWithSupplierRecord,
+      true
+    );
   }
 
   async listSupplierRequests(

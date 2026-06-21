@@ -13,6 +13,7 @@ import type {
   ReservationReadModel,
   StockLockReadModel,
   PurchaseReceiptReadModel,
+  ProductSupplierReadModel,
   SupplierRequestReadModel
 } from "../../src/modules/supply/supply.repository";
 import { SupplyService } from "../../src/modules/supply/supply.service";
@@ -94,6 +95,29 @@ function make_supplier_request(
         updatedAt: now
       }
     ],
+    ...overrides
+  };
+}
+
+function make_product_supplier(
+  overrides: Partial<ProductSupplierReadModel> = {}
+): ProductSupplierReadModel {
+  const now = new Date().toISOString();
+
+  return {
+    id: "product_supplier_1",
+    productId: "00000000-0000-0000-0000-000000000012",
+    supplierId: "00000000-0000-0000-0000-000000000010",
+    supplierPriority: 1,
+    basePurchasePrice: "750.00",
+    currency: "RUB",
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    supplier: {
+      id: "00000000-0000-0000-0000-000000000010",
+      name: "Vendor"
+    },
     ...overrides
   };
 }
@@ -259,6 +283,10 @@ function make_service() {
     getDealById: vi.fn(),
     getWarehouseById: vi.fn(),
     createSupplier: vi.fn(),
+    listProductSuppliers: vi.fn(),
+    createProductSupplier: vi.fn(),
+    getProductSupplierById: vi.fn(),
+    updateProductSupplierById: vi.fn(),
     listSupplierRequests: vi.fn(),
     getSupplierRequestById: vi.fn(),
     createSupplierRequest: vi.fn(),
@@ -322,6 +350,154 @@ describe("supply service", () => {
     expect(created.name).toBe("Vendor");
     expect(listed.items).toHaveLength(1);
     expect(detail.id).toBe("supplier_1");
+  });
+
+  it("lists product suppliers while hiding base purchase price from seller", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.listProductSuppliers).mockResolvedValue([make_product_supplier()]);
+
+    const result = await service.listProductSuppliers(
+      "00000000-0000-0000-0000-000000000012",
+      seller
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.supplierPriority).toBe(1);
+    expect(result[0]?.basePurchasePrice).toBeNull();
+  });
+
+  it("keeps base purchase price visible to finance roles", async () => {
+    const { service, repository } = make_service();
+    const finance = make_user(["finance"], "finance_1");
+
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.listProductSuppliers).mockResolvedValue([make_product_supplier()]);
+
+    const result = await service.listProductSuppliers(
+      "00000000-0000-0000-0000-000000000012",
+      finance
+    );
+
+    expect(result[0]?.basePurchasePrice).toBe("750.00");
+  });
+
+  it("creates product supplier matrix records for price-visible roles", async () => {
+    const { service, repository } = make_service();
+    const finance = make_user(["finance"], "finance_1");
+
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.getSupplierById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000010",
+      name: "Vendor",
+      phone: null,
+      email: null,
+      notes: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    vi.mocked(repository.createProductSupplier).mockResolvedValue(make_product_supplier());
+
+    const created = await service.createProductSupplier(
+      "00000000-0000-0000-0000-000000000012",
+      {
+        supplierId: "00000000-0000-0000-0000-000000000010",
+        supplierPriority: 1,
+        basePurchasePrice: "750.00",
+        isActive: true
+      },
+      finance
+    );
+
+    expect(repository.createProductSupplier).toHaveBeenCalledWith(
+      expect.objectContaining({
+        productId: "00000000-0000-0000-0000-000000000012",
+        supplierId: "00000000-0000-0000-0000-000000000010",
+        supplierPriority: 1,
+        basePurchasePrice: "750.00",
+        currency: "RUB",
+        isActive: true
+      })
+    );
+    expect(created.basePurchasePrice).toBe("750.00");
+  });
+
+  it("patches product supplier matrix records for price-visible roles", async () => {
+    const { service, repository } = make_service();
+    const ceo = make_user(["ceo"], "ceo_1");
+
+    vi.mocked(repository.getProductById).mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000012",
+      sku: "SKU-1",
+      name: "Tile",
+      unit: "шт"
+    });
+    vi.mocked(repository.getProductSupplierById).mockResolvedValue(make_product_supplier());
+    vi.mocked(repository.updateProductSupplierById).mockResolvedValue(
+      make_product_supplier({
+        supplierPriority: 2,
+        basePurchasePrice: "825.50",
+        isActive: false
+      })
+    );
+
+    const updated = await service.patchProductSupplier(
+      "00000000-0000-0000-0000-000000000012",
+      "product_supplier_1",
+      {
+        supplierPriority: 2,
+        basePurchasePrice: "825.5",
+        isActive: false
+      },
+      ceo
+    );
+
+    expect(repository.updateProductSupplierById).toHaveBeenCalledWith(
+      "product_supplier_1",
+      expect.objectContaining({
+        supplierPriority: 2,
+        basePurchasePrice: "825.50",
+        isActive: false
+      })
+    );
+    expect(updated.supplierPriority).toBe(2);
+    expect(updated.basePurchasePrice).toBe("825.50");
+  });
+
+  it("blocks seller from writing product supplier base purchase price", async () => {
+    const { service, repository } = make_service();
+    const seller = make_user(["seller"], "seller_1");
+
+    await expect(
+      service.createProductSupplier(
+        "00000000-0000-0000-0000-000000000012",
+        {
+          supplierId: "00000000-0000-0000-0000-000000000010",
+          supplierPriority: 1,
+          basePurchasePrice: "750.00"
+        },
+        seller
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(repository.createProductSupplier).not.toHaveBeenCalled();
   });
 
   it("keeps seller create baseline for supplier request", async () => {

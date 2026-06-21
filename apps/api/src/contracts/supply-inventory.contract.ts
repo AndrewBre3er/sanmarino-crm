@@ -5,6 +5,7 @@ export const supply_inventory_entities = [
   "purchase_receipt",
   "purchase_receipt_item",
   "product",
+  "product_supplier",
   "warehouse",
   "stock_balance",
   "stock_lock",
@@ -36,6 +37,7 @@ export const supply_inventory_read_side_contract = {
     "suppliers",
     "supplier-requests",
     "purchase-receipts",
+    "product-suppliers",
     "stock-locks",
     "reservations",
     "inventory-movements"
@@ -55,6 +57,14 @@ export const supplier_request_role_matrix_contract = {
 export const purchase_receipt_role_matrix_contract = {
   create: ["warehouse"] as const,
   listAndDetailVisibility: "all_roles" as const
+} as const;
+
+export const product_supplier_role_matrix_contract = {
+  create: ["finance", "admin", "ceo"] as const,
+  patch: ["finance", "admin", "ceo"] as const,
+  listAndDetailVisibility: "all_roles" as const,
+  basePurchasePriceHiddenFor: ["seller", "warehouse", "logistics"] as const,
+  basePurchasePriceVisibleFor: ["finance", "ceo", "admin"] as const
 } as const;
 
 export const stock_lock_role_matrix_contract = {

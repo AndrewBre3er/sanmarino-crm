@@ -8,6 +8,7 @@ import { bootstrap_role_codes } from "../../src/modules/auth/auth.contract";
 import { AuthAccessGuard } from "../../src/modules/auth/auth.access.guard";
 import type { AuthService } from "../../src/modules/auth/auth.service";
 import { InventoryMovementsController } from "../../src/modules/supply/inventory-movements.controller";
+import { ProductSuppliersController } from "../../src/modules/supply/product-suppliers.controller";
 import { PurchaseReceiptsController } from "../../src/modules/supply/purchase-receipts.controller";
 import { ReservationsController } from "../../src/modules/supply/reservations.controller";
 import { StockLocksController } from "../../src/modules/supply/stock-locks.controller";
@@ -73,6 +74,7 @@ describe("supply access baseline", () => {
       PurchaseReceiptsController,
       StockLocksController,
       ReservationsController,
+      ProductSuppliersController,
       InventoryMovementsController
     ];
 
@@ -127,6 +129,26 @@ describe("supply access baseline", () => {
     expect(purchaseReceiptCreateRequirements?.requiredRoleCodes).toEqual(["warehouse"]);
     expect(stockLockCreateRequirements?.authenticated).toBe(true);
     expect(stockLockCreateRequirements?.requiredRoleCodes).toEqual(["seller"]);
+  });
+
+  it("keeps product supplier matrix write role baseline", () => {
+    const createRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      ProductSuppliersController.prototype.create
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+    const patchRequirements = Reflect.getMetadata(
+      auth_access_metadata_key,
+      ProductSuppliersController.prototype.patch
+    ) as {
+      authenticated?: boolean;
+      requiredRoleCodes?: string[];
+    };
+
+    expect(createRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
+    expect(patchRequirements?.requiredRoleCodes).toEqual(["finance", "admin", "ceo"]);
   });
 
   it("keeps role matrix for supplier request status commands", () => {
