@@ -85,6 +85,10 @@ describe("crm contract payload parsers", () => {
           title: "Kitchen project",
           notes: null,
           responsibleUserId: "user_1",
+          nextContactAt: "2026-04-12T10:00:00.000Z",
+          lostReason: null,
+          isStuck: true,
+          stuckReason: "waiting_supplier_eta",
           createdAt: "2026-04-09T10:00:00.000Z",
           updatedAt: "2026-04-09T11:00:00.000Z",
           version: 1,
@@ -110,6 +114,9 @@ describe("crm contract payload parsers", () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.data).toHaveLength(1);
     expect(parsed?.data[0]?.status).toBe("in_progress");
+    expect(parsed?.data[0]?.nextContactAt).toBe("2026-04-12T10:00:00.000Z");
+    expect(parsed?.data[0]?.isStuck).toBe(true);
+    expect(parsed?.data[0]?.stuckReason).toBe("waiting_supplier_eta");
     expect(parsed?.pagination?.pageSize).toBe(20);
   });
 
@@ -124,6 +131,10 @@ describe("crm contract payload parsers", () => {
         title: "Converted deal",
         notes: "order created",
         responsibleUserId: "user_3",
+        nextContactAt: null,
+        lostReason: "price_not_accepted",
+        isStuck: false,
+        stuckReason: null,
         createdAt: "2026-04-09T10:00:00.000Z",
         updatedAt: "2026-04-09T11:00:00.000Z",
         version: 3,
@@ -137,6 +148,7 @@ describe("crm contract payload parsers", () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.status).toBe("converted_to_order");
     expect(parsed?.title).toBe("Converted deal");
+    expect(parsed?.lostReason).toBe("price_not_accepted");
   });
 
   it("rejects malformed deal payload", () => {

@@ -34,6 +34,10 @@ export interface CrmDealView {
   title: string;
   notes: string | null;
   responsibleUserId: string | null;
+  nextContactAt: string | null;
+  lostReason: string | null;
+  isStuck: boolean;
+  stuckReason: string | null;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -232,6 +236,10 @@ function parse_crm_deal(value: unknown): CrmDealView | null {
     title,
     notes: as_nullable_string(record.notes),
     responsibleUserId: as_nullable_string(record.responsibleUserId),
+    nextContactAt: as_nullable_string(record.nextContactAt),
+    lostReason: as_nullable_string(record.lostReason),
+    isStuck: as_boolean(record.isStuck) ?? false,
+    stuckReason: as_nullable_string(record.stuckReason),
     createdAt,
     updatedAt,
     version,

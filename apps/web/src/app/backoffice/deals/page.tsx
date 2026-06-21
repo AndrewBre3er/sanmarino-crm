@@ -88,6 +88,10 @@ export default async function DealsPage({ searchParams }: DealsPageProps) {
                   <p className="bo-muted">ID: {deal.id}</p>
                   <p className="bo-muted">Client: {deal.clientId}</p>
                   <p className="bo-muted">Responsible: {deal.responsibleUserId ?? "not set"}</p>
+                  <p className="bo-muted">Next contact: {deal.nextContactAt ?? "not set"}</p>
+                  <p className="bo-muted">
+                    Stuck: {deal.isStuck ? deal.stuckReason ?? "yes" : "no"}
+                  </p>
                   <div className="bo-crm-row">
                     <StatusBadge label={deal.status} />
                     <span className="bo-muted">Updated: {deal.updatedAt}</span>
@@ -104,6 +108,35 @@ export default async function DealsPage({ searchParams }: DealsPageProps) {
               ))}
             </ul>
           </>
+        )}
+      </PageSection>
+
+      <PageSection
+        title="CRM Productivity"
+        description="Follow-up, next contact, reminders, lost reason, communication history, and stuck deal surface."
+      >
+        {dealsResult.error ? (
+          <ErrorState title="CRM productivity unavailable" message={dealsResult.error} />
+        ) : dealsResult.data.length === 0 ? (
+          <EmptyState
+            title="No productivity records"
+            description="Backend returned no deal rows for productivity summary."
+          />
+        ) : (
+          <ul className="bo-list-grid">
+            {dealsResult.data.map((deal) => (
+              <li key={deal.id} className="bo-crm-item">
+                <strong>{deal.title}</strong>
+                <p className="bo-muted">Next contact: {deal.nextContactAt ?? "not set"}</p>
+                <p className="bo-muted">Reminder: {deal.nextContactAt ?? "not set"}</p>
+                <p className="bo-muted">Lost reason: {deal.lostReason ?? "none"}</p>
+                <p className="bo-muted">
+                  Stuck deal: {deal.isStuck ? deal.stuckReason ?? "yes" : "no"}
+                </p>
+                <p className="bo-muted">Communication history: detail timeline endpoint</p>
+              </li>
+            ))}
+          </ul>
         )}
       </PageSection>
 
@@ -153,6 +186,22 @@ export default async function DealsPage({ searchParams }: DealsPageProps) {
             <article className="bo-crm-detail-item">
               <strong>Notes</strong>
               <p className="bo-muted">{dealDetailResult.data.notes ?? "no notes"}</p>
+            </article>
+            <article className="bo-crm-detail-item">
+              <strong>Next contact</strong>
+              <p className="bo-muted">{dealDetailResult.data.nextContactAt ?? "not set"}</p>
+            </article>
+            <article className="bo-crm-detail-item">
+              <strong>Lost reason</strong>
+              <p className="bo-muted">{dealDetailResult.data.lostReason ?? "none"}</p>
+            </article>
+            <article className="bo-crm-detail-item">
+              <strong>Stuck reason</strong>
+              <p className="bo-muted">
+                {dealDetailResult.data.isStuck
+                  ? dealDetailResult.data.stuckReason ?? "stuck"
+                  : "not stuck"}
+              </p>
             </article>
           </div>
         )}

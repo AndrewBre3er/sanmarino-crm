@@ -22,6 +22,8 @@ describe("backoffice shell contracts", () => {
     expect(routePaths).toContain("/backoffice/payments");
     expect(routePaths).toContain("/backoffice/delivery-tasks");
     expect(routePaths).toContain("/backoffice/return-requests");
+    expect(routePaths).toContain("/backoffice/integrations");
+    expect(routePaths).toContain("/backoffice/notifications");
     expect(routePaths).toContain("/backoffice/seller");
     expect(routePaths).toContain("/backoffice/warehouse");
     expect(routePaths).toContain("/backoffice/logistics");
@@ -56,6 +58,7 @@ describe("backoffice shell contracts", () => {
     const financeNav = get_user_navigation(["finance"], ["finance"]).map(item => item.path);
     const sellerNav = get_user_navigation(["seller"], ["seller"]).map(item => item.path);
     const adminNav = get_user_navigation(["admin"], ["admin"]).map(item => item.path);
+    const ceoNav = get_user_navigation(["ceo"], ["ceo"]).map(item => item.path);
 
     expect(sellerFinanceNav).toContain("/backoffice/leads");
     expect(sellerFinanceNav).toContain("/backoffice/payments");
@@ -72,8 +75,14 @@ describe("backoffice shell contracts", () => {
     expect(financeNav).not.toContain("/backoffice/leads");
     expect(adminNav).toContain("/backoffice/users");
     expect(adminNav).toContain("/backoffice/roles");
+    expect(adminNav).toContain("/backoffice/integrations");
+    expect(adminNav).toContain("/backoffice/notifications");
+    expect(ceoNav).toContain("/backoffice/integrations");
+    expect(ceoNav).toContain("/backoffice/notifications");
     expect(sellerNav).not.toContain("/backoffice/users");
     expect(sellerNav).not.toContain("/backoffice/roles");
+    expect(sellerNav).not.toContain("/backoffice/integrations");
+    expect(sellerNav).not.toContain("/backoffice/notifications");
   });
 
   it("denies direct admin paths for non-admin users", () => {

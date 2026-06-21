@@ -22,6 +22,7 @@
 - typecheck проходит
 - unit tests проходят
 - integration tests проходят
+- e2e smoke tests проходят
 - permission tests проходят
 - migration validation проходит
 
@@ -114,6 +115,8 @@
 - ошибки видны явно, без silent failure
 - role home поддерживает saved filters и role notifications
 - CRM productivity surface присутствует (follow-up, next contact, reminders, lost reason, communication history, stuck deals)
+- Integration Inbound Inbox surface присутствует для `ATS`/`Avito`
+- Notification Dispatch Log surface присутствует для `Telegram`/`MAX` со статусами `queued`/`sent`/`failed`
 - deal supply summary показывает partial coverage/deficits/ETA/linked supplier request context
 
 ## Environment gate
@@ -157,3 +160,13 @@
 - не появился bypass возврата вне `ReturnRequest`
 - не произошла утечка `base purchase price` в UI/API для запрещённых ролей
 - KPI слой не используется как источник истины для доменных мутаций
+
+## Release candidate command gate
+
+Для release candidate обязательно выполнить:
+- `pnpm --filter @sanmarino/api prisma:validate`
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm test`
+- `pnpm build`
+- `pnpm test:e2e`

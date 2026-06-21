@@ -43,7 +43,9 @@ export interface ShellRouteDescriptor {
     | "supplier-requests"
     | "payments"
     | "delivery-tasks"
-    | "return-requests";
+    | "return-requests"
+    | "integrations"
+    | "notifications";
   title: string;
   path: string;
   scope: "workspace" | "entity";
@@ -169,6 +171,20 @@ export const backoffice_shell_routes: readonly ShellRouteDescriptor[] = [
     path: "/backoffice/return-requests",
     scope: "entity",
     shellOnly: true
+  },
+  {
+    key: "integrations",
+    title: "Integration Inbox",
+    path: "/backoffice/integrations",
+    scope: "entity",
+    shellOnly: true
+  },
+  {
+    key: "notifications",
+    title: "Notifications",
+    path: "/backoffice/notifications",
+    scope: "entity",
+    shellOnly: true
   }
 ] as const;
 
@@ -186,7 +202,7 @@ const role_home_route_key: Readonly<Record<AuthRoleCode, ShellRouteDescriptor["k
 export const role_navigation_contract: Readonly<
   Record<AuthRoleCode, readonly ShellRouteDescriptor["key"][]>
 > = {
-  admin: ["admin-workspace", "users", "roles"],
+  admin: ["admin-workspace", "users", "roles", "integrations", "notifications"],
   seller: ["seller-workspace", "leads", "deals", "orders", "supplier-requests", "return-requests"],
   warehouse: ["warehouse-workspace", "orders", "supplier-requests", "return-requests"],
   logistics: ["logistics-workspace", "delivery-tasks", "supplier-requests", "return-requests"],
@@ -199,7 +215,9 @@ export const role_navigation_contract: Readonly<
     "supplier-requests",
     "payments",
     "delivery-tasks",
-    "return-requests"
+    "return-requests",
+    "integrations",
+    "notifications"
   ],
   driver: ["driver-workspace", "delivery-tasks", "supplier-requests", "return-requests"],
   marketing: ["marketing-workspace", "leads", "supplier-requests", "return-requests"]

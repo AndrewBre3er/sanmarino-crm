@@ -12,6 +12,9 @@ interface WorkspaceShellPageProps {
   subtitle: string;
 }
 
+const saved_filter_labels = ["Open actions", "Problem items", "Updated today"] as const;
+const role_notification_labels = ["Needs review", "Blocked by policy", "Due today"] as const;
+
 export function WorkspaceShellPage({
   roleCode,
   modules,
@@ -35,6 +38,22 @@ export function WorkspaceShellPage({
         <ul className="bo-list-grid">
           {modules.map(moduleName => (
             <li key={moduleName}>{moduleName}</li>
+          ))}
+        </ul>
+      </PageSection>
+
+      <PageSection title="Saved Filters" description="Role-scoped queues for repeated work">
+        <ul className="bo-list-grid">
+          {saved_filter_labels.map(filterName => (
+            <li key={filterName}>{filterName}</li>
+          ))}
+        </ul>
+      </PageSection>
+
+      <PageSection title="Role Notifications" description="Actionable role-routed inbox surface">
+        <ul className="bo-list-grid">
+          {role_notification_labels.map(notificationName => (
+            <li key={notificationName}>{notificationName}</li>
           ))}
         </ul>
       </PageSection>
