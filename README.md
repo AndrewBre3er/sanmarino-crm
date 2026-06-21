@@ -5,6 +5,7 @@ Bootstrap repository for internal CRM/ERP v1.
 ## Purpose
 
 This repository contains only the approved monorepo foundation for the first implementation cycle:
+
 - workspace and toolchain setup
 - `web`, `api`, `worker` app scaffolds
 - shared `config`, `types`, `ui` packages
@@ -27,6 +28,7 @@ Business features are intentionally not implemented in this phase.
 - Docker Compose + Nginx baseline
 
 Source of truth:
+
 - `docs/28-approved-tech-stack.md`
 - `docs/29-monorepo-bootstrap-spec.md`
 - `docs/30-initial-folder-contracts.md`
@@ -55,22 +57,31 @@ tests/
 
 1. Install Node.js 24 LTS.
 2. Enable pnpm and install dependencies:
+
 ```bash
 pnpm install
 ```
+
 3. Copy env placeholders if needed:
+
 ```bash
 cp .env.example .env
 ```
+
 4. Start infrastructure baseline (optional):
+
 ```bash
 pnpm compose:up
 ```
+
 5. Generate Prisma client:
+
 ```bash
 pnpm db:generate
 ```
+
 6. Run dev mode:
+
 ```bash
 pnpm dev
 ```
@@ -92,12 +103,26 @@ pnpm dev
 - `pnpm compose:up`
 - `pnpm compose:down`
 
-## Canonical Read Order Before Coding
+## Context Loading Before Coding
+
+Use the context loading tiers defined in `AGENTS.md` and
+`docs/ai/CODING_RULES.md`.
+
+Minimum agent context:
 
 1. `README.md`
 2. `AGENTS.md`
-3. `docs/` in numeric order
-4. Priority architecture guardrails:
+3. `docs/ai/PROJECT_INDEX.md`
+4. `docs/ai/CONTEXT_BRIEF.md`
+5. `docs/ai/BUSINESS_RULES.md`
+6. `docs/ai/CODING_RULES.md`
+
+For task-driven work, read the exact task file from `docs/tasks/` and the
+canonical docs it lists.
+
+For new stages, unclear scope, architecture conflicts, or risky domain changes,
+read `docs/` in numeric order before coding. Priority architecture guardrails:
+
 - `docs/08-architecture-fixes-and-critical-blockers.md`
 - `docs/34-bootstrap-task-for-codex.md`
 
