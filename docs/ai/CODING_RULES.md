@@ -42,6 +42,17 @@ rules, or high risk of violating invariants:
 not replace accepted docs. On conflict, follow `AGENTS.md` and the priority
 order in `docs/ai/PROJECT_INDEX.md`.
 
+## Operational Scenario Checklist
+
+For CRM, role-workflow, order, shipment, payment, return, logistics, finance,
+KPI/workspace UX, and user-scenario tasks, also read
+`docs/40-crm-workflow-and-role-scenarios.md` as an operational contradiction
+checklist.
+
+This document does not override canonical / accepted docs. If a new business
+logic rule must become binding, update the relevant canonical docs first instead
+of coding against the summary only.
+
 ## Start Every Step
 
 1. Run `git status --short`.

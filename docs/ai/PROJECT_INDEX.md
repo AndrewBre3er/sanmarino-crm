@@ -74,6 +74,7 @@ Project and business context:
 - `docs/00-project-context.md`
 - `docs/01-system-logic.md`
 - `docs/02-domain-map.md`
+- `docs/40-crm-workflow-and-role-scenarios.md`
 
 Roadmap and MVP scope:
 - `docs/16-implementation-roadmap.md`
